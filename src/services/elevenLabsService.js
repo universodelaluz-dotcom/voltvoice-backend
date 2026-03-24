@@ -1,6 +1,6 @@
 // Servicio de ElevenLabs para síntesis de voz
 
-const axios = require('axios');
+import axios from 'axios';
 
 class ElevenLabsService {
   constructor() {
@@ -159,4 +159,4 @@ class ElevenLabsService {
   }
 }
 
-module.exports = new ElevenLabsService();
+export default new ElevenLabsService();

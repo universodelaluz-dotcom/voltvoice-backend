@@ -1,6 +1,6 @@
 // Token Service - Gestiona tokens y créditos de usuarios
 
-const db = require('../db'); // conexión a PostgreSQL
+import db from '../db.js'; // conexión a PostgreSQL
 
 class TokenService {
   // Obtener tokens de un usuario
@@ -116,4 +116,4 @@ class TokenService {
   }
 }
 
-module.exports = new TokenService();
+export default new TokenService();

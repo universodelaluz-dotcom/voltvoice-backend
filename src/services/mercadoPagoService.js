@@ -1,7 +1,7 @@
 // Servicio de Mercado Pago para pagos
 
-const MercadoPago = require('mercadopago');
-const db = require('../db');
+import MercadoPago from 'mercadopago';
+import db from '../db.js';
 
 class MercadoPagoService {
   constructor() {
@@ -137,4 +137,4 @@ class MercadoPagoService {
   }
 }
 
-module.exports = new MercadoPagoService();
+export default new MercadoPagoService();
