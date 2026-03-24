@@ -74,4 +74,129 @@ router.get('/transactions', authMiddleware, async (req, res) => {
   }
 });
 
+// GET - Demo checkout (for testing without Mercado Pago token)
+router.get('/demo-checkout', (req, res) => {
+  const { preference, user, tokens } = req.query;
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>VoltVoice - Demo Checkout</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+        .container {
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+          padding: 40px;
+          max-width: 500px;
+          width: 100%;
+          text-align: center;
+        }
+        .logo {
+          font-size: 48px;
+          margin-bottom: 20px;
+        }
+        h1 {
+          color: #333;
+          font-size: 28px;
+          margin-bottom: 15px;
+        }
+        .badge {
+          background: #fff3cd;
+          color: #856404;
+          padding: 10px 15px;
+          border-radius: 6px;
+          margin-bottom: 20px;
+          font-size: 14px;
+        }
+        .order-summary {
+          background: #f8f9fa;
+          padding: 20px;
+          border-radius: 8px;
+          margin-bottom: 30px;
+          text-align: left;
+        }
+        .order-summary p {
+          margin: 8px 0;
+          color: #666;
+        }
+        .order-summary strong {
+          color: #333;
+        }
+        .success-btn, .cancel-btn {
+          padding: 12px 30px;
+          border: none;
+          border-radius: 6px;
+          font-size: 16px;
+          cursor: pointer;
+          margin: 10px;
+          transition: all 0.3s ease;
+        }
+        .success-btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+        .success-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .cancel-btn {
+          background: #e9ecef;
+          color: #495057;
+        }
+        .cancel-btn:hover {
+          background: #dee2e6;
+        }
+        .footer {
+          margin-top: 20px;
+          font-size: 12px;
+          color: #999;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="logo">🎵</div>
+        <h1>Checkout VoltVoice</h1>
+        <div class="badge">⚠️ Modo Demo - No se realizará cargo</div>
+
+        <div class="order-summary">
+          <p><strong>Tokens:</strong> ${tokens}</p>
+          <p><strong>Usuario ID:</strong> ${user}</p>
+          <p><strong>Estado:</strong> Listo para procesar</p>
+        </div>
+
+        <button class="success-btn" onclick="completePayment()">✓ Confirmar Pago</button>
+        <button class="cancel-btn" onclick="cancelPayment()">✗ Cancelar</button>
+
+        <div class="footer">
+          <p>Este es un ambiente de prueba</p>
+        </div>
+      </div>
+
+      <script>
+        function completePayment() {
+          window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}?payment=success&preference=${preference}';
+        }
+
+        function cancelPayment() {
+          window.location.href = '${process.env.FRONTEND_URL || 'http://localhost:3000'}?payment=failed&preference=${preference}';
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
 export default router;

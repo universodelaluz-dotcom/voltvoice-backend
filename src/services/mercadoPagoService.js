@@ -27,10 +27,6 @@ class MercadoPagoService {
     try {
       console.log('[MERCADO_PAGO] Creating preference for userId:', userId, 'package:', tokensPackage);
 
-      if (!config.MERCADO_PAGO_ACCESS_TOKEN) {
-        throw new Error('MERCADO_PAGO_ACCESS_TOKEN is not configured');
-      }
-
       const packages = {
         500: { price: 4.99, tokens: 500, description: '500 Tokens' },
         1000: { price: 8.99, tokens: 1000, description: '1000 Tokens (Popular)' },
@@ -42,45 +38,65 @@ class MercadoPagoService {
         throw new Error('Invalid token package');
       }
 
-      const preference = {
-        items: [
-          {
-            id: `tokens_${tokensPackage}`,
-            title: `VoltVoice - ${pkg.description}`,
-            description: `Compra ${tokensPackage} tokens para sintetizar voces`,
-            quantity: 1,
-            unit_price: pkg.price,
-            currency_id: 'USD' // USD dollars
+      // If token is configured, use real Mercado Pago
+      if (config.MERCADO_PAGO_ACCESS_TOKEN) {
+        console.log('[MERCADO_PAGO] Using real Mercado Pago API');
+
+        const preference = {
+          items: [
+            {
+              id: `tokens_${tokensPackage}`,
+              title: `VoltVoice - ${pkg.description}`,
+              description: `Compra ${tokensPackage} tokens para sintetizar voces`,
+              quantity: 1,
+              unit_price: pkg.price,
+              currency_id: 'USD' // USD dollars
+            }
+          ],
+          payer: {
+            email: `user_${userId}@voltvoice.com` // Email placeholder
+          },
+          back_urls: {
+            success: `${config.FRONTEND_URL}?payment=success`,
+            failure: `${config.FRONTEND_URL}?payment=failed`,
+            pending: `${config.FRONTEND_URL}?payment=pending`
+          },
+          auto_return: 'approved',
+          notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
+          external_reference: `user_${userId}_tokens_${tokensPackage}`,
+          metadata: {
+            userId: userId,
+            tokensPackage: tokensPackage,
+            tokens: pkg.tokens
           }
-        ],
-        payer: {
-          email: `user_${userId}@voltvoice.com` // Email placeholder
-        },
-        back_urls: {
-          success: `${config.FRONTEND_URL}?payment=success`,
-          failure: `${config.FRONTEND_URL}?payment=failed`,
-          pending: `${config.FRONTEND_URL}?payment=pending`
-        },
-        auto_return: 'approved',
-        notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
-        external_reference: `user_${userId}_tokens_${tokensPackage}`,
-        metadata: {
-          userId: userId,
-          tokensPackage: tokensPackage,
-          tokens: pkg.tokens
-        }
-      };
+        };
 
-      console.log('[MERCADO_PAGO] Preference object:', JSON.stringify(preference, null, 2));
-      const response = await MercadoPago.preferences.create(preference);
-      console.log('[MERCADO_PAGO] Response:', response);
+        console.log('[MERCADO_PAGO] Preference object:', JSON.stringify(preference, null, 2));
+        const response = await MercadoPago.preferences.create(preference);
+        console.log('[MERCADO_PAGO] Response:', response);
 
-      return {
-        success: true,
-        preferenceId: response.body.id,
-        initPoint: response.body.init_point, // URL para redirigir a MP
-        sandboxInitPoint: response.body.sandbox_init_point
-      };
+        return {
+          success: true,
+          preferenceId: response.body.id,
+          initPoint: response.body.init_point,
+          sandboxInitPoint: response.body.sandbox_init_point
+        };
+      } else {
+        // Fallback: Use demo mode with sandbox URL
+        console.log('[MERCADO_PAGO] ⚠️  Using DEMO MODE - configure MERCADO_PAGO_ACCESS_TOKEN for production');
+
+        // Generate a demo preference ID
+        const demoPreferenceId = `DEMO_${userId}_${tokensPackage}_${Date.now()}`;
+        const demoCheckoutUrl = `${config.BACKEND_URL}/api/mercadopago/demo-checkout?preference=${demoPreferenceId}&user=${userId}&tokens=${tokensPackage}`;
+
+        return {
+          success: true,
+          preferenceId: demoPreferenceId,
+          initPoint: demoCheckoutUrl,
+          sandboxInitPoint: demoCheckoutUrl,
+          isDemoMode: true
+        };
+      }
     } catch (error) {
       console.error('[MERCADO_PAGO] Error creating payment preference:', error);
       console.error('[MERCADO_PAGO] Error stack:', error.stack);
