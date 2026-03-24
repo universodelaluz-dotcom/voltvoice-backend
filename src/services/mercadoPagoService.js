@@ -1,24 +1,18 @@
 // Servicio de Mercado Pago para pagos
 
-import MercadoPago from 'mercadopago';
+import axios from 'axios';
 import db from '../db.js';
 import { config } from '../../config.js';
 
 class MercadoPagoService {
   constructor() {
-    // Inicializar SDK de Mercado Pago
-    try {
-      if (!config.MERCADO_PAGO_ACCESS_TOKEN) {
-        console.warn('[MERCADO_PAGO] ⚠️  Access token not configured. Payments will not work.');
-        console.warn('[MERCADO_PAGO] Please set MERCADO_PAGO_ACCESS_TOKEN environment variable');
-      } else {
-        MercadoPago.configure({
-          access_token: config.MERCADO_PAGO_ACCESS_TOKEN
-        });
-        console.log('[MERCADO_PAGO] ✓ Service initialized with access token');
-      }
-    } catch (error) {
-      console.error('[MERCADO_PAGO] ✗ Failed to initialize:', error.message);
+    this.apiUrl = 'https://api.mercadopago.com/checkout/preferences';
+    this.token = config.MERCADO_PAGO_ACCESS_TOKEN;
+
+    if (!this.token) {
+      console.warn('[MERCADO_PAGO] ⚠️  Access token not configured. Payments will not work.');
+    } else {
+      console.log('[MERCADO_PAGO] ✓ Service initialized');
     }
   }
 
@@ -26,6 +20,10 @@ class MercadoPagoService {
   async createPaymentPreference(userId, tokensPackage) {
     try {
       console.log('[MERCADO_PAGO] Creating preference for userId:', userId, 'package:', tokensPackage);
+
+      if (!this.token) {
+        throw new Error('MERCADO_PAGO_ACCESS_TOKEN is not configured');
+      }
 
       const packages = {
         500: { price: 4.99, tokens: 500, description: '500 Tokens' },
@@ -38,15 +36,14 @@ class MercadoPagoService {
         throw new Error('Invalid token package');
       }
 
-      const preference = {
+      const preferenceData = {
         items: [
           {
             id: `tokens_${tokensPackage}`,
             title: `VoltVoice - ${pkg.description}`,
             description: `Compra ${tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
-            unit_price: pkg.price,
-            currency_id: 'USD'
+            unit_price: pkg.price
           }
         ],
         payer: {
@@ -62,20 +59,27 @@ class MercadoPagoService {
         external_reference: `user_${userId}_tokens_${tokensPackage}`
       };
 
-      console.log('[MERCADO_PAGO] Calling preferences.create...');
-      const response = await MercadoPago.preferences.create(preference);
-      console.log('[MERCADO_PAGO] Response received:', response.body);
+      console.log('[MERCADO_PAGO] Sending request to Mercado Pago API...');
+
+      const response = await axios.post(this.apiUrl, preferenceData, {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('[MERCADO_PAGO] ✓ Preference created successfully');
+      console.log('[MERCADO_PAGO] Preference ID:', response.data.id);
 
       return {
         success: true,
-        preferenceId: response.body.id,
-        initPoint: response.body.init_point,
-        sandboxInitPoint: response.body.sandbox_init_point
+        preferenceId: response.data.id,
+        initPoint: response.data.init_point,
+        sandboxInitPoint: response.data.sandbox_init_point
       };
     } catch (error) {
       console.error('[MERCADO_PAGO] ✗ Error creating payment preference');
       console.error('[MERCADO_PAGO] Error message:', error.message);
-      console.error('[MERCADO_PAGO] Error stack:', error.stack);
       if (error.response) {
         console.error('[MERCADO_PAGO] Response status:', error.response.status);
         console.error('[MERCADO_PAGO] Response data:', error.response.data);
@@ -89,12 +93,18 @@ class MercadoPagoService {
     try {
       const paymentId = paymentData.data.id;
 
-      // Obtener detalles del pago
-      const paymentInfo = await MercadoPago.payment.findById(paymentId);
+      // Obtener detalles del pago desde Mercado Pago
+      const response = await axios.get(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: {
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
 
-      if (paymentInfo.body.status === 'approved') {
+      const payment = response.data;
+
+      if (payment.status === 'approved') {
         // Pago aprobado
-        const externalReference = paymentInfo.body.external_reference;
+        const externalReference = payment.external_reference;
         const [, userId, , tokensStr] = externalReference.split('_');
         const tokens = parseInt(tokensStr);
 
@@ -116,7 +126,7 @@ class MercadoPagoService {
         await db.query(transactionQuery, [
           userId,
           tokens,
-          paymentInfo.body.transaction_amount,
+          payment.transaction_amount,
           paymentId,
           'completed'
         ]);
@@ -127,7 +137,7 @@ class MercadoPagoService {
           tokensAdded: tokens,
           newBalance: result.rows[0].tokens
         };
-      } else if (paymentInfo.body.status === 'pending') {
+      } else if (payment.status === 'pending') {
         console.log('Pago pendiente:', paymentId);
         return { success: false, status: 'pending' };
       } else {
