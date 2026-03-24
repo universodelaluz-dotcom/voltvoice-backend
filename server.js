@@ -66,13 +66,13 @@ app.use((err, req, res, next) => {
 });
 
 // ===== START SERVER =====
-const PORT = config.PORT;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 8000;
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔══════════════════════════════════════╗
 ║   🔊 VoltVoice Web Backend Started   ║
 ╠══════════════════════════════════════╣
-║ Server: http://localhost:${PORT}
+║ Server: http://0.0.0.0:${PORT}
 ║ Env: ${config.NODE_ENV}
 ║ Frontend: ${config.FRONTEND_URL}
 ╚══════════════════════════════════════╝
