@@ -1,14 +1,20 @@
 // Servicio de Mercado Pago para pagos
 
-import MercadoPago from 'mercadopago';
+import * as MercadoPago from 'mercadopago';
 import db from '../db.js';
 
 class MercadoPagoService {
   constructor() {
     // Inicializar SDK de Mercado Pago
-    MercadoPago.configure({
-      access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-    });
+    if (MercadoPago.default && MercadoPago.default.configure) {
+      MercadoPago.default.configure({
+        access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+      });
+    } else if (MercadoPago.configure) {
+      MercadoPago.configure({
+        access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+      });
+    }
   }
 
   // Crear preferencia de pago (checkout)
