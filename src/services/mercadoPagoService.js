@@ -25,10 +25,16 @@ class MercadoPagoService {
   // Crear preferencia de pago (checkout)
   async createPaymentPreference(userId, tokensPackage) {
     try {
+      console.log('[MERCADO_PAGO] Creating preference for userId:', userId, 'package:', tokensPackage);
+
+      if (!config.MERCADO_PAGO_ACCESS_TOKEN) {
+        throw new Error('MERCADO_PAGO_ACCESS_TOKEN is not configured');
+      }
+
       const packages = {
-        500: { price: 49, tokens: 500, description: '500 Tokens' },
-        1000: { price: 89, tokens: 1000, description: '1000 Tokens (Popular)' },
-        5000: { price: 399, tokens: 5000, description: '5000 Tokens' }
+        500: { price: 4.99, tokens: 500, description: '500 Tokens' },
+        1000: { price: 8.99, tokens: 1000, description: '1000 Tokens (Popular)' },
+        5000: { price: 39.99, tokens: 5000, description: '5000 Tokens' }
       };
 
       const pkg = packages[tokensPackage];
@@ -44,7 +50,7 @@ class MercadoPagoService {
             description: `Compra ${tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
             unit_price: pkg.price,
-            currency_id: 'MXN' // Pesos mexicanos
+            currency_id: 'USD' // USD dollars
           }
         ],
         payer: {
@@ -65,7 +71,9 @@ class MercadoPagoService {
         }
       };
 
+      console.log('[MERCADO_PAGO] Preference object:', JSON.stringify(preference, null, 2));
       const response = await MercadoPago.preferences.create(preference);
+      console.log('[MERCADO_PAGO] Response:', response);
 
       return {
         success: true,
@@ -74,7 +82,9 @@ class MercadoPagoService {
         sandboxInitPoint: response.body.sandbox_init_point
       };
     } catch (error) {
-      console.error('Error creating payment preference:', error);
+      console.error('[MERCADO_PAGO] Error creating payment preference:', error);
+      console.error('[MERCADO_PAGO] Error stack:', error.stack);
+      console.error('[MERCADO_PAGO] Error response:', error.response?.data || error.response);
       throw error;
     }
   }
