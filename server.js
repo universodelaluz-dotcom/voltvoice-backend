@@ -34,6 +34,15 @@ app.use('/api/tokens', tokenRoutes);
 app.use('/api/synthesis', synthesisRoutes);
 app.use('/api/mercadopago', mercadoPagoRoutes);
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'VoltVoice Web Backend',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({
