@@ -15,8 +15,22 @@ const __dirname = dirname(__filename);
 const app = express();
 
 // ===== MIDDLEWARE =====
+// CORS configuration - allow frontend and any Vercel preview deployments
+const allowedOrigins = [
+  config.FRONTEND_URL,
+  'https://landing-page-zeta-two-23.vercel.app', // Old deployment
+  'https://voltvoice-frontend.vercel.app', // New deployment
+];
+
 app.use(cors({
-  origin: config.FRONTEND_URL,
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 
