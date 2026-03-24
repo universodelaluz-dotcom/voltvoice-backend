@@ -30,9 +30,17 @@ app.use((req, res, next) => {
 });
 
 // ===== ROUTES =====
-app.use('/api/tokens', tokenRoutes);
-app.use('/api/synthesis', synthesisRoutes);
-app.use('/api/mercadopago', mercadoPagoRoutes);
+console.log('[STARTUP] Loading routes...');
+try {
+  app.use('/api/tokens', tokenRoutes);
+  console.log('[STARTUP] ✓ Token routes loaded');
+  app.use('/api/synthesis', synthesisRoutes);
+  console.log('[STARTUP] ✓ Synthesis routes loaded');
+  app.use('/api/mercadopago', mercadoPagoRoutes);
+  console.log('[STARTUP] ✓ Mercado Pago routes loaded');
+} catch (err) {
+  console.error('[STARTUP] ✗ Error loading routes:', err.message);
+}
 
 // Root endpoint
 app.get('/', (req, res) => {

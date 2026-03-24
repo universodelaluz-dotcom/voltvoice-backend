@@ -1,7 +1,7 @@
 // Routes para pagos con Mercado Pago
 
 import express from 'express';
-import * as mercadoPagoService from '../services/mercadoPagoService.js';
+import mercadoPagoService from '../services/mercadoPagoService.js';
 
 const router = express.Router();
 

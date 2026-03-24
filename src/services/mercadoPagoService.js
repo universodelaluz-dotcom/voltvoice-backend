@@ -6,14 +6,19 @@ import db from '../db.js';
 class MercadoPagoService {
   constructor() {
     // Inicializar SDK de Mercado Pago
-    if (MercadoPago.default && MercadoPago.default.configure) {
-      MercadoPago.default.configure({
-        access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-      });
-    } else if (MercadoPago.configure) {
-      MercadoPago.configure({
-        access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-      });
+    try {
+      if (MercadoPago.default && MercadoPago.default.configure) {
+        MercadoPago.default.configure({
+          access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+        });
+      } else if (MercadoPago.configure) {
+        MercadoPago.configure({
+          access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
+        });
+      }
+      console.log('[MERCADO_PAGO] Service initialized successfully');
+    } catch (error) {
+      console.error('[MERCADO_PAGO] Failed to initialize:', error.message);
     }
   }
 
