@@ -4,9 +4,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { config } from './config.js';
 
-// Routes
-import authRoutes from './routes/auth.routes.js';
-import streamRoutes from './routes/stream.routes.js';
+// Routes (Web version)
+import tokenRoutes from './src/routes/tokens.js';
+import synthesisRoutes from './src/routes/synthesis.js';
+import mercadoPagoRoutes from './src/routes/mercadoPago.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,8 +30,9 @@ app.use((req, res, next) => {
 });
 
 // ===== ROUTES =====
-app.use('/api/auth', authRoutes);
-app.use('/api', streamRoutes);
+app.use('/api/tokens', tokenRoutes);
+app.use('/api/synthesis', synthesisRoutes);
+app.use('/api/mercadopago', mercadoPagoRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
