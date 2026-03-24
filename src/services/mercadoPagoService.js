@@ -1,24 +1,24 @@
 // Servicio de Mercado Pago para pagos
 
-import * as MercadoPago from 'mercadopago';
+import MercadoPago from 'mercadopago';
 import db from '../db.js';
+import { config } from '../../config.js';
 
 class MercadoPagoService {
   constructor() {
     // Inicializar SDK de Mercado Pago
     try {
-      if (MercadoPago.default && MercadoPago.default.configure) {
-        MercadoPago.default.configure({
-          access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-        });
-      } else if (MercadoPago.configure) {
-        MercadoPago.configure({
-          access_token: process.env.MERCADO_PAGO_ACCESS_TOKEN
-        });
+      if (!config.MERCADO_PAGO_ACCESS_TOKEN) {
+        console.warn('[MERCADO_PAGO] ⚠️  Access token not configured. Payments will not work.');
+        console.warn('[MERCADO_PAGO] Please set MERCADO_PAGO_ACCESS_TOKEN environment variable');
       }
-      console.log('[MERCADO_PAGO] Service initialized successfully');
+
+      MercadoPago.configure({
+        access_token: config.MERCADO_PAGO_ACCESS_TOKEN
+      });
+      console.log('[MERCADO_PAGO] ✓ Service initialized successfully');
     } catch (error) {
-      console.error('[MERCADO_PAGO] Failed to initialize:', error.message);
+      console.error('[MERCADO_PAGO] ✗ Failed to initialize:', error.message);
     }
   }
 
@@ -51,12 +51,12 @@ class MercadoPagoService {
           email: `user_${userId}@voltvoice.com` // Email placeholder
         },
         back_urls: {
-          success: `${process.env.FRONTEND_URL}/app?payment=success`,
-          failure: `${process.env.FRONTEND_URL}/app?payment=failed`,
-          pending: `${process.env.FRONTEND_URL}/app?payment=pending`
+          success: `${config.FRONTEND_URL}?payment=success`,
+          failure: `${config.FRONTEND_URL}?payment=failed`,
+          pending: `${config.FRONTEND_URL}?payment=pending`
         },
         auto_return: 'approved',
-        notification_url: `${process.env.BACKEND_URL}/api/payments/webhook`,
+        notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
         external_reference: `user_${userId}_tokens_${tokensPackage}`,
         metadata: {
           userId: userId,
