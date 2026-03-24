@@ -71,6 +71,8 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
+    version: 'REST-API-v1',
+    mercadoPagoConfigured: !!config.MERCADO_PAGO_ACCESS_TOKEN
   });
 });
 
