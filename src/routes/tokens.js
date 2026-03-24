@@ -1,8 +1,9 @@
 // Routes para manejo de tokens
 
-const express = require('express');
+import express from 'express';
+import * as tokenService from '../services/tokenService.js';
+
 const router = express.Router();
-const tokenService = require('../services/tokenService');
 
 // Middleware para verificar autenticación (básico)
 const authMiddleware = (req, res, next) => {
@@ -124,4 +125,4 @@ router.post('/upgrade-plan', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

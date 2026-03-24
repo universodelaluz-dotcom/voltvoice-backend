@@ -1,9 +1,11 @@
 // Routes para síntesis de voz con ElevenLabs
 
-const express = require('express');
+import express from 'express';
+import * as elevenLabsService from '../services/elevenLabsService.js';
+import * as tokenService from '../services/tokenService.js';
+import FormData from 'form-data';
+
 const router = express.Router();
-const elevenLabsService = require('../services/elevenLabsService');
-const tokenService = require('../services/tokenService');
 
 // Middleware para verificar autenticación
 const authMiddleware = (req, res, next) => {
@@ -97,7 +99,6 @@ router.post('/clone-voice', authMiddleware, async (req, res) => {
     const audioBuffer = Buffer.from(audioBase64, 'base64');
 
     // Crear FormData para ElevenLabs
-    const FormData = require('form-data');
     const formData = new FormData();
     formData.append('name', voiceName);
     formData.append('files', audioBuffer, 'voice_sample.wav');
@@ -155,4 +156,4 @@ router.delete('/voice/:voiceId', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

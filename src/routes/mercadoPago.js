@@ -1,8 +1,9 @@
 // Routes para pagos con Mercado Pago
 
-const express = require('express');
+import express from 'express';
+import * as mercadoPagoService from '../services/mercadoPagoService.js';
+
 const router = express.Router();
-const mercadoPagoService = require('../services/mercadoPagoService');
 
 // Middleware para verificar autenticación
 const authMiddleware = (req, res, next) => {
@@ -73,4 +74,4 @@ router.get('/transactions', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
