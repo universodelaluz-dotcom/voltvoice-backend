@@ -3,6 +3,7 @@
 import express from 'express';
 import elevenLabsService from '../services/elevenLabsService.js';
 import tokenService from '../services/tokenService.js';
+import db from '../db.js';
 import FormData from 'form-data';
 
 const router = express.Router();
@@ -54,6 +55,34 @@ router.get('/debug/elevenlabs-fetch', async (req, res) => {
       status: response.status,
       statusText: response.statusText,
       data: response.ok ? { voiceCount: data.voices?.length || 0 } : data
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ADMIN - Add tokens to user (for testing)
+router.post('/admin/add-tokens', async (req, res) => {
+  try {
+    const { userId, tokens } = req.body;
+
+    if (!userId || !tokens) {
+      return res.status(400).json({ error: 'userId and tokens required' });
+    }
+
+    const result = await db.query(
+      'UPDATE users SET tokens = tokens + $1 WHERE id = $2 RETURNING id, tokens',
+      [tokens, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      userId: result.rows[0].id,
+      newTokens: result.rows[0].tokens
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
