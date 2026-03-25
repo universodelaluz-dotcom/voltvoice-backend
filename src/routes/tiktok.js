@@ -110,10 +110,21 @@ router.post('/message', async (req, res) => {
       });
     }
 
+    // Convertir Buffer a base64 data URL para el frontend
+    let audioDataUrl;
+    if (Buffer.isBuffer(synthesisResult.audio)) {
+      const base64 = synthesisResult.audio.toString('base64');
+      audioDataUrl = `data:${synthesisResult.contentType || 'audio/mpeg'};base64,${base64}`;
+    } else if (typeof synthesisResult.audio === 'string') {
+      audioDataUrl = synthesisResult.audio; // Ya es data URL
+    } else {
+      audioDataUrl = null;
+    }
+
     return res.status(200).json({
       success: true,
       messageId: message.id,
-      audio: synthesisResult.audio,
+      audio: audioDataUrl,
       contentType: synthesisResult.contentType,
       text: messageText,
       user: messageUsername || 'Usuario'
