@@ -1,9 +1,20 @@
 import { Router } from 'express';
 import tiktokLiveService from '../services/tiktokLiveService.js';
-import googleTtsService from '../services/googleTtsService.js';
+import simpleTtsService from '../services/espeak-tts-service.js';
 import elevenLabsService from '../services/elevenLabsService.js';
 
 const router = Router();
+
+// Add CORS headers for all TikTok routes
+router.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 /**
  * POST /api/tiktok/connect - Conectar a stream de TikTok LIVE
@@ -73,16 +84,29 @@ router.post('/message', async (req, res) => {
     const selectedVoiceId = voiceId || 'es-ES';
     const isElevenLabs = selectedVoiceId.length > 5; // IDs de ElevenLabs son más largos
 
+    console.log(`[TikTok] Sintetizando con voiceId: ${selectedVoiceId}, isElevenLabs: ${isElevenLabs}`);
+
     let synthesisResult;
-    if (isElevenLabs) {
-      synthesisResult = await elevenLabsService.synthesize(messageText, selectedVoiceId);
-    } else {
-      synthesisResult = await googleTtsService.synthesize(messageText, selectedVoiceId);
+    try {
+      if (isElevenLabs) {
+        console.log('[TikTok] Usando ElevenLabs service');
+        synthesisResult = await elevenLabsService.synthesize(messageText, selectedVoiceId);
+      } else {
+        console.log('[TikTok] Usando Simple TTS service (Google Translate)');
+        synthesisResult = await simpleTtsService.synthesize(messageText, selectedVoiceId);
+      }
+    } catch (synthError) {
+      console.error('[TikTok] Synthesis error:', synthError);
+      // Fallback a Simple TTS
+      console.log('[TikTok] Fallback a Simple TTS');
+      synthesisResult = await simpleTtsService.synthesize(messageText, 'es-ES');
     }
 
     if (!synthesisResult || !synthesisResult.success) {
+      console.error('[TikTok] Synthesis result invalid:', synthesisResult);
       return res.status(500).json({
-        error: 'Error sintetizando mensaje'
+        error: 'Error sintetizando mensaje',
+        details: synthesisResult
       });
     }
 
@@ -95,9 +119,10 @@ router.post('/message', async (req, res) => {
       user: messageUsername || 'Usuario'
     });
   } catch (error) {
-    console.error('[TikTok] Error procesando mensaje:', error.message);
+    console.error('[TikTok] Error procesando mensaje:', error);
     return res.status(500).json({
-      error: error.message || 'Error procesando mensaje'
+      error: error.message || 'Error procesando mensaje',
+      details: error.toString()
     });
   }
 });
