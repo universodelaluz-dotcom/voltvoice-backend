@@ -49,7 +49,7 @@ router.post('/tts', async (req, res) => {
           'Authorization': authHeader,
           'Content-Type': 'application/json'
         },
-        responseType: 'arraybuffer',
+        responseType: 'text', // Get as text first to parse JSON
         timeout: 30000,
         validateStatus: () => true // Don't throw on any status
       }
@@ -57,14 +57,15 @@ router.post('/tts', async (req, res) => {
 
     console.log(`[Inworld] Response status: ${response.status}`);
 
-    if (!response.ok && response.status !== 200) {
-      console.error(`[Inworld] API error: ${response.status}`, response.data?.toString?.());
+    if (response.status !== 200) {
+      console.error(`[Inworld] API error: ${response.status}`);
       let errorMsg = 'Unknown error';
       try {
-        if (response.data) {
-          errorMsg = response.data.toString();
-        }
-      } catch (e) {}
+        const errorData = JSON.parse(response.data);
+        errorMsg = JSON.stringify(errorData);
+      } catch (e) {
+        errorMsg = response.data.substring(0, 200);
+      }
 
       return res.status(response.status || 500).json({
         error: 'Inworld API error',
@@ -73,8 +74,32 @@ router.post('/tts', async (req, res) => {
       });
     }
 
-    const audioBuffer = response.data;
-    const base64 = Buffer.from(audioBuffer).toString('base64');
+    // Parse JSON response
+    let jsonData;
+    try {
+      jsonData = JSON.parse(response.data);
+    } catch (e) {
+      console.error(`[Inworld] Failed to parse response as JSON:`, e.message);
+      return res.status(500).json({
+        error: 'Invalid response from Inworld API',
+        detail: response.data.substring(0, 200)
+      });
+    }
+
+    // Extract audio content from result.audioContent
+    let base64Audio = null;
+    if (jsonData.result && jsonData.result.audioContent) {
+      base64Audio = jsonData.result.audioContent;
+    } else {
+      console.error(`[Inworld] No audioContent in response. Keys:`, Object.keys(jsonData));
+      return res.status(500).json({
+        error: 'No audioContent in Inworld response',
+        detail: 'Response structure mismatch'
+      });
+    }
+
+    // Decode base64 to buffer
+    const audioBuffer = Buffer.from(base64Audio, 'base64');
 
     console.log(`[Inworld] Success: ${text.length} chars → ${audioBuffer.length} bytes`);
 
@@ -156,7 +181,7 @@ router.post('/test', async (req, res) => {
           'Authorization': authHeader,
           'Content-Type': 'application/json'
         },
-        responseType: 'arraybuffer',
+        responseType: 'text',
         timeout: 30000,
         validateStatus: () => true
       }
@@ -165,23 +190,40 @@ router.post('/test', async (req, res) => {
     console.log('[Inworld Test] Response status:', response.status);
 
     if (response.status === 200) {
-      return res.status(200).json({
-        success: true,
-        message: 'Inworld API connection successful',
-        audioSize: response.data.length,
-        voiceId: 'default-cfjnp8x4nt-owd7yg-1xsw__garret'
+      try {
+        const jsonData = JSON.parse(response.data);
+        if (jsonData.result && jsonData.result.audioContent) {
+          const audioBuffer = Buffer.from(jsonData.result.audioContent, 'base64');
+          return res.status(200).json({
+            success: true,
+            message: 'Inworld API connection successful',
+            audioSize: audioBuffer.length,
+            voiceId: 'default-cfjnp8x4nt-owd7yg-1xsw__garret'
+          });
+        }
+      } catch (e) {
+        console.error('[Inworld Test] Parse error:', e.message);
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: 'Invalid response format',
+        detail: response.data.substring(0, 200)
       });
     } else {
       let errorText = '';
       try {
-        errorText = response.data.toString();
-      } catch (e) {}
+        const errorData = JSON.parse(response.data);
+        errorText = JSON.stringify(errorData);
+      } catch (e) {
+        errorText = response.data.substring(0, 200);
+      }
 
       return res.status(response.status).json({
         success: false,
         error: 'Inworld API test failed',
         status: response.status,
-        detail: errorText.substring(0, 200)
+        detail: errorText
       });
     }
   } catch (error) {
