@@ -1,7 +1,7 @@
 // Routes para síntesis de voz con ElevenLabs
 
 import express from 'express';
-import * as elevenLabsService from '../services/elevenLabsService.js';
+import elevenLabsService from '../services/elevenLabsService.js';
 import * as tokenService from '../services/tokenService.js';
 import FormData from 'form-data';
 
