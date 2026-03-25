@@ -154,6 +154,73 @@ router.get('/debug/elevenlabs-fetch', async (req, res) => {
   }
 });
 
+// DEBUG - Test Flash/Turbo TTS directly
+router.get('/debug/flash-turbo', async (req, res) => {
+  try {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'ELEVENLABS_API_KEY not set' });
+    }
+
+    const voiceId = '21m00Tcm4TlvDq8ikWAM'; // Rachel voice
+    const testText = 'Hola mundo, esto es una prueba de Flash Turbo';
+
+    console.log('[DEBUG] Testing Flash/Turbo TTS with API key:', apiKey.substring(0, 10) + '...');
+
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: testText,
+        model_id: 'eleven_flash_v2_5',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      })
+    });
+
+    console.log('[DEBUG] Response status:', response.status);
+    console.log('[DEBUG] Response headers:', Object.fromEntries(response.headers));
+
+    const contentType = response.headers.get('content-type');
+
+    if (contentType && contentType.includes('audio')) {
+      // Audio success
+      const audioBuffer = await response.arrayBuffer();
+      res.json({
+        success: true,
+        status: response.status,
+        audioSize: audioBuffer.byteLength,
+        contentType: contentType,
+        message: 'Flash/Turbo TTS working!',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      // Error response
+      const text = await response.text();
+      res.json({
+        success: false,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: contentType,
+        response: text,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.json({
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // ADMIN - Add tokens to user (for testing)
 router.post('/admin/add-tokens', async (req, res) => {
   try {
