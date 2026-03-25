@@ -195,8 +195,13 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Synthesis error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('[SYNTHESIS ERROR]', {
+      message: error.message,
+      stack: error.stack,
+      userId: req.userId,
+      text: text ? text.substring(0, 50) : 'N/A'
+    });
+    res.status(500).json({ error: error.message, details: error.stack });
   }
 });
 
