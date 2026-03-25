@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import googleTtsService from '../services/googleTtsService.js';
+import elevenLabsService from '../services/elevenLabsService.js';
 
 const router = Router();
 
 /**
- * POST /api/tiktok/connect - Conectar a stream de TikTok
+ * POST /api/tiktok/connect - Conectar a stream de TikTok LIVE
  */
 router.post('/connect', async (req, res) => {
   const { username } = req.body;
@@ -15,27 +16,40 @@ router.post('/connect', async (req, res) => {
   }
 
   try {
-    const stream = await tiktokLiveService.connectToStream(username, async (message) => {
-      // Callback cuando llega un mensaje
-      console.log(`[TikTok] Nuevo mensaje: ${message.username}: ${message.text}`);
+    // Verificar si ya está conectado
+    const existing = tiktokLiveService.getStreamStatus(username);
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        username,
+        message: 'Ya conectado a este stream',
+        alreadyConnected: true
+      });
+    }
+
+    // Conectar a TikTok LIVE
+    const stream = await tiktokLiveService.connectToStream(username, (message) => {
+      console.log(`[TikTok] Mensaje recibido: @${message.username}: ${message.text}`);
+      // El WebSocket transmitirá automáticamente via registerClientCallback
     });
 
     return res.status(200).json({
       success: true,
       username,
-      roomId: stream.roomId,
-      message: 'Conectado al stream de TikTok'
+      isConnected: stream.isConnected,
+      messageCount: stream.messageCount,
+      message: `Conectado al stream en vivo de @${username}`
     });
   } catch (error) {
-    console.error('[TikTok] Error:', error.message);
+    console.error('[TikTok] Error conectando:', error.message);
     return res.status(400).json({
-      error: error.message || 'Error conectando a TikTok'
+      error: error.message || 'Error conectando a TikTok LIVE'
     });
   }
 });
 
 /**
- * POST /api/tiktok/message - Agregar mensaje a procesar
+ * POST /api/tiktok/message - Procesar y sintetizar mensaje manualmente
  */
 router.post('/message', async (req, res) => {
   const { username, messageUsername, messageText, voiceId } = req.body;
@@ -55,13 +69,18 @@ router.post('/message', async (req, res) => {
       return res.status(404).json({ error: 'Stream no encontrado' });
     }
 
-    // Sintetizar el mensaje con ElevenLabs
-    const synthesisResult = await googleTtsService.synthesize(
-      messageText,
-      voiceId || 'es-ES'
-    );
+    // Determinar qué servicio usar
+    const selectedVoiceId = voiceId || 'es-ES';
+    const isElevenLabs = selectedVoiceId.length > 5; // IDs de ElevenLabs son más largos
 
-    if (!synthesisResult.success) {
+    let synthesisResult;
+    if (isElevenLabs) {
+      synthesisResult = await elevenLabsService.synthesize(messageText, selectedVoiceId);
+    } else {
+      synthesisResult = await googleTtsService.synthesize(messageText, selectedVoiceId);
+    }
+
+    if (!synthesisResult || !synthesisResult.success) {
       return res.status(500).json({
         error: 'Error sintetizando mensaje'
       });
@@ -76,7 +95,7 @@ router.post('/message', async (req, res) => {
       user: messageUsername || 'Usuario'
     });
   } catch (error) {
-    console.error('[TikTok] Error:', error.message);
+    console.error('[TikTok] Error procesando mensaje:', error.message);
     return res.status(500).json({
       error: error.message || 'Error procesando mensaje'
     });
@@ -84,7 +103,7 @@ router.post('/message', async (req, res) => {
 });
 
 /**
- * GET /api/tiktok/status/:username - Estado del stream
+ * GET /api/tiktok/status/:username - Obtener estado del stream
  */
 router.get('/status/:username', (req, res) => {
   const { username } = req.params;
@@ -97,28 +116,53 @@ router.get('/status/:username', (req, res) => {
 
   return res.status(200).json({
     success: true,
-    username,
+    username: status.username,
     isConnected: status.isConnected,
     messageCount: status.messageCount,
-    uptime: Date.now() - status.startTime
+    uptime: Math.floor((status.uptime || 0) / 1000) // En segundos
   });
 });
 
 /**
- * POST /api/tiktok/disconnect - Desconectar de stream
+ * POST /api/tiktok/disconnect - Desconectar del stream
  */
-router.post('/disconnect', (req, res) => {
+router.post('/disconnect', async (req, res) => {
   const { username } = req.body;
 
   if (!username) {
     return res.status(400).json({ error: 'username required' });
   }
 
-  tiktokLiveService.disconnectStream(username);
+  try {
+    await tiktokLiveService.disconnectStream(username);
+
+    return res.status(200).json({
+      success: true,
+      message: `Desconectado de @${username}`
+    });
+  } catch (error) {
+    console.error('[TikTok] Error desconectando:', error.message);
+    return res.status(400).json({
+      error: error.message || 'Error desconectando'
+    });
+  }
+});
+
+/**
+ * GET /api/tiktok/stats - Estadísticas del servidor
+ */
+router.get('/stats', (req, res) => {
+  const streams = tiktokLiveService.getActiveStreams();
 
   return res.status(200).json({
     success: true,
-    message: `Desconectado de @${username}`
+    activeStreams: streams.length,
+    streams: streams.map(s => ({
+      username: s.username,
+      isConnected: s.isConnected,
+      messageCount: s.messageCount,
+      uptime: Math.floor((s.startTime ? Date.now() - s.startTime : 0) / 1000)
+    }))
   });
 });
 
