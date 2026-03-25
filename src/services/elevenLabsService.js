@@ -1,27 +1,20 @@
-// Servicio de ElevenLabs para síntesis de voz
+// Servicio de ElevenLabs para síntesis de voz - usando librería oficial
 
-import axios from 'axios';
+import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
 class ElevenLabsService {
   constructor() {
     this.apiKey = process.env.ELEVENLABS_API_KEY;
-    this.baseUrl = 'https://api.elevenlabs.io/v1';
-    this.client = axios.create({
-      baseURL: this.baseUrl,
-      headers: {
-        'xi-api-key': this.apiKey,
-        'Content-Type': 'application/json'
-      }
-    });
+    this.client = new ElevenLabsClient({ apiKey: this.apiKey });
   }
 
   // Obtener lista de voces disponibles
   async getAvailableVoices() {
     try {
-      const response = await this.client.get('/voices');
-      return response.data.voices;
+      const voices = await this.client.voices.getAll();
+      return voices;
     } catch (error) {
-      console.error('Error fetching voices:', error.response?.data || error.message);
+      console.error('[ElevenLabs] Error fetching voices:', error.message);
       throw error;
     }
   }
@@ -37,123 +30,98 @@ class ElevenLabsService {
         throw new Error('Text too long. Maximum 5000 characters.');
       }
 
-      const response = await this.client.post(
-        `/text-to-speech/${voiceId}`,
-        {
-          text: text,
-          model_id: 'eleven_flash_v2_5',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75
-          }
-        },
-        {
-          responseType: 'arraybuffer' // Obtener como buffer de audio
+      const audioStream = await this.client.textToSpeech.convert(voiceId, {
+        text: text,
+        modelId: 'eleven_flash_v2_5',
+        voiceSettings: {
+          stability: 0.5,
+          similarityBoost: 0.75
         }
-      );
+      });
+
+      // Convertir stream a buffer
+      const chunks = [];
+      for await (const chunk of audioStream) {
+        chunks.push(chunk);
+      }
+      const audioBuffer = Buffer.concat(chunks);
 
       return {
         success: true,
-        audio: Buffer.from(response.data),
-        contentType: response.headers['content-type']
+        audio: audioBuffer,
+        contentType: 'audio/mpeg'
       };
     } catch (error) {
-      console.error('Error synthesizing:', error.response?.data || error.message);
+      console.error('[ElevenLabs] Error synthesizing:', error.message);
       throw error;
     }
   }
 
-  // Sintetizar y retornar URL (si se guarda en storage)
+  // Sintetizar y retornar como URL base64
   async synthesizeAndSave(text, voiceId, userId) {
     try {
       const audioBuffer = await this.synthesize(text, voiceId);
 
-      // Aquí iría la lógica para guardar en Cloudflare R2 o S3
-      // Por ahora, retornamos el buffer en base64
+      // Retornar como base64 data URL
       const base64 = audioBuffer.audio.toString('base64');
       const audioUrl = `data:audio/mpeg;base64,${base64}`;
 
       return {
         success: true,
         audioUrl: audioUrl,
-        duration: null // ElevenLabs no retorna duración, necesitaría procesarlo
+        duration: null
       };
     } catch (error) {
-      console.error('Error synthesizing and saving:', error);
+      console.error('[ElevenLabs] Error in synthesizeAndSave:', error.message);
       throw error;
     }
   }
 
-  // Clonar una voz (requiere archivo de audio)
-  async cloneVoice(name, audioFile) {
+  // Clonar voz
+  async cloneVoice(name, description, files) {
     try {
-      const formData = new FormData();
-      formData.append('name', name);
-      formData.append('files', audioFile);
-
-      const response = await axios.post(
-        `${this.baseUrl}/voices/add`,
-        formData,
-        {
-          headers: {
-            'xi-api-key': this.apiKey,
-            'Content-Type': 'multipart/form-data'
-          }
-        }
-      );
-
-      return response.data;
+      // Implementación para clonar voces
+      throw new Error('Voice cloning not implemented yet');
     } catch (error) {
-      console.error('Error cloning voice:', error.response?.data || error.message);
+      console.error('[ElevenLabs] Error cloning voice:', error.message);
       throw error;
     }
   }
 
-  // Obtener voces del usuario (clonadas)
-  async getUserVoices() {
+  // Obtener voces del usuario
+  async getUserVoices(userId) {
     try {
-      const response = await this.client.get('/voices');
-      // Filtrar solo voces personalizadas
-      return response.data.voices.filter(v => v.category === 'cloned');
+      const voices = await this.client.voices.getAll();
+      return voices.filter(v => v.category === 'cloned');
     } catch (error) {
-      console.error('Error fetching user voices:', error);
+      console.error('[ElevenLabs] Error fetching user voices:', error.message);
       throw error;
     }
   }
 
-  // Obtener detalles de una voz específica
-  async getVoiceDetails(voiceId) {
-    try {
-      const response = await this.client.get(`/voices/${voiceId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching voice details:', error);
-      throw error;
-    }
-  }
-
-  // Eliminar una voz (solo clonadas)
-  async deleteVoice(voiceId) {
-    try {
-      await this.client.delete(`/voices/${voiceId}`);
-      return { success: true, message: 'Voice deleted' };
-    } catch (error) {
-      console.error('Error deleting voice:', error);
-      throw error;
-    }
-  }
-
-  // Obtener uso de API
+  // Obtener uso de la API
   async getUsage() {
     try {
-      const response = await this.client.get('/user');
+      const subscription = await this.client.user.getSubscriptionInfo();
       return {
-        characterLimit: response.data.subscription.character_limit,
-        charactersUsed: response.data.subscription.characters_used,
-        remainingCharacters: response.data.subscription.character_limit - response.data.subscription.characters_used
+        characterLimit: subscription.character_limit,
+        charactersUsed: subscription.characters_used,
+        remainingCharacters: subscription.character_limit - subscription.characters_used,
+        tier: subscription.tier
       };
     } catch (error) {
-      console.error('Error fetching usage:', error);
+      console.error('[ElevenLabs] Error fetching usage:', error.message);
+      throw error;
+    }
+  }
+
+  // Eliminar voz
+  async deleteVoice(voiceId) {
+    try {
+      await this.client.voices.delete(voiceId);
+      return { success: true };
+    } catch (error) {
+      console.error('[ElevenLabs] Error deleting voice:', error.message);
       throw error;
     }
   }
