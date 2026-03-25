@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import axios from 'axios';
+import https from 'https';
 
 const router = Router();
 
 /**
  * POST /api/inworld/tts - Inworld Text-to-Speech
- * Proxy to Inworld AI API
  * $5 per million characters
+ * CRITICAL: Inworld retorna STREAMING JSON con múltiples audioContent chunks
  */
-router.post('/tts', async (req, res) => {
+router.post('/tts', (req, res) => {
   try {
     const { text, voiceId } = req.body;
 
@@ -25,107 +25,131 @@ router.post('/tts', async (req, res) => {
       return res.status(500).json({ error: 'INWORLD_API_KEY not configured' });
     }
 
-    console.log(`[Inworld] Synthesizing: "${text.substring(0, 50)}..." with voice: ${voiceId}`);
+    console.log(`[Inworld TTS] Sintetizando: "${text.substring(0, 50)}..." (voz: ${voiceId})`);
 
-    // Call Inworld API with correct endpoint format
-    const authHeader = `Basic ${Buffer.from(apiKey).toString('base64')}`;
-
-    console.log(`[Inworld] Auth header: Basic ${apiKey.substring(0, 10)}...`);
-
-    const response = await axios.post(
-      'https://api.inworld.ai/tts/v1/voice:stream',
-      {
-        text: text,
-        voice_id: voiceId,
-        model_id: 'inworld-tts-1.5-max',
-        audio_config: {
-          audio_encoding: 'MP3',
-          speaking_rate: 1
-        },
-        temperature: 1
-      },
-      {
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'text', // Get as text first to parse JSON
-        timeout: 30000,
-        validateStatus: () => true // Don't throw on any status
-      }
-    );
-
-    console.log(`[Inworld] Response status: ${response.status}`);
-
-    if (response.status !== 200) {
-      console.error(`[Inworld] API error: ${response.status}`);
-      let errorMsg = 'Unknown error';
-      try {
-        const errorData = JSON.parse(response.data);
-        errorMsg = JSON.stringify(errorData);
-      } catch (e) {
-        errorMsg = response.data.substring(0, 200);
-      }
-
-      return res.status(response.status || 500).json({
-        error: 'Inworld API error',
-        status: response.status,
-        detail: errorMsg
-      });
-    }
-
-    // Parse JSON response
-    let jsonData;
-    try {
-      jsonData = JSON.parse(response.data);
-    } catch (e) {
-      console.error(`[Inworld] Failed to parse response as JSON:`, e.message);
-      return res.status(500).json({
-        error: 'Invalid response from Inworld API',
-        detail: response.data.substring(0, 200)
-      });
-    }
-
-    // Extract audio content from result.audioContent
-    let base64Audio = null;
-    if (jsonData.result && jsonData.result.audioContent) {
-      base64Audio = jsonData.result.audioContent;
-    } else {
-      console.error(`[Inworld] No audioContent in response. Keys:`, Object.keys(jsonData));
-      return res.status(500).json({
-        error: 'No audioContent in Inworld response',
-        detail: 'Response structure mismatch'
-      });
-    }
-
-    // Decode base64 to buffer
-    const audioBuffer = Buffer.from(base64Audio, 'base64');
-
-    console.log(`[Inworld] Success: ${text.length} chars → ${audioBuffer.length} bytes`);
-
-    return res.status(200).json({
-      success: true,
-      audio: `data:audio/mpeg;base64,${base64}`,
-      audioSize: audioBuffer.length,
+    const requestBody = JSON.stringify({
+      text: text,
       voiceId: voiceId,
-      characters: text.length,
-      estimatedCost: {
-        mini: `$${(text.length / 1000000 * 5).toFixed(6)}`,
-        max: `$${(text.length / 1000000 * 10).toFixed(6)}`
-      }
+      modelId: 'inworld-tts-1.5-max'
     });
-  } catch (error) {
-    console.error('[Inworld] Error:', error.message);
 
-    if (error.response?.status === 401) {
-      return res.status(401).json({
-        error: 'Inworld authentication failed',
-        detail: error.response.data
+    const options = {
+      hostname: 'api.inworld.ai',
+      port: 443,
+      path: '/tts/v1/voice:stream',
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+      },
+    };
+
+    const req = https.request(options, (response) => {
+      const chunks = [];
+
+      console.log(`[Inworld TTS] Response status: ${response.statusCode}`);
+
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
       });
-    }
 
+      response.on('end', () => {
+        try {
+          if (response.statusCode !== 200) {
+            const dataBuffer = Buffer.concat(chunks);
+            const errorText = dataBuffer.toString('utf-8');
+            console.error(`[Inworld TTS] Error ${response.statusCode}: ${errorText.substring(0, 300)}`);
+            return res.status(response.statusCode).json({
+              error: `Inworld API error: ${response.statusCode}`,
+              detail: errorText.substring(0, 200)
+            });
+          }
+
+          const dataBuffer = Buffer.concat(chunks);
+          const dataStr = dataBuffer.toString('utf-8');
+
+          console.log(`[Inworld TTS] Respuesta recibida (${dataBuffer.length} bytes)`);
+
+          // CRITICAL FIX: La respuesta es STREAMING JSON con MÚLTIPLES audioContent fields
+          // Extraer TODOS y decodificar cada uno, luego concatenar los buffers binarios
+          const allMatches = dataStr.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/g) || [];
+          console.log(`[Inworld TTS] Total audioContent fields: ${allMatches.length}`);
+
+          if (allMatches.length === 0) {
+            console.error(`[Inworld TTS] No audioContent encontrado en respuesta`);
+            return res.status(500).json({
+              error: 'No audioContent in response',
+              detail: dataStr.substring(0, 300)
+            });
+          }
+
+          // Decodificar CADA chunk y concatenar como binario
+          const audioChunks = [];
+          for (let i = 0; i < allMatches.length; i++) {
+            const match = allMatches[i];
+            const contentMatch = match.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/);
+            if (contentMatch && contentMatch[1]) {
+              const base64Content = contentMatch[1];
+              try {
+                const chunk = Buffer.from(base64Content, 'base64');
+                audioChunks.push(chunk);
+                console.log(`[Inworld TTS] Chunk ${i + 1}: ${base64Content.length} chars → ${chunk.length} bytes`);
+              } catch (e) {
+                console.error(`[Inworld TTS] Error decodificando chunk ${i + 1}: ${e.message}`);
+              }
+            }
+          }
+
+          if (audioChunks.length === 0) {
+            return res.status(500).json({
+              error: 'Failed to decode audio chunks',
+              detail: 'No valid base64 found'
+            });
+          }
+
+          // Concatenar todos los chunks
+          const audioBuffer = Buffer.concat(audioChunks);
+          const base64Audio = audioBuffer.toString('base64');
+
+          console.log(`[Inworld TTS] ✅ Audio completo: ${audioChunks.length} chunks → ${audioBuffer.length} bytes`);
+
+          return res.status(200).json({
+            success: true,
+            audio: `data:audio/mpeg;base64,${base64Audio}`,
+            audioSize: audioBuffer.length,
+            voiceId: voiceId,
+            characters: text.length,
+            estimatedCost: {
+              mini: `$${(text.length / 1000000 * 5).toFixed(6)}`,
+              max: `$${(text.length / 1000000 * 10).toFixed(6)}`
+            }
+          });
+        } catch (err) {
+          console.error('[Inworld TTS] Error procesando respuesta:', err.message);
+          return res.status(500).json({
+            error: 'Error procesando respuesta',
+            detail: err.message
+          });
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error('[Inworld TTS] Request error:', err.message);
+      return res.status(500).json({
+        error: 'Request error',
+        detail: err.message
+      });
+    });
+
+    console.log(`[Inworld TTS] Enviando solicitud con voiceId: ${voiceId}`);
+    req.write(requestBody);
+    req.end();
+  } catch (error) {
+    console.error('[Inworld TTS] Error:', error.message);
     return res.status(500).json({
-      error: 'Error sintetizando con Inworld',
+      error: 'Error en TTS',
       detail: error.message
     });
   }
