@@ -1,25 +1,12 @@
-// Servicio de Text-to-Speech usando google-tts-api
-// Opción gratuita, sin API key, funciona 100% en npm
+// Servicio TTS ultra-simple usando Google Translate API directamente
+// Sin dependencias complicadas, solo HTTPS nativo
 
-import googleTTS from 'google-tts-api';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import https from 'https';
+import { URL } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Crear directorio temp si no existe
-const tmpDir = path.join(__dirname, '../../tmp');
-if (!fs.existsSync(tmpDir)) {
-  fs.mkdirSync(tmpDir, { recursive: true });
-}
-
-class GoogleTtsService {
+class SimpleTtsService {
   constructor() {
-    this.tmpDir = tmpDir;
+    this.baseUrl = 'https://translate.google.com/translate_tts';
   }
 
   // Mapear voice IDs a idiomas
@@ -35,13 +22,24 @@ class GoogleTtsService {
     return voiceMap[voiceId] || 'es';
   }
 
-  // Descargar audio desde URL
-  downloadAudio(url) {
+  // Descargar desde URL
+  downloadFromUrl(url) {
     return new Promise((resolve, reject) => {
-      https.get(url, (response) => {
+      const parsedUrl = new URL(url);
+
+      https.get(parsedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+
         const chunks = [];
-        response.on('data', chunk => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
       }).on('error', reject);
     });
   }
@@ -56,18 +54,17 @@ class GoogleTtsService {
         throw new Error('Text too long. Maximum 5000 characters.');
       }
 
-      const language = this.getLanguageCode(voiceId);
+      const lang = this.getLanguageCode(voiceId);
 
-      // Usar google-tts-api para obtener URL de audio
-      const url = await googleTTS.getAudioUrl({
-        text: text,
-        lang: language,
-        slow: false,
-        host: 'https://translate.google.com',
-      });
+      // Construir URL de Google Translate TTS
+      const ttsUrl = `${this.baseUrl}?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob&prev=input&ttsspeed=1`;
 
-      // Descargar el audio
-      const audioBuffer = await this.downloadAudio(url);
+      console.log('[SimpleTTS] Downloading from:', ttsUrl.substring(0, 100) + '...');
+
+      // Descargar audio
+      const audioBuffer = await this.downloadFromUrl(ttsUrl);
+
+      console.log('[SimpleTTS] Audio downloaded, size:', audioBuffer.length);
 
       return {
         success: true,
@@ -75,7 +72,7 @@ class GoogleTtsService {
         contentType: 'audio/mpeg'
       };
     } catch (error) {
-      console.error('[Google TTS] Error synthesizing:', error.message);
+      console.error('[SimpleTTS] Error synthesizing:', error.message);
       throw error;
     }
   }
@@ -94,7 +91,7 @@ class GoogleTtsService {
         duration: null
       };
     } catch (error) {
-      console.error('[Google TTS] Error in synthesizeAndSave:', error.message);
+      console.error('[SimpleTTS] Error in synthesizeAndSave:', error.message);
       throw error;
     }
   }
@@ -133,4 +130,4 @@ class GoogleTtsService {
   }
 }
 
-export default new GoogleTtsService();
+export default new SimpleTtsService();
