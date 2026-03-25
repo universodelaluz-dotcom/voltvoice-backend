@@ -1,83 +1,46 @@
-// Script para crear tablas en PostgreSQL
-
 import pg from 'pg';
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
 
-dotenv.config({ path: join(__dirname, '../.env') });
+dotenv.config();
 
-const { Pool } = pg;
-
-const pool = new Pool({
+const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-const createTablesSQL = `
--- Usuarios
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255),
-  plan VARCHAR(50) DEFAULT 'free',
-  tokens INT DEFAULT 100,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Historial de uso de tokens
-CREATE TABLE IF NOT EXISTS token_logs (
-  id SERIAL PRIMARY KEY,
-  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  action VARCHAR(255),
-  tokens_used INT,
-  characters_count INT,
-  voice_name VARCHAR(255),
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Transacciones (pagos)
-CREATE TABLE IF NOT EXISTS transactions (
-  id SERIAL PRIMARY KEY,
-  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  tokens_purchased INT,
-  amount_usd DECIMAL(10, 2),
-  stripe_payment_id VARCHAR(255),
-  status VARCHAR(50) DEFAULT 'pending',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Índices para optimizar queries
-CREATE INDEX IF NOT EXISTS idx_user_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_token_logs_user ON token_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
-`;
-
 async function migrate() {
-  const client = await pool.connect();
-
   try {
-    console.log('🔄 Iniciando migraciones...');
-    console.log('📦 Conectando a:', process.env.DATABASE_URL?.replace(/:[^:]*@/, ':***@'));
+    console.log('🔄 Starting database migration...\n');
 
-    await client.query(createTablesSQL);
+    const sqlFile = path.join(__dirname, 'init-db.sql');
+    const sql = fs.readFileSync(sqlFile, 'utf-8');
 
-    console.log('✅ ¡Migraciones completadas exitosamente!');
-    console.log('📊 Tablas creadas:');
-    console.log('  - users');
-    console.log('  - token_logs');
-    console.log('  - transactions');
+    console.log('📝 Executing SQL script...');
+    await pool.query(sql);
 
-  } catch (error) {
-    console.error('❌ Error en migraciones:', error.message);
-    process.exit(1);
+    console.log('✅ Database migration completed successfully!\n');
+    console.log('📊 Tables created:');
+    console.log('   ✓ users');
+    console.log('   ✓ token_logs');
+    console.log('   ✓ synthesis_logs');
+    console.log('   ✓ transactions');
+    console.log('   ✓ streams');
 
-  } finally {
-    await client.release();
+    console.log('\n👥 Test users created:');
+    console.log('   ✓ test-user-vip (1000 tokens)');
+    console.log('   ✓ test-user-123 (500 tokens)');
+
     await pool.end();
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Migration failed:', error.message);
+    await pool.end();
+    process.exit(1);
   }
 }
 

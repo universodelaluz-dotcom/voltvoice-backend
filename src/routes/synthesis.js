@@ -17,6 +17,24 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
+// DEBUG - Test ElevenLabs connection
+router.get('/debug/elevenlabs', (req, res) => {
+  try {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const baseUrl = 'https://api.elevenlabs.io/v1';
+
+    res.json({
+      apiKeyConfigured: !!apiKey,
+      apiKeyLength: apiKey ? apiKey.length : 0,
+      apiKeyPreview: apiKey ? `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 10)}` : 'NOT SET',
+      baseUrl: baseUrl,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET - Obtener voces disponibles
 router.get('/voices', authMiddleware, async (req, res) => {
   try {
@@ -35,7 +53,18 @@ router.get('/voices', authMiddleware, async (req, res) => {
       voices: simplifiedVoices
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[SYNTHESIS ERROR]', {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      headers: error.response?.headers
+    });
+
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data || error.response?.statusText
+    });
   }
 });
 
