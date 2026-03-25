@@ -70,13 +70,18 @@ router.post('/admin/add-tokens', async (req, res) => {
       return res.status(400).json({ error: 'userId and tokens required' });
     }
 
-    const result = await db.query(
+    // Primero, intenta actualizar
+    let result = await db.query(
       'UPDATE users SET tokens = tokens + $1 WHERE id = $2 RETURNING id, tokens',
       [tokens, userId]
     );
 
+    // Si no existe, crea el usuario
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      result = await db.query(
+        'INSERT INTO users (id, email, tokens, plan) VALUES ($1, $2, $3, $4) RETURNING id, tokens',
+        [userId, `user${userId}@voltvoice.test`, tokens, 'free']
+      );
     }
 
     res.json({
