@@ -67,7 +67,7 @@ router.get('/voices', authMiddleware, async (req, res) => {
 
     // Retornar solo información básica (nombre, id, descripción)
     const simplifiedVoices = voices.map(v => ({
-      id: v.voice_id,
+      id: v.voice_id || v.id,
       name: v.name,
       preview_url: v.preview_url,
       category: v.category
@@ -86,9 +86,20 @@ router.get('/voices', authMiddleware, async (req, res) => {
       headers: error.response?.headers
     });
 
-    res.status(500).json({
-      error: error.message,
-      details: error.response?.data || error.response?.statusText
+    // FALLBACK: Retornar voces por defecto si ElevenLabs falla
+    const defaultVoices = [
+      { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella - Warm & Engaging', category: 'premade' },
+      { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel - Warm & Expressive', category: 'premade' },
+      { id: 'AZnzlk1uvptSRtMUZeKw', name: 'Domi - Bold & Confident', category: 'premade' },
+      { id: 'EL1QtFI7ePme4xLqrPzT', name: 'Elli - Calm & Serene', category: 'premade' },
+      { id: 'MF3mGyEYCl7XYWbV7PLe', name: 'Gigi - Upbeat & Energetic', category: 'premade' },
+      { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Harry - Deep & Authoritative', category: 'premade' }
+    ];
+
+    res.json({
+      success: true,
+      voices: defaultVoices,
+      note: 'Using fallback voices due to API connectivity issue'
     });
   }
 });
