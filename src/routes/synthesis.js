@@ -62,6 +62,59 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
+// DEBUG - Test espeak-ng installation
+router.get('/debug/espeak', async (req, res) => {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execPromise = promisify(exec);
+
+    try {
+      const { stdout } = await execPromise('which espeak-ng');
+      res.json({
+        installed: true,
+        path: stdout.trim(),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.json({
+        installed: false,
+        error: 'espeak-ng not found in PATH',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DEBUG - Test espeak-ng synthesis
+router.get('/debug/espeak-test', async (req, res) => {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execPromise = promisify(exec);
+
+    try {
+      const { stdout } = await execPromise('espeak-ng --version');
+      res.json({
+        working: true,
+        version: stdout.trim(),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.json({
+        working: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DEBUG - Test ElevenLabs connection
 router.get('/debug/elevenlabs', (req, res) => {
   try {
