@@ -89,29 +89,25 @@ router.get('/debug/espeak', async (req, res) => {
   }
 });
 
-// DEBUG - Test espeak-ng synthesis
-router.get('/debug/espeak-test', async (req, res) => {
+// DEBUG - Test gTTS
+router.get('/debug/gtts-test', async (req, res) => {
   try {
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execPromise = promisify(exec);
+    const testText = 'Hello world, this is a test';
+    const result = await espeakTtsService.synthesize(testText, '21m00Tcm4TlvDq8ikWAM');
 
-    try {
-      const { stdout } = await execPromise('espeak-ng --version');
-      res.json({
-        working: true,
-        version: stdout.trim(),
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      res.json({
-        working: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    }
+    res.json({
+      working: true,
+      audioSize: result.audio.length,
+      contentType: result.contentType,
+      message: 'gTTS is working - audio generated successfully',
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({
+      working: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
