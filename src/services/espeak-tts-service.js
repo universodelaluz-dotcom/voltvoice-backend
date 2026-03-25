@@ -1,11 +1,12 @@
-// Servicio de Text-to-Speech usando gTTS (Google Text-to-Speech)
+// Servicio de Text-to-Speech usando google-tts-api
 // Opción gratuita, sin API key, funciona 100% en npm
 
-import gtts from 'gtts';
+import googleTTS from 'google-tts-api';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,12 +17,12 @@ if (!fs.existsSync(tmpDir)) {
   fs.mkdirSync(tmpDir, { recursive: true });
 }
 
-class GttsTtsService {
+class GoogleTtsService {
   constructor() {
     this.tmpDir = tmpDir;
   }
 
-  // Mapear voice IDs a idiomas gTTS
+  // Mapear voice IDs a idiomas
   getLanguageCode(voiceId) {
     const voiceMap = {
       'EXAVITQu4vr4xnSDxMaL': 'es',      // Bella -> Spanish
@@ -32,6 +33,17 @@ class GttsTtsService {
       'TxGEqnHWrfWFTfGW9XjX': 'en',      // Harry -> English
     };
     return voiceMap[voiceId] || 'es';
+  }
+
+  // Descargar audio desde URL
+  downloadAudio(url) {
+    return new Promise((resolve, reject) => {
+      https.get(url, (response) => {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject);
+    });
   }
 
   async synthesize(text, voiceId = 'EXAVITQu4vr4xnSDxMaL') {
@@ -45,49 +57,25 @@ class GttsTtsService {
       }
 
       const language = this.getLanguageCode(voiceId);
-      const outputFile = path.join(this.tmpDir, `speech-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
 
-      // Usar gTTS para generar audio
-      const speech = new gtts({
+      // Usar google-tts-api para obtener URL de audio
+      const url = await googleTTS.getAudioUrl({
         text: text,
         lang: language,
-        rate: 1,
-        timeout: 10000
+        slow: false,
+        host: 'https://translate.google.com',
       });
 
-      // Guardar archivo
-      return new Promise((resolve, reject) => {
-        speech.save(outputFile, function(err) {
-          if (err) {
-            console.error('[gTTS] Error generating speech:', err.message);
-            reject(new Error('Failed to generate speech: ' + err.message));
-            return;
-          }
+      // Descargar el audio
+      const audioBuffer = await this.downloadAudio(url);
 
-          // Leer archivo generado
-          if (!fs.existsSync(outputFile)) {
-            reject(new Error('Failed to generate audio file'));
-            return;
-          }
-
-          const audioBuffer = fs.readFileSync(outputFile);
-
-          // Limpiar archivo temporal
-          try {
-            fs.unlinkSync(outputFile);
-          } catch (e) {
-            console.warn('[gTTS] Failed to delete temp file:', outputFile);
-          }
-
-          resolve({
-            success: true,
-            audio: audioBuffer,
-            contentType: 'audio/mpeg'
-          });
-        });
-      });
+      return {
+        success: true,
+        audio: audioBuffer,
+        contentType: 'audio/mpeg'
+      };
     } catch (error) {
-      console.error('[gTTS] Error synthesizing:', error.message);
+      console.error('[Google TTS] Error synthesizing:', error.message);
       throw error;
     }
   }
@@ -106,18 +94,18 @@ class GttsTtsService {
         duration: null
       };
     } catch (error) {
-      console.error('[gTTS] Error in synthesizeAndSave:', error.message);
+      console.error('[Google TTS] Error in synthesizeAndSave:', error.message);
       throw error;
     }
   }
 
-  // Métodos stub para compatibilidad con googleTtsService
+  // Métodos stub para compatibilidad
   async getAvailableVoices() {
     return [
       { voice_id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella - Spanish', category: 'premade' },
       { voice_id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel - English', category: 'premade' },
       { voice_id: 'AZnzlk1uvptSRtMUZeKw', name: 'Domi - English', category: 'premade' },
-      { voice_id: 'EL1QtFI7ePme4xLqrPzT', name: 'Elli - English (UK)', category: 'premade' },
+      { voice_id: 'EL1QtFI7ePme4xLqrPzT', name: 'Elli - English', category: 'premade' },
       { voice_id: 'MF3mGyEYCl7XYWbV7PLe', name: 'Gigi - English', category: 'premade' },
       { voice_id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Harry - English', category: 'premade' }
     ];
@@ -132,17 +120,17 @@ class GttsTtsService {
       characterLimit: 999999999,
       charactersUsed: 0,
       remainingCharacters: 999999999,
-      tier: 'local'
+      tier: 'free'
     };
   }
 
   async cloneVoice(name, files) {
-    throw new Error('Voice cloning not available with local TTS');
+    throw new Error('Voice cloning not available');
   }
 
   async deleteVoice(voiceId) {
-    throw new Error('Voice deletion not available with local TTS');
+    throw new Error('Voice deletion not available');
   }
 }
 
-export default new GttsTtsService();
+export default new GoogleTtsService();
