@@ -2,6 +2,7 @@
 
 import express from 'express';
 import espeakTtsService from '../services/espeak-tts-service.js';
+import elevenLabsService from '../services/elevenLabsService.js';
 import tokenService from '../services/tokenService.js';
 import db from '../db.js';
 import FormData from 'form-data';
@@ -50,6 +51,10 @@ function generateFallbackAudioBuffer() {
   buffer.copy(wav, 44);
 
   return wav;
+}
+
+function getElevenLabsApiKey() {
+  return (process.env.ELEVENLABS_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
 }
 
 // Middleware para verificar autenticación
@@ -114,7 +119,7 @@ router.get('/debug/gtts-test', async (req, res) => {
 // DEBUG - Test ElevenLabs connection
 router.get('/debug/elevenlabs', (req, res) => {
   try {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const apiKey = getElevenLabsApiKey();
     const baseUrl = 'https://api.elevenlabs.io/v1';
 
     res.json({
@@ -132,7 +137,7 @@ router.get('/debug/elevenlabs', (req, res) => {
 // DEBUG - Test ElevenLabs with Fetch instead of Axios
 router.get('/debug/elevenlabs-fetch', async (req, res) => {
   try {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const apiKey = getElevenLabsApiKey();
 
     const response = await fetch('https://api.elevenlabs.io/v1/voices', {
       method: 'GET',
@@ -157,7 +162,7 @@ router.get('/debug/elevenlabs-fetch', async (req, res) => {
 // DEBUG - Test Flash/Turbo TTS directly
 router.get('/debug/flash-turbo', async (req, res) => {
   try {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const apiKey = getElevenLabsApiKey();
 
     if (!apiKey) {
       return res.status(400).json({
@@ -273,7 +278,16 @@ router.post('/admin/add-tokens', async (req, res) => {
 // GET - Obtener voces disponibles
 router.get('/voices', authMiddleware, async (req, res) => {
   try {
-    const voices = await espeakTtsService.getAvailableVoices();
+    let voices;
+    let provider = 'elevenlabs';
+
+    try {
+      voices = await elevenLabsService.getAvailableVoices();
+    } catch (serviceError) {
+      console.warn('[SYNTHESIS] ElevenLabs voices failed, using fallback:', serviceError.message);
+      voices = await espeakTtsService.getAvailableVoices();
+      provider = 'fallback';
+    }
 
     // Retornar solo información básica (nombre, id, descripción)
     const simplifiedVoices = voices.map(v => ({
@@ -285,7 +299,8 @@ router.get('/voices', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      voices: simplifiedVoices
+      voices: simplifiedVoices,
+      provider
     });
   } catch (error) {
     console.error('[SYNTHESIS ERROR]', {
@@ -309,7 +324,8 @@ router.get('/voices', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       voices: defaultVoices,
-      note: 'Using fallback voices due to API connectivity issue'
+      note: 'Using fallback voices due to API connectivity issue',
+      provider: 'default-fallback'
     });
   }
 });
@@ -339,19 +355,28 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     // Sintetizar voz
     let audioResult;
     let usedFallback = false;
+    let provider = 'elevenlabs';
 
     try {
-      audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.userId);
+      audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.userId);
     } catch (ttsError) {
-      console.warn('[SYNTHESIS] TTS failed, using fallback audio:', ttsError.message);
-      // Fallback: generar audio WAV de 2 segundos
-      const audioBuffer = generateFallbackAudioBuffer();
-      const fallbackBase64 = audioBuffer.toString('base64');
-      audioResult = {
-        success: true,
-        audioUrl: `data:audio/wav;base64,${fallbackBase64}`
-      };
-      usedFallback = true;
+      console.warn('[SYNTHESIS] ElevenLabs failed, trying fallback provider:', ttsError.message);
+
+      try {
+        audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.userId);
+        usedFallback = true;
+        provider = 'fallback';
+      } catch (fallbackError) {
+        console.warn('[SYNTHESIS] Fallback provider failed, using generated tone:', fallbackError.message);
+        const audioBuffer = generateFallbackAudioBuffer();
+        const fallbackBase64 = audioBuffer.toString('base64');
+        audioResult = {
+          success: true,
+          audioUrl: `data:audio/wav;base64,${fallbackBase64}`
+        };
+        usedFallback = true;
+        provider = 'generated-tone';
+      }
     }
 
     // Deducir tokens
@@ -368,7 +393,8 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
       audio: audioResult.audioUrl,
       tokensUsed: tokenResult.tokensUsed,
       remainingTokens: tokenResult.remainingTokens,
-      fallback: usedFallback
+      fallback: usedFallback,
+      provider
     });
 
   } catch (error) {
@@ -376,7 +402,7 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
       message: error.message,
       stack: error.stack,
       userId: req.userId,
-      text: text ? text.substring(0, 50) : 'N/A'
+      text: req.body?.text ? req.body.text.substring(0, 50) : 'N/A'
     });
     res.status(500).json({ error: error.message, details: error.stack });
   }
@@ -418,7 +444,7 @@ router.post('/clone-voice', authMiddleware, async (req, res) => {
 // GET - Obtener voces del usuario
 router.get('/user-voices', authMiddleware, async (req, res) => {
   try {
-    const voices = await espeakTtsService.getUserVoices();
+    const voices = await elevenLabsService.getUserVoices();
     res.json({
       success: true,
       voices: voices
@@ -431,7 +457,7 @@ router.get('/user-voices', authMiddleware, async (req, res) => {
 // GET - Obtener uso de API
 router.get('/usage', authMiddleware, async (req, res) => {
   try {
-    const usage = await espeakTtsService.getUsage();
+    const usage = await elevenLabsService.getUsage();
     res.json({
       success: true,
       usage: usage
@@ -445,7 +471,7 @@ router.get('/usage', authMiddleware, async (req, res) => {
 router.delete('/voice/:voiceId', authMiddleware, async (req, res) => {
   try {
     const { voiceId } = req.params;
-    const result = await espeakTtsService.deleteVoice(voiceId);
+    const result = await elevenLabsService.deleteVoice(voiceId);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });

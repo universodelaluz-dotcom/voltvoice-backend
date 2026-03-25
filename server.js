@@ -8,6 +8,7 @@ import { config } from './config.js';
 import tokenRoutes from './src/routes/tokens.js';
 import synthesisRoutes from './src/routes/synthesis.js';
 import mercadoPagoRoutes from './src/routes/mercadoPago.js';
+import tiktokRoutes from './src/routes/tiktok.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -64,6 +65,8 @@ try {
   console.log('[STARTUP] ✓ Synthesis routes loaded');
   app.use('/api/mercadopago', mercadoPagoRoutes);
   console.log('[STARTUP] ✓ Mercado Pago routes loaded');
+  app.use('/api/tiktok', tiktokRoutes);
+  console.log('[STARTUP] ✓ TikTok routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }

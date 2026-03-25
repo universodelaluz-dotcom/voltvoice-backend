@@ -4,15 +4,19 @@ import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
 class ElevenLabsService {
   constructor() {
-    this.apiKey = process.env.ELEVENLABS_API_KEY;
+    this.apiKey = this.getApiKey();
     this.client = new ElevenLabsClient({ apiKey: this.apiKey });
+  }
+
+  getApiKey() {
+    return (process.env.ELEVENLABS_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   }
 
   // Obtener lista de voces disponibles
   async getAvailableVoices() {
     try {
-      const voices = await this.client.voices.getAll();
-      return voices;
+      const response = await this.client.voices.getAll();
+      return response.voices || [];
     } catch (error) {
       console.error('[ElevenLabs] Error fetching voices:', error.message);
       throw error;
