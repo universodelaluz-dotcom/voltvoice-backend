@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import tiktokLiveService from '../services/tiktokLiveService.js';
-import simpleTtsService from '../services/espeak-tts-service.js';
-import elevenLabsService from '../services/elevenLabsService.js';
+import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
 
@@ -80,26 +79,20 @@ router.post('/message', async (req, res) => {
       return res.status(404).json({ error: 'Stream no encontrado' });
     }
 
-    // Determinar qué servicio usar
-    const selectedVoiceId = voiceId || 'es-ES';
-    const isElevenLabs = selectedVoiceId.length > 5; // IDs de ElevenLabs son más largos
+    // Usar Inworld TTS (8x más barato que ElevenLabs)
+    const selectedVoiceId = voiceId || 'default-spanish';
 
-    console.log(`[TikTok] Sintetizando con voiceId: ${selectedVoiceId}, isElevenLabs: ${isElevenLabs}`);
+    console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
 
     let synthesisResult;
     try {
-      if (isElevenLabs) {
-        console.log('[TikTok] Usando ElevenLabs service');
-        synthesisResult = await elevenLabsService.synthesize(messageText, selectedVoiceId);
-      } else {
-        console.log('[TikTok] Usando Simple TTS service (Google Translate)');
-        synthesisResult = await simpleTtsService.synthesize(messageText, selectedVoiceId);
-      }
+      synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
     } catch (synthError) {
-      console.error('[TikTok] Synthesis error:', synthError);
-      // Fallback a Simple TTS
-      console.log('[TikTok] Fallback a Simple TTS');
-      synthesisResult = await simpleTtsService.synthesize(messageText, 'es-ES');
+      console.error('[TikTok] Inworld synthesis error:', synthError);
+      return res.status(500).json({
+        error: 'Error sintetizando con Inworld TTS',
+        details: synthError.message
+      });
     }
 
     if (!synthesisResult || !synthesisResult.success) {
