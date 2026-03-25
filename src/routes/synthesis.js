@@ -2,7 +2,7 @@
 
 import express from 'express';
 import elevenLabsService from '../services/elevenLabsService.js';
-import * as tokenService from '../services/tokenService.js';
+import tokenService from '../services/tokenService.js';
 import FormData from 'form-data';
 
 const router = express.Router();
