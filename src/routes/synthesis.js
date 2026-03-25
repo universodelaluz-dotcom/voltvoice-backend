@@ -35,6 +35,31 @@ router.get('/debug/elevenlabs', (req, res) => {
   }
 });
 
+// DEBUG - Test ElevenLabs with Fetch instead of Axios
+router.get('/debug/elevenlabs-fetch', async (req, res) => {
+  try {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+
+    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+      method: 'GET',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    res.json({
+      status: response.status,
+      statusText: response.statusText,
+      data: response.ok ? { voiceCount: data.voices?.length || 0 } : data
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET - Obtener voces disponibles
 router.get('/voices', authMiddleware, async (req, res) => {
   try {
