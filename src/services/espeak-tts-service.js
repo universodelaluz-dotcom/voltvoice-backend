@@ -16,10 +16,6 @@ class SimpleTtsService {
       'es-MX': 'es',      // Mexican
       'en-US': 'en',      // English US
       'en-GB': 'en',      // English British
-      'fr-FR': 'fr',      // French
-      'de-DE': 'de',      // German
-      'pt-BR': 'pt',      // Portuguese
-      'it-IT': 'it',      // Italian
     };
     return voiceMap[voiceId] || 'es';
   }
@@ -105,10 +101,6 @@ class SimpleTtsService {
       { voice_id: 'es-MX', name: 'Voz mexicana - Alto rendimiento', category: 'premade' },
       { voice_id: 'en-US', name: 'Voz en inglés - Alto rendimiento', category: 'premade' },
       { voice_id: 'en-GB', name: 'Voz británica - Alto rendimiento', category: 'premade' },
-      { voice_id: 'fr-FR', name: 'Voz en francés - Alto rendimiento', category: 'premade' },
-      { voice_id: 'de-DE', name: 'Voz en alemán - Alto rendimiento', category: 'premade' },
-      { voice_id: 'pt-BR', name: 'Voz portuguesa - Alto rendimiento', category: 'premade' },
-      { voice_id: 'it-IT', name: 'Voz en italiano - Alto rendimiento', category: 'premade' },
     ];
   }
 
