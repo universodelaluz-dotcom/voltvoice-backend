@@ -12,12 +12,14 @@ class SimpleTtsService {
   // Mapear voice IDs a idiomas
   getLanguageCode(voiceId) {
     const voiceMap = {
-      'EXAVITQu4vr4xnSDxMaL': 'es',      // Bella -> Spanish
-      '21m00Tcm4TlvDq8ikWAM': 'en',      // Rachel -> English
-      'AZnzlk1uvptSRtMUZeKw': 'en',      // Domi -> English
-      'EL1QtFI7ePme4xLqrPzT': 'en',      // Elli -> English
-      'MF3mGyEYCl7XYWbV7PLe': 'en',      // Gigi -> English
-      'TxGEqnHWrfWFTfGW9XjX': 'en',      // Harry -> English
+      'es-ES': 'es',      // Spanish
+      'es-MX': 'es',      // Mexican
+      'en-US': 'en',      // English US
+      'en-GB': 'en',      // English British
+      'fr-FR': 'fr',      // French
+      'de-DE': 'de',      // German
+      'pt-BR': 'pt',      // Portuguese
+      'it-IT': 'it',      // Italian
     };
     return voiceMap[voiceId] || 'es';
   }
@@ -99,12 +101,14 @@ class SimpleTtsService {
   // Métodos stub para compatibilidad
   async getAvailableVoices() {
     return [
-      { voice_id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella - Spanish', category: 'premade' },
-      { voice_id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel - English', category: 'premade' },
-      { voice_id: 'AZnzlk1uvptSRtMUZeKw', name: 'Domi - English', category: 'premade' },
-      { voice_id: 'EL1QtFI7ePme4xLqrPzT', name: 'Elli - English', category: 'premade' },
-      { voice_id: 'MF3mGyEYCl7XYWbV7PLe', name: 'Gigi - English', category: 'premade' },
-      { voice_id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Harry - English', category: 'premade' }
+      { voice_id: 'es-ES', name: 'Voz en español - Alto rendimiento', category: 'premade' },
+      { voice_id: 'es-MX', name: 'Voz mexicana - Alto rendimiento', category: 'premade' },
+      { voice_id: 'en-US', name: 'Voz en inglés - Alto rendimiento', category: 'premade' },
+      { voice_id: 'en-GB', name: 'Voz británica - Alto rendimiento', category: 'premade' },
+      { voice_id: 'fr-FR', name: 'Voz en francés - Alto rendimiento', category: 'premade' },
+      { voice_id: 'de-DE', name: 'Voz en alemán - Alto rendimiento', category: 'premade' },
+      { voice_id: 'pt-BR', name: 'Voz portuguesa - Alto rendimiento', category: 'premade' },
+      { voice_id: 'it-IT', name: 'Voz en italiano - Alto rendimiento', category: 'premade' },
     ];
   }
 
