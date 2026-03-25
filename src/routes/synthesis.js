@@ -1,7 +1,7 @@
 // Routes para síntesis de voz con ElevenLabs
 
 import express from 'express';
-import elevenLabsService from '../services/elevenLabsService.js';
+import espeakTtsService from '../services/espeak-tts-service.js';
 import tokenService from '../services/tokenService.js';
 import db from '../db.js';
 import FormData from 'form-data';
@@ -141,7 +141,7 @@ router.post('/admin/add-tokens', async (req, res) => {
 // GET - Obtener voces disponibles
 router.get('/voices', authMiddleware, async (req, res) => {
   try {
-    const voices = await elevenLabsService.getAvailableVoices();
+    const voices = await espeakTtsService.getAvailableVoices();
 
     // Retornar solo información básica (nombre, id, descripción)
     const simplifiedVoices = voices.map(v => ({
@@ -209,9 +209,9 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     let usedFallback = false;
 
     try {
-      audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.userId);
-    } catch (elevenLabsError) {
-      console.warn('[SYNTHESIS] ElevenLabs failed, using fallback audio');
+      audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.userId);
+    } catch (ttsError) {
+      console.warn('[SYNTHESIS] TTS failed, using fallback audio:', ttsError.message);
       // Fallback: generar audio WAV de 2 segundos
       const audioBuffer = generateFallbackAudioBuffer();
       const fallbackBase64 = audioBuffer.toString('base64');
@@ -267,8 +267,8 @@ router.post('/clone-voice', authMiddleware, async (req, res) => {
     formData.append('name', voiceName);
     formData.append('files', audioBuffer, 'voice_sample.wav');
 
-    // Llamar a ElevenLabs
-    const clonedVoice = await elevenLabsService.cloneVoice(voiceName, audioBuffer);
+    // Llamar a servicio TTS
+    const clonedVoice = await espeakTtsService.cloneVoice(voiceName, audioBuffer);
 
     res.json({
       success: true,
@@ -286,7 +286,7 @@ router.post('/clone-voice', authMiddleware, async (req, res) => {
 // GET - Obtener voces del usuario
 router.get('/user-voices', authMiddleware, async (req, res) => {
   try {
-    const voices = await elevenLabsService.getUserVoices();
+    const voices = await espeakTtsService.getUserVoices();
     res.json({
       success: true,
       voices: voices
@@ -299,7 +299,7 @@ router.get('/user-voices', authMiddleware, async (req, res) => {
 // GET - Obtener uso de API
 router.get('/usage', authMiddleware, async (req, res) => {
   try {
-    const usage = await elevenLabsService.getUsage();
+    const usage = await espeakTtsService.getUsage();
     res.json({
       success: true,
       usage: usage
@@ -313,7 +313,7 @@ router.get('/usage', authMiddleware, async (req, res) => {
 router.delete('/voice/:voiceId', authMiddleware, async (req, res) => {
   try {
     const { voiceId } = req.params;
-    const result = await elevenLabsService.deleteVoice(voiceId);
+    const result = await espeakTtsService.deleteVoice(voiceId);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });

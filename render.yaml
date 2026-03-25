@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: voltvoice-backend
+    env: node
+    plan: free
+    buildCommand: "apt-get update && apt-get install -y espeak-ng && npm install && node scripts/migrate.js"
+    startCommand: "node server.js"
+    envVars:
+      - key: NODE_ENV
+        value: production

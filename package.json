@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.40.0",
+    "@google-cloud/text-to-speech": "^6.4.0",
     "axios": "^1.13.6",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
