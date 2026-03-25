@@ -5,8 +5,52 @@ import elevenLabsService from '../services/elevenLabsService.js';
 import tokenService from '../services/tokenService.js';
 import db from '../db.js';
 import FormData from 'form-data';
+import { Writer } from 'wav';
+import { Readable } from 'stream';
 
 const router = express.Router();
+
+// Función para generar audio WAV fallback de 2 segundos
+function generateFallbackAudioBuffer() {
+  const sampleRate = 44100;
+  const duration = 2; // 2 segundos
+  const frequency = 440; // La (A4)
+  const samples = sampleRate * duration;
+
+  // Crear buffer para 16-bit audio
+  const buffer = Buffer.alloc(samples * 2);
+
+  // Generar tono simple
+  for (let i = 0; i < samples; i++) {
+    const value = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0.3 * 32767;
+    buffer.writeInt16LE(Math.round(value), i * 2);
+  }
+
+  // Crear WAV con header
+  const wav = Buffer.alloc(44 + buffer.length);
+
+  // RIFF header
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + buffer.length, 4);
+  wav.write('WAVE', 8);
+
+  // fmt subchunk
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16); // Subchunk1Size
+  wav.writeUInt16LE(1, 20);  // AudioFormat (PCM)
+  wav.writeUInt16LE(1, 22);  // NumChannels (mono)
+  wav.writeUInt32LE(sampleRate, 24); // SampleRate
+  wav.writeUInt32LE(sampleRate * 2, 28); // ByteRate
+  wav.writeUInt16LE(2, 32);  // BlockAlign
+  wav.writeUInt16LE(16, 34); // BitsPerSample
+
+  // data subchunk
+  wav.write('data', 36);
+  wav.writeUInt32LE(buffer.length, 40);
+  buffer.copy(wav, 44);
+
+  return wav;
+}
 
 // Middleware para verificar autenticación
 const authMiddleware = (req, res, next) => {
@@ -168,8 +212,9 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
       audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.userId);
     } catch (elevenLabsError) {
       console.warn('[SYNTHESIS] ElevenLabs failed, using fallback audio');
-      // Fallback: usar audio de prueba cuando ElevenLabs falla
-      const fallbackBase64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAAA=';
+      // Fallback: generar audio WAV de 2 segundos
+      const audioBuffer = generateFallbackAudioBuffer();
+      const fallbackBase64 = audioBuffer.toString('base64');
       audioResult = {
         success: true,
         audioUrl: `data:audio/wav;base64,${fallbackBase64}`
