@@ -1,14 +1,12 @@
-// Servicio de Text-to-Speech local usando espeak-ng
-// Opción gratuita sin API externa
+// Servicio de Text-to-Speech usando gTTS (Google Text-to-Speech)
+// Opción gratuita, sin API key, funciona 100% en npm
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import gtts from 'gtts';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
-const execPromise = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -18,18 +16,18 @@ if (!fs.existsSync(tmpDir)) {
   fs.mkdirSync(tmpDir, { recursive: true });
 }
 
-class EspeakTtsService {
+class GttsTtsService {
   constructor() {
     this.tmpDir = tmpDir;
   }
 
-  // Mapear voice IDs a idiomas espeak
+  // Mapear voice IDs a idiomas gTTS
   getLanguageCode(voiceId) {
     const voiceMap = {
       'EXAVITQu4vr4xnSDxMaL': 'es',      // Bella -> Spanish
       '21m00Tcm4TlvDq8ikWAM': 'en',      // Rachel -> English
       'AZnzlk1uvptSRtMUZeKw': 'en',      // Domi -> English
-      'EL1QtFI7ePme4xLqrPzT': 'en-gb',   // Elli -> English (GB)
+      'EL1QtFI7ePme4xLqrPzT': 'en',      // Elli -> English
       'MF3mGyEYCl7XYWbV7PLe': 'en',      // Gigi -> English
       'TxGEqnHWrfWFTfGW9XjX': 'en',      // Harry -> English
     };
@@ -47,39 +45,49 @@ class EspeakTtsService {
       }
 
       const language = this.getLanguageCode(voiceId);
-      const outputFile = path.join(this.tmpDir, `speech-${Date.now()}-${Math.random().toString(36).substring(7)}.wav`);
+      const outputFile = path.join(this.tmpDir, `speech-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
 
-      // Ejecutar espeak-ng
-      const command = `espeak-ng -v ${language} -w "${outputFile}" "${text.replace(/"/g, '\\"')}"`;
+      // Usar gTTS para generar audio
+      const speech = new gtts({
+        text: text,
+        lang: language,
+        rate: 1,
+        timeout: 10000
+      });
 
-      try {
-        await execPromise(command);
-      } catch (error) {
-        console.error('[espeak] Error executing command:', error.message);
-        throw new Error('espeak-ng not available or error generating speech');
-      }
+      // Guardar archivo
+      return new Promise((resolve, reject) => {
+        speech.save(outputFile, function(err) {
+          if (err) {
+            console.error('[gTTS] Error generating speech:', err.message);
+            reject(new Error('Failed to generate speech: ' + err.message));
+            return;
+          }
 
-      // Leer archivo WAV generado
-      if (!fs.existsSync(outputFile)) {
-        throw new Error('Failed to generate audio file');
-      }
+          // Leer archivo generado
+          if (!fs.existsSync(outputFile)) {
+            reject(new Error('Failed to generate audio file'));
+            return;
+          }
 
-      const audioBuffer = fs.readFileSync(outputFile);
+          const audioBuffer = fs.readFileSync(outputFile);
 
-      // Limpiar archivo temporal
-      try {
-        fs.unlinkSync(outputFile);
-      } catch (e) {
-        console.warn('[espeak] Failed to delete temp file:', outputFile);
-      }
+          // Limpiar archivo temporal
+          try {
+            fs.unlinkSync(outputFile);
+          } catch (e) {
+            console.warn('[gTTS] Failed to delete temp file:', outputFile);
+          }
 
-      return {
-        success: true,
-        audio: audioBuffer,
-        contentType: 'audio/wav'
-      };
+          resolve({
+            success: true,
+            audio: audioBuffer,
+            contentType: 'audio/mpeg'
+          });
+        });
+      });
     } catch (error) {
-      console.error('[espeak TTS] Error synthesizing:', error.message);
+      console.error('[gTTS] Error synthesizing:', error.message);
       throw error;
     }
   }
@@ -90,7 +98,7 @@ class EspeakTtsService {
 
       // Retornar como base64 data URL
       const base64 = audioBuffer.audio.toString('base64');
-      const audioUrl = `data:audio/wav;base64,${base64}`;
+      const audioUrl = `data:audio/mpeg;base64,${base64}`;
 
       return {
         success: true,
@@ -98,7 +106,7 @@ class EspeakTtsService {
         duration: null
       };
     } catch (error) {
-      console.error('[espeak TTS] Error in synthesizeAndSave:', error.message);
+      console.error('[gTTS] Error in synthesizeAndSave:', error.message);
       throw error;
     }
   }
@@ -137,4 +145,4 @@ class EspeakTtsService {
   }
 }
 
-export default new EspeakTtsService();
+export default new GttsTtsService();
