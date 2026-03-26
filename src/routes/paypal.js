@@ -1,6 +1,7 @@
 // Rutas de PayPal
 import express from 'express';
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypalService.js';
+import { config } from '../../config.js';
 
 const router = express.Router();
 
@@ -11,21 +12,29 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
-// Crear orden de PayPal
+// GET - Obtener Client ID público (para cargar PayPal SDK en frontend)
+router.get('/client-id', (req, res) => {
+  const clientId = config.PAYPAL_CLIENT_ID;
+  const mode = config.PAYPAL_MODE || 'sandbox';
+  if (!clientId) return res.status(500).json({ error: 'PayPal not configured' });
+  res.json({ clientId, mode });
+});
+
+// Crear orden de PayPal (el frontend la crea via SDK popup)
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
     const { tokensPackage } = req.body;
     if (!tokensPackage) return res.status(400).json({ error: 'Missing tokensPackage' });
 
     const result = await createPaypalOrder(req.userId, tokensPackage);
-    res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
+    res.json({ success: true, orderId: result.orderId });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Capturar pago (después de que el usuario aprueba en PayPal)
+// Capturar pago (después de que el usuario aprueba en el popup)
 router.post('/capture-order', authMiddleware, async (req, res) => {
   try {
     const { orderId } = req.body;
