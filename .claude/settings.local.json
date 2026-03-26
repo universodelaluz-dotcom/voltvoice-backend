@@ -40,7 +40,20 @@
       "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\n\" -X POST https://voltvoice-backend.onrender.com/api/synthesis/synthesize -H \"Content-Type: application/json\" -H \"x-user-id: 1\" -d '{\"\"text\"\":\"\"test\"\",\"\"voiceId\"\":\"\"test\"\"}')",
       "Bash(sed -i '56,75d' /tmp/voltvoice-frontend/src/components/SynthesisStudio.jsx)",
       "Bash(sed -n '36,60p' /tmp/voltvoice-frontend/src/components/SynthesisStudio.jsx)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(gh pr:*)",
+      "Bash(curl -s -I -X OPTIONS \"https://voltvoice-backend.onrender.com/api/tiktok/status/tourspuebla\" -H \"Origin: https://voltvoice-frontend.vercel.app\" -H \"Access-Control-Request-Method: GET\")",
+      "Bash(curl -s -I \"https://voltvoice-backend.onrender.com/api/tiktok/status/tourspuebla\" -H \"Origin: https://voltvoice-frontend.vercel.app\")",
+      "Bash(curl -s \"https://voltvoice-backend.onrender.com/api/tiktok/message\" -X POST -H \"Content-Type: application/json\" -H \"Origin: https://voltvoice-frontend.vercel.app\" -d '{\"\"username\"\":\"\"tourspuebla\"\",\"\"messageUsername\"\":\"\"testuser\"\",\"\"messageText\"\":\"\"hola mundo\"\",\"\"voiceId\"\":\"\"es-ES\"\"}')",
+      "Bash(curl -s \"https://voltvoice-backend.onrender.com/api/tiktok/connect\" -X POST -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"tourspuebla\"\"}')",
+      "Bash(curl -s \"https://voltvoice-backend.onrender.com/api/tiktok/message\" -X POST -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"tourspuebla\"\"\"\",\"\"\"\"messageUsername\"\"\"\":\"\"\"\"testuser\"\"\"\",\"\"\"\"messageText\"\"\"\":\"\"\"\"hola mundo\"\"\"\",\"\"\"\"voiceId\"\"\"\":\"\"\"\"es-ES\"\"\"\"}')",
+      "Bash(find 'C:\\\\Nueva carpeta\\\\VOLTVOICE 6000000 m23\\\\VOLTVOICE 6000000\\\\VOLTVOICE x 2\\\\VOLTVOICE' -type f -name *inworld* -o -name *Inworld*)",
+      "Bash(find 'C:\\\\Nueva carpeta\\\\VOLTVOICE 6000000 m23\\\\VOLTVOICE 6000000\\\\VOLTVOICE x 2\\\\VOLTVOICE' -type f \\\\\\(-name .env* -o -name *.json \\\\\\) ! -path */node_modules/* ! -path */.git/*)",
+      "Bash(cat:*)",
+      "Bash(grep -r \"voiceId\\\\|voice_id\\\\|inworld_custom\\\\|default-cfjnp8x4nt\" 'C:\\\\Users\\\\alain\\\\OneDrive\\\\Desktop\\\\VOLTVOICE 6000000 m23\\\\VOLTVOICE 6000000\\\\VOLTVOICE x 2\\\\VOLTVOICE' --include=*.json --include=*.js --include=*.jsx)",
+      "Bash(curl -s \"https://voltvoice-backend.onrender.com/api/inworld/health\")",
+      "Bash(curl -s -X POST \"https://voltvoice-backend.onrender.com/api/inworld/tts\" -H \"Content-Type: application/json\" -d '{\"\"\"\"text\"\"\"\":\"\"\"\"hola mundo\"\"\"\",\"\"\"\"voiceId\"\"\"\":\"\"\"\"Diego\"\"\"\"}')",
+      "Bash(\"C:\\\\Nueva carpeta\\\\VOLTVOICE:*)"
     ]
   }
 }
