@@ -1,14 +1,14 @@
 // Inworld AI Text-to-Speech Service
-// $5 per million characters (Mini) or $10 per million (Max)
-// ~8x cheaper than ElevenLabs
+// COPIADO DEL SISTEMA LOCAL QUE FUNCIONA PERFECTO
+// Usa Node https nativo (NO axios) - igual que el local
 
-import axios from 'axios';
+import https from 'https';
 
 class InworldTtsService {
   constructor() {
+    // La API key ya viene en base64 desde el .env (igual que el local)
     this.apiKey = process.env.INWORLD_API_KEY;
-    this.baseUrl = 'https://api.inworld.ai/tts/v1';
-    this.model = 'tts-1.5-max'; // Premium model with voice cloning
+    this.modelId = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
 
     if (!this.apiKey) {
       console.warn('[Inworld TTS] API key not configured');
@@ -16,226 +16,141 @@ class InworldTtsService {
   }
 
   /**
-   * Sintetizar texto a voz
-   * @param {string} text - Texto a sintetizar
-   * @param {string} voiceId - ID de la voz (preexistente o clonada)
-   * @returns {Promise<Buffer>} Audio MP3
+   * Sintetizar texto a voz - COPIA EXACTA del local speakInworld()
    */
-  async synthesize(text, voiceId = 'default-cfjnp8x4nt-owd7yg-1xsw__garret') {
-    try {
+  async synthesize(text, voiceId = 'Diego') {
+    return new Promise((resolve, reject) => {
       if (!text || text.length === 0) {
-        throw new Error('Text cannot be empty');
-      }
-
-      if (text.length > 5000) {
-        throw new Error('Text too long. Maximum 5000 characters.');
+        reject(new Error('Text cannot be empty'));
+        return;
       }
 
       if (!this.apiKey) {
-        throw new Error('Inworld API key not configured');
+        reject(new Error('Inworld API key not configured'));
+        return;
       }
 
       console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${voiceId}`);
 
-      // Endpoint: voice:stream para respuesta streaming
-      const response = await axios.post(
-        `${this.baseUrl}/voice:stream`,
-        {
-          text: text,
-          voice_id: voiceId,
-          model_id: 'inworld-tts-1.5-max',
-          audio_config: {
-            audio_encoding: 'MP3',
-            speaking_rate: 1
-          },
-          temperature: 1
+      // REQUEST BODY - EXACTO como el local (camelCase)
+      const requestBody = JSON.stringify({
+        text: text,
+        voiceId: voiceId,
+        modelId: this.modelId
+      });
+
+      // HTTP OPTIONS - EXACTO como el local
+      const options = {
+        hostname: 'api.inworld.ai',
+        port: 443,
+        path: '/tts/v1/voice:stream',
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${this.apiKey}`,  // Key YA es base64 desde .env
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
         },
-        {
-          headers: {
-            'Authorization': `Basic ${Buffer.from(this.apiKey).toString('base64')}`,
-            'Content-Type': 'application/json'
-          },
-          responseType: 'arraybuffer',
-          timeout: 30000
-        }
-      );
-
-      console.log(`[Inworld TTS] Successfully synthesized ${text.length} characters (${response.data.length} bytes)`);
-
-      return {
-        success: true,
-        audio: response.data,
-        contentType: 'audio/mpeg'
       };
-    } catch (error) {
-      console.error('[Inworld TTS] Error synthesizing:', error.message);
-      throw error;
-    }
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+
+        console.log(`[Inworld TTS] Response status: ${res.statusCode}`);
+
+        res.on('data', (chunk) => {
+          chunks.push(chunk);
+        });
+
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) {
+              const dataBuffer = Buffer.concat(chunks);
+              const data = dataBuffer.toString('utf-8');
+              console.error(`[Inworld TTS] API error: ${res.statusCode} - ${data.substring(0, 300)}`);
+              reject(new Error(`Inworld API error: ${res.statusCode} - ${data}`));
+              return;
+            }
+
+            const dataBuffer = Buffer.concat(chunks);
+            console.log(`[Inworld TTS] Response OK (${dataBuffer.length} bytes)`);
+
+            if (dataBuffer.length === 0) {
+              reject(new Error('Empty response from Inworld'));
+              return;
+            }
+
+            // PARSEO - EXACTO como el local
+            // La respuesta contiene MÚLTIPLES audioContent fields (streaming chunks)
+            const data = dataBuffer.toString('utf-8');
+
+            const allMatches = data.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/g) || [];
+            console.log(`[Inworld TTS] audioContent fields found: ${allMatches.length}`);
+
+            if (allMatches.length === 0) {
+              console.error(`[Inworld TTS] No audioContent found. Preview: ${data.substring(0, 300)}`);
+              reject(new Error('No audioContent found'));
+              return;
+            }
+
+            // Decodificar CADA chunk por separado y concatenar como BINARIO
+            const audioChunks = [];
+
+            for (let i = 0; i < allMatches.length; i++) {
+              const match = allMatches[i];
+              const contentMatch = match.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/);
+              if (contentMatch && contentMatch[1]) {
+                const base64Content = contentMatch[1];
+                try {
+                  const chunk = Buffer.from(base64Content, 'base64');
+                  audioChunks.push(chunk);
+                } catch (e) {
+                  console.error(`[Inworld TTS] Error decoding chunk ${i + 1}: ${e.message}`);
+                }
+              }
+            }
+
+            // Concatenar todos los chunks binarios
+            const audioBuffer = Buffer.concat(audioChunks);
+            console.log(`[Inworld TTS] Audio combined: ${audioBuffer.length} bytes from ${audioChunks.length} chunks`);
+
+            if (!audioBuffer || audioBuffer.length === 0) {
+              reject(new Error('No audio content found'));
+              return;
+            }
+
+            resolve({
+              success: true,
+              audio: audioBuffer,
+              contentType: 'audio/mpeg'
+            });
+
+          } catch (err) {
+            console.error('[Inworld TTS] Error processing response:', err.message);
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error('[Inworld TTS] Request error:', err.message);
+        reject(err);
+      });
+
+      console.log(`[Inworld TTS] Sending request - voiceId: ${voiceId}, modelId: ${this.modelId}`);
+      req.write(requestBody);
+      req.end();
+    });
   }
 
   /**
-   * Sintetizar y retornar como data URL
-   */
-  async synthesizeAndSave(text, voiceId, userId) {
-    try {
-      const result = await this.synthesize(text, voiceId);
-      const base64 = Buffer.from(result.audio).toString('base64');
-      const audioUrl = `data:audio/mpeg;base64,${base64}`;
-
-      return {
-        success: true,
-        audioUrl: audioUrl,
-        duration: null
-      };
-    } catch (error) {
-      console.error('[Inworld TTS] Error in synthesizeAndSave:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Clonar una voz con audio de referencia
-   * @param {string} voiceName - Nombre para la voz clonada
-   * @param {Buffer} audioBuffer - Audio de referencia (2-15 segundos)
-   * @returns {Promise<string>} ID de la voz clonada
-   */
-  async cloneVoice(voiceName, audioBuffer) {
-    try {
-      if (!this.apiKey) {
-        throw new Error('Inworld API key not configured');
-      }
-
-      console.log(`[Inworld TTS] Cloning voice: "${voiceName}"`);
-
-      // Crear FormData con archivo de audio
-      const FormData = require('form-data');
-      const formData = new FormData();
-      formData.append('name', voiceName);
-      formData.append('audio', audioBuffer, { filename: 'reference.mp3' });
-
-      const response = await axios.post(
-        `${this.baseUrl}/voices:clone`,
-        formData,
-        {
-          headers: {
-            'Authorization': `Basic ${Buffer.from(this.apiKey).toString('base64')}`,
-            ...formData.getHeaders()
-          },
-          timeout: 30000
-        }
-      );
-
-      // Extraer voiceId de la respuesta
-      const clonedVoiceId = response.data.voice_id || response.data.id;
-      console.log(`[Inworld TTS] Voice cloned successfully: ${clonedVoiceId}`);
-
-      return clonedVoiceId;
-    } catch (error) {
-      console.error('[Inworld TTS] Error cloning voice:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Obtener voces disponibles (predefinidas + clonadas)
+   * Obtener voces disponibles
    */
   async getAvailableVoices() {
     return [
-      // Voces predefinidas
-      { voice_id: 'default-spanish', name: 'Spanish Default', category: 'premade' },
-      { voice_id: 'default-english', name: 'English Default', category: 'premade' },
-
-      // Voces clonadas del usuario
+      { voice_id: 'Diego', name: 'Diego', category: 'premade' },
       { voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret', name: 'Garret (Clonada)', category: 'cloned' },
       { voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__connor', name: 'Connor (Clonada)', category: 'cloned' }
     ];
-  }
-
-  /**
-   * Obtener voces del usuario (clonadas)
-   */
-  async getUserVoices(userId) {
-    // TODO: Conectar a base de datos para obtener voces clonadas del usuario
-    return [];
-  }
-
-  /**
-   * Obtener uso de caracteres
-   */
-  async getUsage() {
-    try {
-      if (!this.apiKey) {
-        return {
-          characterLimit: 1000000,
-          charactersUsed: 0,
-          remainingCharacters: 1000000,
-          tier: 'free'
-        };
-      }
-
-      const response = await axios.get(
-        `${this.baseUrl}/usage`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          }
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('[Inworld TTS] Error getting usage:', error.message);
-      return {
-        characterLimit: 1000000,
-        charactersUsed: 0,
-        remainingCharacters: 1000000,
-        tier: 'free'
-      };
-    }
-  }
-
-  /**
-   * Eliminar una voz clonada
-   */
-  async deleteVoice(voiceId) {
-    try {
-      if (!this.apiKey) {
-        throw new Error('Inworld API key not configured');
-      }
-
-      await axios.delete(
-        `${this.baseUrl}/voices/${voiceId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          }
-        }
-      );
-
-      console.log(`[Inworld TTS] Voice deleted: ${voiceId}`);
-      return true;
-    } catch (error) {
-      console.error('[Inworld TTS] Error deleting voice:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Obtener estadísticas de costo
-   */
-  getCostEstimate(characterCount) {
-    // $5 per million characters (Mini)
-    // $10 per million characters (Max)
-    const costMini = (characterCount / 1000000) * 5;
-    const costMax = (characterCount / 1000000) * 10;
-
-    return {
-      characters: characterCount,
-      costMini: `$${costMini.toFixed(4)}`,
-      costMax: `$${costMax.toFixed(4)}`,
-      costMiniMXN: `$${(costMini * 18).toFixed(2)} MXN`,
-      costMaxMXN: `$${(costMax * 18).toFixed(2)} MXN`
-    };
   }
 }
 
