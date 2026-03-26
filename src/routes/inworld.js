@@ -25,11 +25,21 @@ router.post('/tts', (req, res) => {
       return res.status(500).json({ error: 'INWORLD_API_KEY not configured' });
     }
 
-    console.log(`[Inworld TTS] Sintetizando: "${text.substring(0, 50)}..." (voz: ${voiceId})`);
+    // Mapear voiceIds del frontend a nombres reales de Inworld
+    const voiceMap = {
+      'default-spanish': 'Diego',
+      'default-english': 'Garret',
+      'es-ES': 'Diego',
+      'es-MX': 'Diego',
+      'default': 'Diego'
+    };
+    const mappedVoice = voiceMap[voiceId] || voiceId || 'Diego';
+
+    console.log(`[Inworld TTS] Sintetizando: "${text.substring(0, 50)}..." (voz: ${voiceId} → ${mappedVoice})`);
 
     const requestBody = JSON.stringify({
       text: text,
-      voiceId: voiceId,
+      voiceId: mappedVoice,
       modelId: 'inworld-tts-1.5-max'
     });
 
