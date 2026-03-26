@@ -26,9 +26,10 @@ class MercadoPagoService {
       }
 
       const packages = {
-        500: { price: 4.99, tokens: 500, description: '500 Tokens' },
-        1000: { price: 8.99, tokens: 1000, description: '1000 Tokens (Popular)' },
-        5000: { price: 39.99, tokens: 5000, description: '5000 Tokens' }
+        100000: { price: 3.00, tokens: 100000, description: '100K Tokens - Pequeño' },
+        250000: { price: 7.00, tokens: 250000, description: '250K Tokens - Mediano' },
+        500000: { price: 12.00, tokens: 500000, description: '500K Tokens - Grande' },
+        1000000: { price: 20.00, tokens: 1000000, description: '1M Tokens - Máximo' }
       };
 
       const pkg = packages[tokensPackage];

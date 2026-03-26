@@ -9,6 +9,7 @@ import { config } from './config.js';
 import tokenRoutes from './src/routes/tokens.js';
 import synthesisRoutes from './src/routes/synthesis.js';
 import mercadoPagoRoutes from './src/routes/mercadoPago.js';
+import paypalRoutes from './src/routes/paypal.js';
 import tiktokRoutes from './src/routes/tiktok.js';
 import inworldRoutes from './src/routes/inworld.js';
 import ttsRoutes from './src/routes/tts.js';
@@ -71,6 +72,8 @@ try {
   console.log('[STARTUP] ✓ Synthesis routes loaded');
   app.use('/api/mercadopago', mercadoPagoRoutes);
   console.log('[STARTUP] ✓ Mercado Pago routes loaded');
+  app.use('/api/paypal', paypalRoutes);
+  console.log('[STARTUP] ✓ PayPal routes loaded');
   app.use('/api/tiktok', tiktokRoutes);
   console.log('[STARTUP] ✓ TikTok routes loaded');
   app.use('/api/inworld', inworldRoutes);
@@ -97,7 +100,8 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     version: 'REST-API-v1',
-    mercadoPagoConfigured: !!config.MERCADO_PAGO_ACCESS_TOKEN
+    mercadoPagoConfigured: !!config.MERCADO_PAGO_ACCESS_TOKEN,
+    paypalConfigured: !!config.PAYPAL_CLIENT_ID
   });
 });
 

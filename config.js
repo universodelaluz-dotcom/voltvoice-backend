@@ -33,6 +33,11 @@ export const config = {
   // Mercado Pago
   MERCADO_PAGO_ACCESS_TOKEN: process.env.MERCADO_PAGO_ACCESS_TOKEN,
 
+  // PayPal
+  PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
+  PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
+  PAYPAL_MODE: process.env.PAYPAL_MODE || 'sandbox',
+
   // Google TTS
   GOOGLE_TTS_LANG: process.env.GOOGLE_TTS_LANG || 'es-MX',
 
