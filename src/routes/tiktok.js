@@ -92,15 +92,11 @@ router.post('/message', async (req, res) => {
   }
 
   try {
-    // Agregar mensaje a la cola
-    const message = tiktokLiveService.addMessage(username, {
+    // Agregar mensaje a la cola (no bloquear si no hay stream)
+    tiktokLiveService.addMessage(username, {
       username: messageUsername || 'Usuario',
       text: messageText
     });
-
-    if (!message) {
-      return res.status(404).json({ error: 'Stream no encontrado' });
-    }
 
     // Usar Inworld TTS - mapear voiceId al formato que usa Inworld
     const voiceMap = {
@@ -113,24 +109,7 @@ router.post('/message', async (req, res) => {
 
     console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
 
-    let synthesisResult;
-    try {
-      synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
-    } catch (synthError) {
-      console.error('[TikTok] Inworld synthesis error:', synthError);
-      return res.status(500).json({
-        error: 'Error sintetizando con Inworld TTS',
-        details: synthError.message
-      });
-    }
-
-    if (!synthesisResult || !synthesisResult.success) {
-      console.error('[TikTok] Synthesis result invalid:', synthesisResult);
-      return res.status(500).json({
-        error: 'Error sintetizando mensaje',
-        details: synthesisResult
-      });
-    }
+    const synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
 
     // Convertir Buffer a base64 data URL para el frontend
     let audioDataUrl;
@@ -138,14 +117,13 @@ router.post('/message', async (req, res) => {
       const base64 = synthesisResult.audio.toString('base64');
       audioDataUrl = `data:${synthesisResult.contentType || 'audio/mpeg'};base64,${base64}`;
     } else if (typeof synthesisResult.audio === 'string') {
-      audioDataUrl = synthesisResult.audio; // Ya es data URL
+      audioDataUrl = synthesisResult.audio;
     } else {
       audioDataUrl = null;
     }
 
     return res.status(200).json({
       success: true,
-      messageId: message.id,
       audio: audioDataUrl,
       contentType: synthesisResult.contentType,
       text: messageText,
