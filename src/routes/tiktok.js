@@ -102,8 +102,14 @@ router.post('/message', async (req, res) => {
       return res.status(404).json({ error: 'Stream no encontrado' });
     }
 
-    // Usar Inworld TTS (8x más barato que ElevenLabs)
-    const selectedVoiceId = voiceId || 'default-spanish';
+    // Usar Inworld TTS - mapear voiceId al formato que usa Inworld
+    const voiceMap = {
+      'es-ES': 'Diego',
+      'es-MX': 'Diego',
+      'default-spanish': 'Diego',
+      'default': 'Diego'
+    };
+    const selectedVoiceId = voiceMap[voiceId] || voiceId || 'Diego';
 
     console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
 
