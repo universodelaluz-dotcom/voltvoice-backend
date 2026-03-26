@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import tiktokLiveService from '../services/tiktokLiveService.js';
+import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
 
@@ -76,6 +77,79 @@ router.post('/connect', async (req, res) => {
     console.error('[TikTok] Error conectando:', error.message);
     return res.status(400).json({
       error: error.message || 'Error conectando a TikTok LIVE'
+    });
+  }
+});
+
+/**
+ * POST /api/tiktok/message - Procesar y sintetizar mensaje manualmente
+ */
+router.post('/message', async (req, res) => {
+  const { username, messageUsername, messageText, voiceId } = req.body;
+
+  if (!username || !messageText) {
+    return res.status(400).json({ error: 'username and messageText required' });
+  }
+
+  try {
+    // Agregar mensaje a la cola
+    const message = tiktokLiveService.addMessage(username, {
+      username: messageUsername || 'Usuario',
+      text: messageText
+    });
+
+    if (!message) {
+      return res.status(404).json({ error: 'Stream no encontrado' });
+    }
+
+    // Usar Inworld TTS (8x más barato que ElevenLabs)
+    const selectedVoiceId = voiceId || 'default-spanish';
+
+    console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
+
+    let synthesisResult;
+    try {
+      synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
+    } catch (synthError) {
+      console.error('[TikTok] Inworld synthesis error:', synthError);
+      return res.status(500).json({
+        error: 'Error sintetizando con Inworld TTS',
+        details: synthError.message
+      });
+    }
+
+    if (!synthesisResult || !synthesisResult.success) {
+      console.error('[TikTok] Synthesis result invalid:', synthesisResult);
+      return res.status(500).json({
+        error: 'Error sintetizando mensaje',
+        details: synthesisResult
+      });
+    }
+
+    // Convertir Buffer a base64 data URL para el frontend
+    let audioDataUrl;
+    if (Buffer.isBuffer(synthesisResult.audio)) {
+      const base64 = synthesisResult.audio.toString('base64');
+      audioDataUrl = `data:${synthesisResult.contentType || 'audio/mpeg'};base64,${base64}`;
+    } else if (typeof synthesisResult.audio === 'string') {
+      audioDataUrl = synthesisResult.audio; // Ya es data URL
+    } else {
+      audioDataUrl = null;
+    }
+
+    return res.status(200).json({
+      success: true,
+      messageId: message.id,
+      audio: audioDataUrl,
+      contentType: synthesisResult.contentType,
+      text: messageText,
+      user: messageUsername || 'Usuario'
+    });
+  } catch (error) {
+    console.error('[TikTok] Error procesando mensaje:', error);
+    return res.status(500).json({
+      error: error.message || 'Error procesando mensaje',
+      details: error.toString()
     });
   }
 });
