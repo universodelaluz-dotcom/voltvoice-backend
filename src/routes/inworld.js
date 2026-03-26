@@ -45,7 +45,7 @@ router.post('/tts', (req, res) => {
       },
     };
 
-    const req = https.request(options, (response) => {
+    const httpsReq = https.request(options, (response) => {
       const chunks = [];
 
       console.log(`[Inworld TTS] Response status: ${response.statusCode}`);
@@ -135,7 +135,7 @@ router.post('/tts', (req, res) => {
       });
     });
 
-    req.on('error', (err) => {
+    httpsReq.on('error', (err) => {
       console.error('[Inworld TTS] Request error:', err.message);
       return res.status(500).json({
         error: 'Request error',
@@ -144,8 +144,8 @@ router.post('/tts', (req, res) => {
     });
 
     console.log(`[Inworld TTS] Enviando solicitud con voiceId: ${voiceId}`);
-    req.write(requestBody);
-    req.end();
+    httpsReq.write(requestBody);
+    httpsReq.end();
   } catch (error) {
     console.error('[Inworld TTS] Error:', error.message);
     return res.status(500).json({
