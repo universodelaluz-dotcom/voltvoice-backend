@@ -27,7 +27,7 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     if (!tokensPackage) return res.status(400).json({ error: 'Missing tokensPackage' });
 
     const result = await createPaypalOrder(req.userId, tokensPackage);
-    res.json({ success: true, orderId: result.orderId });
+    res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
     res.status(500).json({ error: error.message });
