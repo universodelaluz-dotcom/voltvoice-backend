@@ -44,7 +44,8 @@ class MercadoPagoService {
             title: `VoltVoice - ${pkg.description}`,
             description: `Compra ${tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
-            unit_price: pkg.price
+            unit_price: pkg.price,
+            currency_id: 'USD'
           }
         ],
         payer: {
@@ -57,7 +58,8 @@ class MercadoPagoService {
         },
         auto_return: 'approved',
         notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
-        external_reference: `user_${userId}_tokens_${tokensPackage}`
+        external_reference: `user_${userId}_tokens_${tokensPackage}`,
+        currency_id: 'USD'
       };
 
       console.log('[MERCADO_PAGO] Sending request to Mercado Pago API...');
