@@ -1,0 +1,73 @@
+import { Router } from 'express';
+import https from 'https';
+import gTTS from 'google-tts-api';
+
+const router = Router();
+
+/**
+ * POST /api/tts/say - Google TTS (Sistema funcional copiado)
+ * Usa google-tts-api que SI FUNCIONA
+ */
+router.post('/say', async (req, res) => {
+  try {
+    const { text, rate = 160, voice } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: 'text required' });
+    }
+
+    console.log(`[TTS] Google TTS: "${text.substring(0, 50)}..."`);
+
+    // Obtener URL de Google TTS (español México)
+    const url = gTTS.getAudioUrl(text, {
+      lang: 'es-MX',
+      slow: false,
+    });
+
+    // Descargar audio
+    const audioBuffer = await downloadAudio(url);
+    const base64Audio = audioBuffer.toString('base64');
+
+    // Estimar duración
+    const wordCount = Math.max(1, text.length / 5);
+    const duration = Math.round((wordCount / 150) * 60000 + 300);
+
+    console.log(`[TTS] ✅ Audio: ${audioBuffer.length} bytes, duración: ${duration}ms`);
+
+    return res.status(200).json({
+      success: true,
+      audio: `data:audio/mpeg;base64,${base64Audio}`,
+      audioSize: audioBuffer.length,
+      duration: duration,
+      text: text,
+      rate: rate
+    });
+
+  } catch (error) {
+    console.error('[TTS] Error:', error.message);
+    return res.status(500).json({
+      error: 'TTS Error',
+      detail: error.message
+    });
+  }
+});
+
+function downloadAudio(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (response) => {
+      const chunks = [];
+
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+
+      response.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+export default router;
