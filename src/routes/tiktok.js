@@ -16,6 +16,29 @@ router.use((req, res, next) => {
 });
 
 /**
+ * GET /api/tiktok/status/:username - Verificar estado de conexión
+ */
+router.get('/status/:username', (req, res) => {
+  const { username } = req.params;
+
+  try {
+    const status = tiktokLiveService.getStreamStatus(username);
+
+    return res.status(200).json({
+      success: true,
+      username,
+      isConnected: !!status,
+      status: status ? 'connected' : 'disconnected'
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
  * POST /api/tiktok/connect - Conectar a stream de TikTok LIVE
  */
 router.post('/connect', async (req, res) => {
