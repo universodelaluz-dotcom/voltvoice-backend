@@ -224,4 +224,34 @@ router.get('/stats', (req, res) => {
   });
 });
 
+/**
+ * GET /api/tiktok/test-inworld - Probar si Inworld funciona
+ */
+router.get('/test-inworld', async (req, res) => {
+  try {
+    const keyPreview = process.env.INWORLD_API_KEY
+      ? process.env.INWORLD_API_KEY.substring(0, 10) + '...'
+      : 'NOT SET';
+
+    console.log(`[Test] INWORLD_API_KEY starts with: ${keyPreview}`);
+
+    const result = await inworldTtsService.synthesize('prueba de voz', 'Diego');
+
+    return res.status(200).json({
+      success: true,
+      keyPreview,
+      audioSize: result.audio ? result.audio.length : 0,
+      message: 'Inworld TTS funciona correctamente'
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      keyPreview: process.env.INWORLD_API_KEY
+        ? process.env.INWORLD_API_KEY.substring(0, 10) + '...'
+        : 'NOT SET',
+      error: error.message
+    });
+  }
+});
+
 export default router;
