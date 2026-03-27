@@ -62,13 +62,16 @@ class TikTokLiveService {
         const donorsSet = this.donors.get(username);
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
+        const isModerator = data.userIdentity?.isModerator || false;
+
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
           username: data.uniqueId,
           text: data.comment,
           timestamp: Date.now(),
           status: 'received',
-          isDonor
+          isDonor,
+          isModerator
         };
 
         console.log(`[TikTok] Nuevo mensaje: @${message.username}: ${message.text}`);
@@ -111,6 +114,63 @@ class TikTokLiveService {
         });
       });
 
+      // Detectar seguidores y shares
+      tiktokConnection.on('social', (data) => {
+        const socialUser = data.uniqueId || data.nickname || 'alguien';
+        if (data.displayType === 'follow' || data.label === 'follow') {
+          console.log(`[TikTok] 👤 Nuevo seguidor: @${socialUser}`);
+          this.emitMessageToClients(username, {
+            type: 'follow', username: socialUser, timestamp: Date.now()
+          });
+        } else {
+          console.log(`[TikTok] 📤 Share de @${socialUser}`);
+          this.emitMessageToClients(username, {
+            type: 'share', username: socialUser, timestamp: Date.now()
+          });
+        }
+      });
+
+      // Detectar likes
+      tiktokConnection.on('like', (data) => {
+        console.log(`[TikTok] ❤️ ${data.totalLikeCount} likes totales`);
+        this.emitMessageToClients(username, {
+          type: 'like', totalLikeCount: data.totalLikeCount, username: data.uniqueId || '', timestamp: Date.now()
+        });
+      });
+
+      // Detectar viewers
+      tiktokConnection.on('roomUser', (data) => {
+        console.log(`[TikTok] 👁️ ${data.viewerCount} viewers`);
+        this.emitMessageToClients(username, {
+          type: 'viewer_count', viewerCount: data.viewerCount, timestamp: Date.now()
+        });
+      });
+
+      // Detectar batallas
+      tiktokConnection.on('linkMicBattle', (data) => {
+        console.log(`[TikTok] ⚔️ Batalla detectada`);
+        this.emitMessageToClients(username, {
+          type: 'battle', timestamp: Date.now()
+        });
+      });
+
+      // Detectar encuestas
+      tiktokConnection.on('poll', (data) => {
+        console.log(`[TikTok] 📊 Encuesta detectada`);
+        this.emitMessageToClients(username, {
+          type: 'poll', text: data?.questionText || 'Nueva encuesta', timestamp: Date.now()
+        });
+      });
+
+      // Detectar metas/goals
+      tiktokConnection.on('goalUpdate', (data) => {
+        console.log(`[TikTok] 🎯 Meta actualizada`);
+        this.emitMessageToClients(username, {
+          type: 'goal', text: 'Avance en meta del stream', timestamp: Date.now()
+        });
+      });
+
+      // Agregar isModerator a mensajes de chat
       tiktokConnection.on('error', (error) => {
         console.error(`[TikTok] Error en stream @${username}:`, error);
       });
