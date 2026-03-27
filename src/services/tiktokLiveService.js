@@ -7,6 +7,7 @@ class TikTokLiveService {
     this.messageQueue = new Map();
     this.tiktokConnections = new Map(); // Almacenar conexiones de TikTok
     this.clientCallbacks = new Map(); // Callbacks para enviar mensajes a clientes
+    this.donors = new Map(); // username -> Set de usuarios que han donado
   }
 
   /**
@@ -58,12 +59,16 @@ class TikTokLiveService {
 
       // Configurar listeners
       tiktokConnection.on('chat', (data) => {
+        const donorsSet = this.donors.get(username);
+        const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
+
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
           username: data.uniqueId,
           text: data.comment,
           timestamp: Date.now(),
-          status: 'received'
+          status: 'received',
+          isDonor
         };
 
         console.log(`[TikTok] Nuevo mensaje: @${message.username}: ${message.text}`);
@@ -79,6 +84,31 @@ class TikTokLiveService {
 
         // Emitir a todos los clientes WebSocket conectados
         this.emitMessageToClients(username, message);
+      });
+
+      // Detectar regalos/donaciones
+      tiktokConnection.on('gift', (data) => {
+        const donorUser = data.uniqueId || data.nickname || 'anónimo';
+        const giftName = data.giftName || 'regalo';
+        const repeatCount = data.repeatCount || 1;
+
+        console.log(`[TikTok] 🎁 Regalo de @${donorUser}: ${giftName} x${repeatCount}`);
+
+        // Registrar como donador
+        if (!this.donors.has(username)) {
+          this.donors.set(username, new Set());
+        }
+        this.donors.get(username).add(donorUser);
+
+        // Emitir evento de regalo a los clientes
+        this.emitMessageToClients(username, {
+          id: `gift-${username}-${Date.now()}`,
+          type: 'gift',
+          username: donorUser,
+          giftName,
+          repeatCount,
+          timestamp: Date.now()
+        });
       });
 
       tiktokConnection.on('error', (error) => {
@@ -165,6 +195,7 @@ class TikTokLiveService {
     this.activeStreams.delete(username);
     this.messageQueue.delete(username);
     this.clientCallbacks.delete(username);
+    this.donors.delete(username);
 
     console.log(`[TikTok] ✓ Desconectado de @${username}`);
   }
