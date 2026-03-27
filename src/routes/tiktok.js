@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import https from 'https';
+import gTTS from 'google-tts-api';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
 
@@ -98,18 +100,31 @@ router.post('/message', async (req, res) => {
       text: messageText
     });
 
-    // Usar Inworld TTS - mapear voiceId al formato que usa Inworld
-    const voiceMap = {
-      'es-ES': 'Diego',
-      'es-MX': 'Diego',
-      'default-spanish': 'Diego',
-      'default': 'Diego'
-    };
-    const selectedVoiceId = voiceMap[voiceId] || voiceId || 'Diego';
+    // Voces gratuitas usan Google TTS, el resto usa Inworld premium
+    const freeVoices = { 'es-ES': 'es-MX', 'en-US': 'en-US' };
+    const selectedVoiceId = voiceId || 'es-ES';
+    const isGoogleVoice = freeVoices.hasOwnProperty(selectedVoiceId);
 
-    console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
+    let synthesisResult;
 
-    const synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
+    if (isGoogleVoice) {
+      // Google TTS gratuito
+      const lang = freeVoices[selectedVoiceId];
+      console.log(`[TikTok] Sintetizando con Google TTS - lang: ${lang}`);
+      const url = gTTS.getAudioUrl(messageText, { lang, slow: false });
+      const audioBuffer = await new Promise((resolve, reject) => {
+        https.get(url, (response) => {
+          const chunks = [];
+          response.on('data', (chunk) => chunks.push(chunk));
+          response.on('end', () => resolve(Buffer.concat(chunks)));
+        }).on('error', reject);
+      });
+      synthesisResult = { audio: audioBuffer, contentType: 'audio/mpeg' };
+    } else {
+      // Inworld premium TTS
+      console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
+      synthesisResult = await inworldTtsService.synthesize(messageText, selectedVoiceId);
+    }
 
     // Convertir Buffer a base64 data URL para el frontend
     let audioDataUrl;
