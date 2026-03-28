@@ -1,6 +1,6 @@
 import express from 'express';
 import db from '../db.js';
-import auth from '../middleware/auth.js';
+import auth from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -33,11 +33,13 @@ router.get('/stats', auth, async (req, res) => {
     const currentMonthRes = await db.query(
       `SELECT
         COUNT(*) as messages_count,
-        SUM(tokens_used) as tokens_used,
-        SUM(characters_count) as characters_synthesized,
+        COALESCE(SUM(tokens_used), 0) as tokens_used,
+        COALESCE(SUM(characters_count), 0) as characters_synthesized,
         COUNT(DISTINCT voice_name) as unique_voices
       FROM token_logs
-      WHERE user_id = $1 AND DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', NOW())`,
+      WHERE user_id = $1
+      AND EXTRACT(YEAR FROM timestamp) = EXTRACT(YEAR FROM NOW())
+      AND EXTRACT(MONTH FROM timestamp) = EXTRACT(MONTH FROM NOW())`,
       [userId]
     );
     const currentMonth = currentMonthRes.rows[0];
@@ -53,8 +55,8 @@ router.get('/stats', auth, async (req, res) => {
     const allTimeRes = await db.query(
       `SELECT
         COUNT(*) as total_messages,
-        SUM(tokens_used) as total_tokens,
-        SUM(characters_count) as total_characters,
+        COALESCE(SUM(tokens_used), 0) as total_tokens,
+        COALESCE(SUM(characters_count), 0) as total_characters,
         MAX(voice_name) as most_used_voice
       FROM token_logs
       WHERE user_id = $1`,
@@ -78,7 +80,7 @@ router.get('/stats', auth, async (req, res) => {
       `SELECT
         DATE(timestamp) as date,
         COUNT(*) as messages,
-        SUM(tokens_used) as tokens_used
+        COALESCE(SUM(tokens_used), 0) as tokens_used
        FROM token_logs
        WHERE user_id = $1 AND timestamp > NOW() - INTERVAL '30 days'
        GROUP BY DATE(timestamp)
@@ -101,10 +103,11 @@ router.get('/stats', auth, async (req, res) => {
 
     // Crecimiento vs mes anterior
     const lastMonthRes = await db.query(
-      `SELECT COUNT(*) as count, SUM(tokens_used) as tokens
+      `SELECT COUNT(*) as count, COALESCE(SUM(tokens_used), 0) as tokens
        FROM token_logs
        WHERE user_id = $1
-       AND DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', NOW() - INTERVAL '1 month')`,
+       AND EXTRACT(YEAR FROM timestamp) = EXTRACT(YEAR FROM NOW() - INTERVAL '1 month')
+       AND EXTRACT(MONTH FROM timestamp) = EXTRACT(MONTH FROM NOW() - INTERVAL '1 month')`,
       [userId]
     );
     const lastMonthCount = parseInt(lastMonthRes.rows[0]?.count) || 0;
