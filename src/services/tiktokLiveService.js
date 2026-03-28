@@ -66,6 +66,13 @@ class TikTokLiveService {
         const isSubscriber = data.userAttributes?.isSubscriber || false;
         const topGifterRank = data.userAttributes?.topGifterRank || 0;
 
+        // DEBUG: Log de toda la estructura
+        console.log(`[DEBUG] userAttributes:`, JSON.stringify({
+          isSubscriber: data.userAttributes?.isSubscriber,
+          topGifterRank: data.userAttributes?.topGifterRank,
+          userBadges: data.userAttributes?.userBadges?.length || 0
+        }));
+
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
           username: data.uniqueId,
@@ -79,7 +86,12 @@ class TikTokLiveService {
           topGifterRank
         };
 
-        console.log(`[TikTok] Nuevo mensaje: @${message.username}: ${message.text}`);
+        console.log(`[TikTok] Nuevo mensaje: @${message.username}: ${message.text}`, {
+          isDonor,
+          isModerator,
+          isSubscriber,
+          topGifterRank
+        });
 
         // Agregar a cola
         this.addMessage(username, {
