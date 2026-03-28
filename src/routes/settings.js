@@ -192,4 +192,44 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/settings/voices/migrate - Migrar voces existentes de Inworld a la DB del usuario
+ * Solo funciona una vez por voz (ON CONFLICT ignora duplicados)
+ */
+router.post('/voices/migrate', verifyToken, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.userId]);
+    const email = userResult.rows[0]?.email;
+
+    // Voces pre-existentes por email
+    const preExistingVoices = {
+      'alainsh@gmail.com': [
+        { voice_name: 'Garret', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret', provider: 'inworld' },
+        { voice_name: 'Connor', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__connor', provider: 'inworld' },
+      ]
+    };
+
+    const voices = preExistingVoices[email];
+    if (!voices || voices.length === 0) {
+      return res.json({ success: true, message: 'No hay voces para migrar', migrated: 0 });
+    }
+
+    let migrated = 0;
+    for (const v of voices) {
+      await pool.query(
+        `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, voice_name) DO NOTHING`,
+        [req.user.userId, v.voice_name, v.voice_id, v.provider]
+      );
+      migrated++;
+    }
+
+    return res.json({ success: true, migrated });
+  } catch (error) {
+    console.error('[Migrate] Error:', error.message);
+    return res.status(500).json({ error: 'Error migrando voces' });
+  }
+});
+
 export default router;
