@@ -64,6 +64,50 @@ app.use((req, res, next) => {
   next();
 });
 
+// ===== AUTO-MIGRATE DATABASE =====
+import pool from './src/db.js';
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255),
+        plan VARCHAR(50) DEFAULT 'free',
+        tokens INT DEFAULT 100,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      -- Add password_hash column if table exists but column doesn't
+      DO $$ BEGIN
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      CREATE TABLE IF NOT EXISTS token_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        action VARCHAR(255),
+        tokens_used INT,
+        characters_count INT,
+        voice_name VARCHAR(255),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS transactions (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        tokens_purchased INT,
+        amount_usd DECIMAL(10, 2),
+        stripe_payment_id VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('[DB] ✓ Auto-migration completed');
+  } catch (err) {
+    console.error('[DB] Migration error:', err.message);
+  }
+})();
+
 // ===== ROUTES =====
 console.log('[STARTUP] Loading routes...');
 try {
