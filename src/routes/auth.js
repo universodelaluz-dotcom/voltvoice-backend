@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import pool from '../db.js';
 import { generateToken, verifyToken } from '../../middleware/auth.js';
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const router = Router();
 
@@ -221,6 +225,79 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('[Auth] Error en login:', error.message);
     return res.status(500).json({ error: 'Error iniciando sesión' });
+  }
+});
+
+/**
+ * POST /api/auth/google - Iniciar sesión con Google
+ */
+router.post('/google', async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return res.status(400).json({ error: 'Token de Google requerido' });
+  }
+
+  if (!GOOGLE_CLIENT_ID) {
+    console.error('[Auth] GOOGLE_CLIENT_ID no configurado');
+    return res.status(500).json({ error: 'Google login no configurado en el servidor' });
+  }
+
+  try {
+    // Verificar el token de Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload.email.toLowerCase();
+    const name = payload.name || '';
+    const picture = payload.picture || '';
+
+    console.log(`[Auth] Google login para: ${email}`);
+
+    // Buscar si el usuario ya existe
+    let result = await pool.query(
+      'SELECT id, email, plan, tokens FROM users WHERE email = $1',
+      [email]
+    );
+
+    let user;
+
+    if (result.rows.length > 0) {
+      // Usuario existente - actualizar last login
+      user = result.rows[0];
+      await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+      console.log(`[Auth] Google login exitoso (existente): ${email} (ID: ${user.id})`);
+    } else {
+      // Usuario nuevo - crear cuenta automáticamente
+      const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+      result = await pool.query(
+        'INSERT INTO users (email, password_hash, plan, tokens) VALUES ($1, $2, $3, $4) RETURNING id, email, plan, tokens',
+        [email, randomHash, 'free', 100]
+      );
+      user = result.rows[0];
+      console.log(`[Auth] Nuevo usuario creado via Google: ${email} (ID: ${user.id})`);
+    }
+
+    const token = generateToken(user.id);
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        plan: user.plan,
+        tokens: user.tokens,
+        name,
+        picture,
+      }
+    });
+  } catch (error) {
+    console.error('[Auth] Error Google login:', error.message);
+    return res.status(401).json({ error: 'Token de Google inválido' });
   }
 });
 
