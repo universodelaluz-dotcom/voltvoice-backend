@@ -7,7 +7,7 @@ const router = express.Router();
 // GET /api/stats - Obtener estadísticas del usuario
 router.get('/stats', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId; // Token tiene 'userId', no 'id'
 
     // Obtener plan del usuario y límites de tokens
     const userRes = await db.query('SELECT plan, tokens, created_at FROM users WHERE id = $1', [userId]);
