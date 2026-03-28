@@ -16,6 +16,8 @@ import ttsRoutes from './src/routes/tts.js';
 import authRoutes from './src/routes/auth.js';
 import settingsRoutes from './src/routes/settings.js';
 import statsRoutes from './src/routes/stats.js';
+import banRoutes from './src/routes/bans.js';
+import nickRoutes from './src/routes/nicks.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -122,6 +124,28 @@ import pool from './src/db.js';
         status VARCHAR(50) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      -- Banned users (para persistir bans entre streams)
+      CREATE TABLE IF NOT EXISTS banned_users (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        banned_username VARCHAR(255) NOT NULL,
+        reason VARCHAR(500),
+        banned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        banned_by VARCHAR(255) NOT NULL,
+        UNIQUE(user_id, banned_username)
+      );
+      CREATE INDEX IF NOT EXISTS idx_banned_users_user ON banned_users(user_id);
+      -- Nick overrides (para persistir nicks editados entre streams)
+      CREATE TABLE IF NOT EXISTS nick_overrides (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_username VARCHAR(255) NOT NULL,
+        new_nickname VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, original_username)
+      );
+      CREATE INDEX IF NOT EXISTS idx_nick_overrides_user ON nick_overrides(user_id);
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
@@ -152,6 +176,10 @@ try {
   console.log('[STARTUP] ✓ Settings routes loaded');
   app.use('/api', statsRoutes);
   console.log('[STARTUP] ✓ Stats routes loaded');
+  app.use('/api', banRoutes);
+  console.log('[STARTUP] ✓ Ban routes loaded');
+  app.use('/api', nickRoutes);
+  console.log('[STARTUP] ✓ Nick override routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
