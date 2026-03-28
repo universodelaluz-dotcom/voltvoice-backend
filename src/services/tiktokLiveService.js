@@ -67,6 +67,7 @@ class TikTokLiveService {
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
           username: data.uniqueId,
+          nickname: data.nickname || data.uniqueId,
           text: data.comment,
           timestamp: Date.now(),
           status: 'received',
