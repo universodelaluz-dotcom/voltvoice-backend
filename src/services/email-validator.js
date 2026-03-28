@@ -3,6 +3,9 @@ const TEMPORARY_EMAIL_DOMAINS = new Set([
   // Proveedores comunes de email temporal
   'tempmail.com',
   '10minutemail.com',
+  '10minutemail.net',
+  '10minutemail.org',
+  '10minutemail.co',
   'throwaway.email',
   'mailinator.com',
   'maildrop.cc',
