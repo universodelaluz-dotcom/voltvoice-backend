@@ -18,7 +18,6 @@ const TEMPORARY_EMAIL_DOMAINS = new Set([
   'test.com',
   'example.com',
   'guerrillamail.com',
-  'mailinator.com',
   '10minutemail.info',
   '10minute-mail.ml',
   'mvrht.com',
@@ -32,14 +31,11 @@ const TEMPORARY_EMAIL_DOMAINS = new Set([
   '10minutemail.se',
   'guerrillamail.info',
   'pokemail.net',
-  'spam4.me',
   'tempail.com',
   'temp-mail.io',
   'maildisposable.com',
   'emailondeck.com',
   'guerrillamail.net',
-  'sharklasers.com',
-  'mailnesia.com',
   'trashmail.de',
   'yopmail.fr',
   'yopmail.net',
@@ -53,7 +49,7 @@ const TEMPORARY_EMAIL_DOMAINS = new Set([
   'freemail.ms',
   'mail-temp.com',
   'mail.tm',
-  'protonmail.com', // Para testing/no verificados
+  'protonmail.com',
   'protonmailrmez3btf.onion',
 ]);
 
