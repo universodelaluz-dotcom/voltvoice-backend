@@ -50,7 +50,7 @@ export const config = {
 };
 
 // Validate required env vars
-const required = ['JWT_SECRET', 'YOUTUBE_API_KEY_1'];
+const required = ['JWT_SECRET'];
 const missing = required.filter(key => !process.env[key]);
 
 if (missing.length > 0 && config.isProduction) {

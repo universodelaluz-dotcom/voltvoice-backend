@@ -13,6 +13,7 @@ import paypalRoutes from './src/routes/paypal.js';
 import tiktokRoutes from './src/routes/tiktok.js';
 import inworldRoutes from './src/routes/inworld.js';
 import ttsRoutes from './src/routes/tts.js';
+import authRoutes from './src/routes/auth.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -80,6 +81,8 @@ try {
   console.log('[STARTUP] ✓ Inworld routes loaded');
   app.use('/api/tts', ttsRoutes);
   console.log('[STARTUP] ✓ TTS (Google) routes loaded');
+  app.use('/api/auth', authRoutes);
+  console.log('[STARTUP] ✓ Auth routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
