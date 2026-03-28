@@ -1,27 +1,32 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import axios from 'axios';
 import { OAuth2Client } from 'google-auth-library';
 import pool from '../db.js';
 import { generateToken, verifyToken } from '../../middleware/auth.js';
+import { sendVerificationEmail, sendWelcomeEmail } from '../services/mail.js';
+import { isTemporaryEmail, validateEmailFormat, sanitizeEmail } from '../services/email-validator.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const router = Router();
 
 // ===== RATE LIMITING EN MEMORIA =====
-// Bloqueo por IP: máximo 5 intentos de login fallidos en 15 minutos
-// Máximo 3 registros por IP en 1 hora
-const loginAttempts = new Map();  // ip -> { count, firstAttempt, lockedUntil }
-const registerAttempts = new Map(); // ip -> { count, firstAttempt }
+const loginAttempts = new Map();
+const registerAttempts = new Map();
 
 const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutos
-const LOGIN_LOCKOUT_MS = 30 * 60 * 1000; // 30 minutos de bloqueo
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = 30 * 60 * 1000;
 
-const REGISTER_MAX_ATTEMPTS = 3;
-const REGISTER_WINDOW_MS = 60 * 60 * 1000; // 1 hora
+const REGISTER_MAX_ATTEMPTS = 1; // Cambio: de 3 a 1 registro por hora
+const REGISTER_WINDOW_MS = 60 * 60 * 1000;
+
+const VERIFICATION_CODE_LENGTH = 6;
+const VERIFICATION_EXPIRY_MS = 15 * 60 * 1000; // 15 minutos
 
 // Limpiar intentos viejos cada 10 minutos
 setInterval(() => {
@@ -38,30 +43,62 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Limpiar email_verifications expiradas cada 5 minutos
+setInterval(async () => {
+  try {
+    await pool.query('DELETE FROM email_verifications WHERE expires_at < CURRENT_TIMESTAMP');
+  } catch (error) {
+    console.error('[Auth] Error limpiando verificaciones expiradas:', error.message);
+  }
+}, 5 * 60 * 1000);
+
 function getClientIp(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.connection?.remoteAddress || 'unknown';
 }
 
-// Validación de email estricta
-function isValidEmail(email) {
-  const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  return re.test(email) && email.length <= 255;
-}
-
-// Sanitizar input (prevenir inyección en logs)
 function sanitize(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/[<>'"\\]/g, '').trim().substring(0, 255);
 }
 
+function generateVerificationCode() {
+  return Math.random().toString().substring(2, 2 + VERIFICATION_CODE_LENGTH);
+}
+
+async function verifyRecaptcha(token) {
+  if (!RECAPTCHA_SECRET) {
+    console.warn('[Auth] RECAPTCHA_SECRET no configurado - saltando validación');
+    return true;
+  }
+
+  try {
+    const response = await axios.post(
+      'https://www.google.com/recaptcha/api/siteverify',
+      null,
+      {
+        params: {
+          secret: RECAPTCHA_SECRET,
+          response: token
+        }
+      }
+    );
+
+    return response.data.success && response.data.score > 0.5;
+  } catch (error) {
+    console.error('[Auth] Error validando reCAPTCHA:', error.message);
+    return false;
+  }
+}
+
 /**
- * POST /api/auth/register - Crear cuenta nueva
+ * POST /api/auth/register - Enviar código de verificación
+ * Ahora NO crea usuario, solo envía código
  */
 router.post('/register', async (req, res) => {
   const ip = getClientIp(req);
   const now = Date.now();
 
-  // Rate limit por IP para registro
+  // Rate limit por IP
   const regData = registerAttempts.get(ip);
   if (regData) {
     if (now - regData.firstAttempt < REGISTER_WINDOW_MS && regData.count >= REGISTER_MAX_ATTEMPTS) {
@@ -76,58 +113,154 @@ router.post('/register', async (req, res) => {
 
   const rawEmail = req.body.email;
   const password = req.body.password;
+  const recaptchaToken = req.body.recaptchaToken;
 
   if (!rawEmail || !password) {
     return res.status(400).json({ error: 'Email y contraseña son requeridos' });
   }
 
-  const email = sanitize(rawEmail).toLowerCase();
+  const email = sanitizeEmail(rawEmail);
 
-  if (!isValidEmail(email)) {
+  // Validar formato
+  if (!validateEmailFormat(email)) {
     return res.status(400).json({ error: 'El formato del email no es válido' });
   }
 
+  // Validar que no sea email temporal
+  if (isTemporaryEmail(email)) {
+    return res.status(400).json({ error: 'No se permiten emails temporales. Por favor usa un email válido.' });
+  }
+
+  // Validar contraseña
   if (password.length < 8) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
   }
-
   if (password.length > 128) {
     return res.status(400).json({ error: 'Contraseña demasiado larga' });
   }
-
-  // Contraseña debe tener al menos una letra y un número
   if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
     return res.status(400).json({ error: 'La contraseña debe tener letras y números' });
   }
 
+  // Validar reCAPTCHA
+  if (recaptchaToken) {
+    const captchaValid = await verifyRecaptcha(recaptchaToken);
+    if (!captchaValid) {
+      console.warn(`[Auth] reCAPTCHA fallido para IP ${ip}`);
+      return res.status(400).json({ error: 'Validación de CAPTCHA fallida' });
+    }
+  }
+
   try {
     // Registrar intento
-    const existing_reg = registerAttempts.get(ip);
-    if (existing_reg && now - existing_reg.firstAttempt < REGISTER_WINDOW_MS) {
-      existing_reg.count++;
+    if (registerAttempts.has(ip) && now - registerAttempts.get(ip).firstAttempt < REGISTER_WINDOW_MS) {
+      registerAttempts.get(ip).count++;
     } else {
       registerAttempts.set(ip, { count: 1, firstAttempt: now });
     }
 
-    // Verificar si el email ya existe (sin revelar cuál email)
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    // Verificar si email ya existe
+    let existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Este email ya está registrado' });
     }
 
-    // Hash con cost factor 12 (más seguro que 10)
-    const password_hash = await bcrypt.hash(password, 12);
+    // Verificar si ya hay código de verificación pendiente
+    existing = await pool.query('SELECT id FROM email_verifications WHERE email = $1', [email]);
+    if (existing.rows.length > 0) {
+      // Borrar verificación anterior
+      await pool.query('DELETE FROM email_verifications WHERE email = $1', [email]);
+    }
 
-    // Crear usuario con 100 tokens gratis
-    const result = await pool.query(
-      'INSERT INTO users (email, password_hash, plan, tokens) VALUES ($1, $2, $3, $4) RETURNING id, email, plan, tokens, created_at',
-      [email, password_hash, 'free', 100]
+    // Generar código
+    const code = generateVerificationCode();
+    const expiresAt = new Date(now + VERIFICATION_EXPIRY_MS);
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Guardar verificación pendiente
+    await pool.query(
+      'INSERT INTO email_verifications (email, code, password_hash, expires_at) VALUES ($1, $2, $3, $4)',
+      [email, code, passwordHash, expiresAt]
     );
 
-    const user = result.rows[0];
+    // Enviar email
+    const emailSent = await sendVerificationEmail(email, code);
+    if (!emailSent) {
+      // En desarrollo, mostrar código en consola
+      console.log(`[Auth] Código de verificación para ${email}: ${code}`);
+    }
+
+    console.log(`[Auth] Código de verificación enviado a: ${email} desde IP: ${ip}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Código de verificación enviado. Revisa tu email.',
+      email: email
+    });
+  } catch (error) {
+    console.error('[Auth] Error en registro:', error.message);
+    return res.status(500).json({ error: 'Error creando la cuenta' });
+  }
+});
+
+/**
+ * POST /api/auth/verify-email - Verificar código y crear usuario
+ */
+router.post('/verify-email', async (req, res) => {
+  const { email, code } = req.body;
+
+  if (!email || !code) {
+    return res.status(400).json({ error: 'Email y código son requeridos' });
+  }
+
+  const emailNorm = sanitizeEmail(email);
+
+  try {
+    // Buscar verificación pendiente
+    const result = await pool.query(
+      'SELECT * FROM email_verifications WHERE email = $1 AND expires_at > CURRENT_TIMESTAMP',
+      [emailNorm]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Código expirado o no encontrado. Intenta registrarte de nuevo.' });
+    }
+
+    const verification = result.rows[0];
+
+    // Validar código
+    if (verification.code !== code) {
+      // Incrementar intentos fallidos
+      await pool.query(
+        'UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1',
+        [verification.id]
+      );
+
+      // Bloquear si hay demasiados intentos
+      if (verification.attempts >= verification.max_attempts) {
+        await pool.query('DELETE FROM email_verifications WHERE id = $1', [verification.id]);
+        return res.status(429).json({ error: 'Demasiados intentos. Solicita un nuevo código.' });
+      }
+
+      return res.status(401).json({ error: 'Código incorrecto' });
+    }
+
+    // Código correcto - crear usuario
+    const userResult = await pool.query(
+      'INSERT INTO users (email, password_hash, plan, tokens, email_verified) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, plan, tokens',
+      [emailNorm, verification.password_hash, 'free', 100, true]
+    );
+
+    const user = userResult.rows[0];
     const token = generateToken(user.id);
 
-    console.log(`[Auth] Nuevo usuario registrado: ${user.email} (ID: ${user.id}) desde IP: ${ip}`);
+    // Limpiar verificación
+    await pool.query('DELETE FROM email_verifications WHERE id = $1', [verification.id]);
+
+    // Enviar email de bienvenida
+    await sendWelcomeEmail(emailNorm);
+
+    console.log(`[Auth] Usuario registrado exitosamente: ${user.email} (ID: ${user.id})`);
 
     return res.status(201).json({
       success: true,
@@ -140,8 +273,55 @@ router.post('/register', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('[Auth] Error en registro:', error.message);
-    return res.status(500).json({ error: 'Error creando la cuenta' });
+    console.error('[Auth] Error verificando email:', error.message);
+    return res.status(500).json({ error: 'Error verificando email' });
+  }
+});
+
+/**
+ * POST /api/auth/resend-code - Reenviar código de verificación
+ */
+router.post('/resend-code', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email requerido' });
+  }
+
+  const emailNorm = sanitizeEmail(email);
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM email_verifications WHERE email = $1 AND expires_at > CURRENT_TIMESTAMP',
+      [emailNorm]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No hay verificación pendiente para este email' });
+    }
+
+    const verification = result.rows[0];
+    const code = generateVerificationCode();
+    const now = Date.now();
+    const expiresAt = new Date(now + VERIFICATION_EXPIRY_MS);
+
+    // Actualizar código y reset intentos
+    await pool.query(
+      'UPDATE email_verifications SET code = $1, expires_at = $2, attempts = 0 WHERE id = $3',
+      [code, expiresAt, verification.id]
+    );
+
+    // Enviar email
+    await sendVerificationEmail(emailNorm, code);
+    console.log(`[Auth] Código reenviado a: ${emailNorm}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Nuevo código enviado'
+    });
+  } catch (error) {
+    console.error('[Auth] Error reenviando código:', error.message);
+    return res.status(500).json({ error: 'Error reenviando código' });
   }
 });
 
@@ -155,13 +335,11 @@ router.post('/login', async (req, res) => {
   // Rate limit por IP para login
   const attempt = loginAttempts.get(ip);
   if (attempt) {
-    // Si está bloqueado
     if (attempt.lockedUntil && now < attempt.lockedUntil) {
       const minutesLeft = Math.ceil((attempt.lockedUntil - now) / 60000);
-      console.warn(`[Auth] Login bloqueado para IP ${ip} - lockout activo`);
-      return res.status(429).json({ error: `Cuenta bloqueada por seguridad. Intenta en ${minutesLeft} minutos.` });
+      console.warn(`[Auth] Login bloqueado para IP ${ip}`);
+      return res.status(429).json({ error: `Cuenta bloqueada. Intenta en ${minutesLeft} minutos.` });
     }
-    // Si pasó la ventana, resetear
     if (now - attempt.firstAttempt >= LOGIN_WINDOW_MS && (!attempt.lockedUntil || now >= attempt.lockedUntil)) {
       loginAttempts.delete(ip);
     }
@@ -174,27 +352,31 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'Email y contraseña son requeridos' });
   }
 
-  const email = sanitize(rawEmail).toLowerCase();
+  const email = sanitizeEmail(rawEmail);
 
-  if (!isValidEmail(email)) {
+  if (!validateEmailFormat(email)) {
     return res.status(400).json({ error: 'Email o contraseña incorrectos' });
   }
 
   try {
     const result = await pool.query(
-      'SELECT id, email, password_hash, plan, tokens FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, plan, tokens, email_verified FROM users WHERE email = $1',
       [email]
     );
 
-    // Respuesta genérica para no revelar si el email existe
     if (result.rows.length === 0) {
       recordFailedLogin(ip, now);
-      // Delay artificial para prevenir timing attacks
       await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
       return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     }
 
     const user = result.rows[0];
+
+    // Verificar que el email esté verificado
+    if (!user.email_verified) {
+      return res.status(403).json({ error: 'Por favor verifica tu email primero' });
+    }
+
     const validPassword = await bcrypt.compare(password, user.password_hash);
 
     if (!validPassword) {
@@ -202,12 +384,9 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     }
 
-    // Login exitoso - limpiar intentos
     loginAttempts.delete(ip);
-
     const token = generateToken(user.id);
 
-    // Actualizar last login
     await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
@@ -240,11 +419,10 @@ router.post('/google', async (req, res) => {
 
   if (!GOOGLE_CLIENT_ID) {
     console.error('[Auth] GOOGLE_CLIENT_ID no configurado');
-    return res.status(500).json({ error: 'Google login no configurado en el servidor' });
+    return res.status(500).json({ error: 'Google login no configurado' });
   }
 
   try {
-    // Verificar el token de Google
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
       audience: GOOGLE_CLIENT_ID,
@@ -257,7 +435,6 @@ router.post('/google', async (req, res) => {
 
     console.log(`[Auth] Google login para: ${email}`);
 
-    // Buscar si el usuario ya existe
     let result = await pool.query(
       'SELECT id, email, plan, tokens FROM users WHERE email = $1',
       [email]
@@ -266,16 +443,14 @@ router.post('/google', async (req, res) => {
     let user;
 
     if (result.rows.length > 0) {
-      // Usuario existente - actualizar last login
       user = result.rows[0];
       await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
       console.log(`[Auth] Google login exitoso (existente): ${email} (ID: ${user.id})`);
     } else {
-      // Usuario nuevo - crear cuenta automáticamente
       const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
       result = await pool.query(
-        'INSERT INTO users (email, password_hash, plan, tokens) VALUES ($1, $2, $3, $4) RETURNING id, email, plan, tokens',
-        [email, randomHash, 'free', 100]
+        'INSERT INTO users (email, password_hash, plan, tokens, email_verified) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, plan, tokens',
+        [email, randomHash, 'free', 100, true]
       );
       user = result.rows[0];
       console.log(`[Auth] Nuevo usuario creado via Google: ${email} (ID: ${user.id})`);
@@ -307,7 +482,7 @@ function recordFailedLogin(ip, now) {
     attempt.count++;
     if (attempt.count >= LOGIN_MAX_ATTEMPTS) {
       attempt.lockedUntil = now + LOGIN_LOCKOUT_MS;
-      console.warn(`[Auth] IP ${ip} bloqueada por ${LOGIN_LOCKOUT_MS / 60000} minutos tras ${attempt.count} intentos fallidos`);
+      console.warn(`[Auth] IP ${ip} bloqueada por ${LOGIN_LOCKOUT_MS / 60000} minutos`);
     }
   } else {
     loginAttempts.set(ip, { count: 1, firstAttempt: now });

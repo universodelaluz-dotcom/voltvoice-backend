@@ -1,0 +1,51 @@
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  }
+});
+
+export async function sendVerificationEmail(email, code) {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Verifica tu email - VoltVoice',
+      html: `
+        <h2>¡Bienvenido a VoltVoice!</h2>
+        <p>Para completar tu registro, usa el siguiente código de verificación:</p>
+        <h1 style="color: #06b6d4; font-size: 32px; letter-spacing: 2px;">${code}</h1>
+        <p>Este código expira en 15 minutos.</p>
+        <p><small>Si no solicitaste este código, ignora este email.</small></p>
+      `
+    });
+    console.log(`[Mail] Email de verificación enviado a: ${email}`);
+    return true;
+  } catch (error) {
+    console.error(`[Mail] Error enviando email a ${email}:`, error.message);
+    return false;
+  }
+}
+
+export async function sendWelcomeEmail(email) {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: '¡Cuenta creada exitosamente - VoltVoice',
+      html: `
+        <h2>¡Cuenta activada!</h2>
+        <p>Tu cuenta en VoltVoice ha sido creada exitosamente.</p>
+        <p>Puedes iniciar sesión ahora y comenzar a usar la plataforma.</p>
+        <p>¡Que disfrutes!</p>
+      `
+    });
+    return true;
+  } catch (error) {
+    console.error(`[Mail] Error enviando welcome email a ${email}:`, error.message);
+    return false;
+  }
+}
