@@ -14,6 +14,7 @@ import tiktokRoutes from './src/routes/tiktok.js';
 import inworldRoutes from './src/routes/inworld.js';
 import ttsRoutes from './src/routes/tts.js';
 import authRoutes from './src/routes/auth.js';
+import settingsRoutes from './src/routes/settings.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -83,6 +84,25 @@ import pool from './src/db.js';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$;
+      -- User settings (config por usuario)
+      CREATE TABLE IF NOT EXISTS user_settings (
+        id SERIAL PRIMARY KEY,
+        user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        config JSONB DEFAULT '{}',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      -- User voices (voces clonadas por usuario)
+      CREATE TABLE IF NOT EXISTS user_voices (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        voice_name VARCHAR(255) NOT NULL,
+        voice_id VARCHAR(255) NOT NULL,
+        provider VARCHAR(50) DEFAULT 'inworld',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, voice_name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_voices_user ON user_voices(user_id);
       CREATE TABLE IF NOT EXISTS token_logs (
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL REFERENCES users(id),
@@ -127,6 +147,8 @@ try {
   console.log('[STARTUP] ✓ TTS (Google) routes loaded');
   app.use('/api/auth', authRoutes);
   console.log('[STARTUP] ✓ Auth routes loaded');
+  app.use('/api/settings', settingsRoutes);
+  console.log('[STARTUP] ✓ Settings routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
