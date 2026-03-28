@@ -143,6 +143,126 @@ class InworldTtsService {
   }
 
   /**
+   * Clonar voz usando Inworld AI Voice Cloning API
+   * Endpoint: POST https://api.inworld.ai/voices/v1/voices:clone
+   * Audio: 10-15 segundos, WAV o MP3
+   */
+  async cloneVoice(voiceName, audioBuffer, transcription = '', langCode = 'ES_ES') {
+    return new Promise((resolve, reject) => {
+      if (!voiceName) {
+        reject(new Error('Voice name is required'));
+        return;
+      }
+
+      if (!audioBuffer || audioBuffer.length === 0) {
+        reject(new Error('Audio data is required'));
+        return;
+      }
+
+      if (!this.apiKey) {
+        reject(new Error('Inworld API key not configured'));
+        return;
+      }
+
+      console.log(`[Inworld Clone] Cloning voice: "${voiceName}" (${audioBuffer.length} bytes, lang: ${langCode})`);
+
+      const base64Audio = Buffer.isBuffer(audioBuffer)
+        ? audioBuffer.toString('base64')
+        : audioBuffer;
+
+      const requestBody = JSON.stringify({
+        displayName: voiceName,
+        langCode: langCode,
+        voiceSamples: [
+          {
+            audioData: base64Audio,
+            transcription: transcription || `Sample audio for voice ${voiceName}`
+          }
+        ],
+        description: `Voz clonada: ${voiceName} - StreamVoicer`,
+        audioProcessingConfig: {
+          removeBackgroundNoise: true
+        }
+      });
+
+      const options = {
+        hostname: 'api.inworld.ai',
+        port: 443,
+        path: '/voices/v1/voices:clone',
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+
+        res.on('end', () => {
+          try {
+            const dataBuffer = Buffer.concat(chunks);
+            const data = dataBuffer.toString('utf-8');
+
+            console.log(`[Inworld Clone] Response status: ${res.statusCode}`);
+
+            if (res.statusCode !== 200) {
+              console.error(`[Inworld Clone] API error: ${res.statusCode} - ${data.substring(0, 500)}`);
+              reject(new Error(`Inworld clone error: ${res.statusCode} - ${data}`));
+              return;
+            }
+
+            const result = JSON.parse(data);
+            const voiceId = result.voice?.voiceId || result.voice?.name || null;
+
+            if (!voiceId) {
+              console.error('[Inworld Clone] No voiceId in response:', data.substring(0, 300));
+              reject(new Error('No voiceId returned from Inworld'));
+              return;
+            }
+
+            console.log(`[Inworld Clone] ✓ Voice cloned successfully: ${voiceName} → ${voiceId}`);
+
+            // Verificar warnings del audio
+            if (result.audioSamplesValidated) {
+              result.audioSamplesValidated.forEach((sample, i) => {
+                if (sample.warnings?.length > 0) {
+                  console.warn(`[Inworld Clone] Audio warnings: ${sample.warnings.join(', ')}`);
+                }
+                if (sample.errors?.length > 0) {
+                  console.error(`[Inworld Clone] Audio errors: ${sample.errors.join(', ')}`);
+                }
+              });
+            }
+
+            resolve({
+              success: true,
+              voiceId: voiceId,
+              voiceName: result.voice?.displayName || voiceName,
+              provider: 'inworld'
+            });
+
+          } catch (err) {
+            console.error('[Inworld Clone] Error parsing response:', err.message);
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error('[Inworld Clone] Request error:', err.message);
+        reject(err);
+      });
+
+      req.write(requestBody);
+      req.end();
+    });
+  }
+
+  /**
    * Obtener voces disponibles
    */
   async getAvailableVoices() {

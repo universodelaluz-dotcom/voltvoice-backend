@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken } from '../../middleware/auth.js';
+import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
 
@@ -111,6 +112,69 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('[Settings] Error eliminando voz:', error.message);
     return res.status(500).json({ error: 'Error eliminando voz' });
+  }
+});
+
+/**
+ * POST /api/settings/voices/clone - Clonar voz con Inworld AI
+ * Body: { voiceName, base64Audio, transcription?, langCode? }
+ */
+router.post('/voices/clone', verifyToken, async (req, res) => {
+  const { voiceName, base64Audio, transcription, langCode } = req.body;
+
+  if (!voiceName || !base64Audio) {
+    return res.status(400).json({ error: 'voiceName y base64Audio son requeridos' });
+  }
+
+  // Límite: máximo 10 voces clonadas por usuario
+  try {
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1',
+      [req.user.userId]
+    );
+    if (parseInt(countResult.rows[0].total) >= 10) {
+      return res.status(400).json({ error: 'Máximo 10 voces clonadas por cuenta. Elimina una para agregar otra.' });
+    }
+  } catch (err) {
+    // continuar si falla el conteo
+  }
+
+  try {
+    console.log(`[Clone] Usuario ${req.user.userId} clonando voz: "${voiceName}"`);
+
+    // Convertir base64 a Buffer
+    const audioBuffer = Buffer.from(base64Audio, 'base64');
+
+    // Llamar a Inworld para clonar
+    const result = await inworldTtsService.cloneVoice(
+      voiceName,
+      audioBuffer,
+      transcription || '',
+      langCode || 'ES_ES'
+    );
+
+    // Guardar en la base de datos del usuario
+    const dbResult = await pool.query(
+      `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, voice_name) DO UPDATE SET voice_id = $3
+       RETURNING id, voice_name, voice_id, provider, created_at`,
+      [req.user.userId, voiceName, result.voiceId, 'inworld']
+    );
+
+    console.log(`[Clone] ✓ Voz "${voiceName}" clonada y guardada para usuario ${req.user.userId}`);
+
+    return res.status(201).json({
+      success: true,
+      voice: dbResult.rows[0],
+      message: `Voz "${voiceName}" clonada exitosamente`
+    });
+  } catch (error) {
+    console.error('[Clone] Error clonando voz:', error.message);
+    return res.status(500).json({
+      error: 'Error clonando la voz',
+      details: error.message
+    });
   }
 });
 
