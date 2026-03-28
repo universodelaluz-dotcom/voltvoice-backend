@@ -59,8 +59,10 @@ export async function isTemporaryEmail(email) {
     return isDisposable;
   } catch (error) {
     console.warn(`[EmailValidator] API check failed for ${domain}:`, error.message);
-    // Si falla la API, ser conservador: rechazar si parece sospechoso
-    return false;
+    // Si falla la API, ser estricto: rechazar dominios desconocidos
+    // Solo permitir dominios conocidos confiables
+    const trustedDomains = new Set(['gmail.com', 'outlook.com', 'yahoo.com', 'hotmail.com', 'icloud.com', 'protonmail.com']);
+    return !trustedDomains.has(domain);
   }
 }
 
