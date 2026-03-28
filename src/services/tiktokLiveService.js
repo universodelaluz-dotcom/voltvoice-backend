@@ -63,8 +63,8 @@ class TikTokLiveService {
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
         const isModerator = data.userIdentity?.isModerator || false;
-        const isSubscriber = data.userIdentity?.isSubscriber || false;
-        const topGifterRank = data.userIdentity?.topGifterRank || 0;
+        const isSubscriber = data.userAttributes?.isSubscriber || false;
+        const topGifterRank = data.userAttributes?.topGifterRank || 0;
 
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
