@@ -63,6 +63,8 @@ class TikTokLiveService {
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
         const isModerator = data.userIdentity?.isModerator || false;
+        const isSubscriber = data.userIdentity?.isSubscriber || false;
+        const topGifterRank = data.userIdentity?.topGifterRank || 0;
 
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
@@ -72,7 +74,9 @@ class TikTokLiveService {
           timestamp: Date.now(),
           status: 'received',
           isDonor,
-          isModerator
+          isModerator,
+          isSubscriber,
+          topGifterRank
         };
 
         console.log(`[TikTok] Nuevo mensaje: @${message.username}: ${message.text}`);
