@@ -126,8 +126,9 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'El formato del email no es válido' });
   }
 
-  // Validar que no sea email temporal
-  if (isTemporaryEmail(email)) {
+  // Validar que no sea email temporal (con API en tiempo real)
+  const isTemp = await isTemporaryEmail(email);
+  if (isTemp) {
     return res.status(400).json({ error: 'No se permiten emails temporales. Por favor usa un email válido.' });
   }
 
