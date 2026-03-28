@@ -62,23 +62,14 @@ class TikTokLiveService {
         const donorsSet = this.donors.get(username);
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
-        const isModerator = data.userIdentity?.isModerator || false;
-        const isSubscriber = data.userAttributes?.isSubscriber || false;
-        const topGifterRank = data.userAttributes?.topGifterRank || 0;
+        // Los campos están DIRECTAMENTE en data, no en sub-objetos
+        const isModerator = data.isModerator || false;
+        const isSubscriber = data.isSubscriber || false;
+        const topGifterRank = data.topGifterRank || 0;
+        const isNewGifter = data.isNewGifter || false;
+        const gifterLevel = data.gifterLevel || 0;
 
-        // DEBUG: Log de toda la estructura - mostrar TODAS las propiedades
-        const allKeys = Object.keys(data).filter(k => k !== 'webcast');
-        console.log(`[DEBUG] Propiedades de data:`, allKeys);
-        if (allKeys.length < 20) {
-          console.log(`[DEBUG] Valores:`, JSON.stringify(
-            allKeys.reduce((acc, k) => {
-              acc[k] = typeof data[k] === 'object' ? `[Object: ${Object.keys(data[k]).join(',')}]` : data[k];
-              return acc;
-            }, {}),
-            null,
-            2
-          ));
-        }
+        console.log(`[DEBUG] @${data.uniqueId}: mod=${isModerator}, sub=${isSubscriber}, topGifter=${topGifterRank}, newGifter=${isNewGifter}, gifterLvl=${gifterLevel}`);
 
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
