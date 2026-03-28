@@ -56,12 +56,17 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
+    const voiceLimits = { free: 0, basic: 2, professional: 4, premium: 8 };
+    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    const userPlan = userResult.rows[0]?.plan || 'free';
+    const maxVoices = voiceLimits[userPlan] || 0;
+
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
       [req.user.userId]
     );
 
-    return res.json({ success: true, voices: result.rows });
+    return res.json({ success: true, voices: result.rows, plan: userPlan, maxVoices, used: result.rows.length });
   } catch (error) {
     console.error('[Settings] Error listando voces:', error.message);
     return res.status(500).json({ error: 'Error listando voces' });
@@ -126,17 +131,26 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'voiceName y base64Audio son requeridos' });
   }
 
-  // Límite: máximo 10 voces clonadas por usuario
+  // Límite de voces clonadas según plan del usuario
+  const voiceLimits = { free: 0, basic: 2, professional: 4, premium: 8 };
   try {
+    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    const userPlan = userResult.rows[0]?.plan || 'free';
+    const maxVoices = voiceLimits[userPlan] || 0;
+
+    if (maxVoices === 0) {
+      return res.status(403).json({ error: 'Tu plan Free no incluye clonación de voces. Mejora tu plan para desbloquear esta función.' });
+    }
+
     const countResult = await pool.query(
       'SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1',
       [req.user.userId]
     );
-    if (parseInt(countResult.rows[0].total) >= 10) {
-      return res.status(400).json({ error: 'Máximo 10 voces clonadas por cuenta. Elimina una para agregar otra.' });
+    if (parseInt(countResult.rows[0].total) >= maxVoices) {
+      return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces clonadas. Elimina una o mejora tu plan.` });
     }
   } catch (err) {
-    // continuar si falla el conteo
+    console.error('[Clone] Error verificando límite:', err);
   }
 
   try {
