@@ -66,18 +66,19 @@ class TikTokLiveService {
         const isSubscriber = data.userAttributes?.isSubscriber || false;
         const topGifterRank = data.userAttributes?.topGifterRank || 0;
 
-        // DEBUG: Log de toda la estructura
-        console.log(`[DEBUG] Estructura completa de data:`, {
-          hasUserAttributes: !!data.userAttributes,
-          userAttributesKeys: data.userAttributes ? Object.keys(data.userAttributes) : [],
-          isSubscriber: data.userAttributes?.isSubscriber,
-          topGifterRank: data.userAttributes?.topGifterRank,
-          userBadges: data.userAttributes?.userBadges?.map(b => ({
-            badgeName: b.badgeName,
-            url: b.url,
-            badgeSceneType: b.badgeSceneType
-          })) || []
-        });
+        // DEBUG: Log de toda la estructura - mostrar TODAS las propiedades
+        const allKeys = Object.keys(data).filter(k => k !== 'webcast');
+        console.log(`[DEBUG] Propiedades de data:`, allKeys);
+        if (allKeys.length < 20) {
+          console.log(`[DEBUG] Valores:`, JSON.stringify(
+            allKeys.reduce((acc, k) => {
+              acc[k] = typeof data[k] === 'object' ? `[Object: ${Object.keys(data[k]).join(',')}]` : data[k];
+              return acc;
+            }, {}),
+            null,
+            2
+          ));
+        }
 
         const message = {
           id: `${username}-${Date.now()}-${Math.random()}`,
