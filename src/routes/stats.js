@@ -1,11 +1,11 @@
 import express from 'express';
 import db from '../db.js';
-import auth from '../../middleware/auth.js';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
 // GET /api/stats - Obtener estadísticas del usuario
-router.get('/stats', auth, async (req, res) => {
+router.get('/stats', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
