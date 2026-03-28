@@ -15,6 +15,7 @@ import inworldRoutes from './src/routes/inworld.js';
 import ttsRoutes from './src/routes/tts.js';
 import authRoutes from './src/routes/auth.js';
 import settingsRoutes from './src/routes/settings.js';
+import statsRoutes from './src/routes/stats.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -149,6 +150,8 @@ try {
   console.log('[STARTUP] ✓ Auth routes loaded');
   app.use('/api/settings', settingsRoutes);
   console.log('[STARTUP] ✓ Settings routes loaded');
+  app.use('/api', statsRoutes);
+  console.log('[STARTUP] ✓ Stats routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
