@@ -358,6 +358,84 @@ class InworldTtsService {
   }
 
   /**
+   * Publicar una voz generada (convertir de DRAFT a activa)
+   * Endpoint: PATCH https://api.inworld.ai/voices/v1/voices/{voiceId}
+   */
+  async publishVoice(voiceId) {
+    return new Promise((resolve, reject) => {
+      if (!voiceId) {
+        reject(new Error('Voice ID is required'));
+        return;
+      }
+
+      if (!this.apiKey) {
+        reject(new Error('Inworld API key not configured'));
+        return;
+      }
+
+      console.log(`[Inworld Publish] Publicando voz: ${voiceId}`);
+
+      const requestBody = JSON.stringify({
+        status: 'ACTIVE'
+      });
+
+      const options = {
+        hostname: 'api.inworld.ai',
+        port: 443,
+        path: `/voices/v1/voices/${voiceId}`,
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Basic ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+
+        res.on('end', () => {
+          try {
+            const dataBuffer = Buffer.concat(chunks);
+            const data = dataBuffer.toString('utf-8');
+
+            console.log(`[Inworld Publish] Response status: ${res.statusCode}`);
+
+            if (res.statusCode !== 200) {
+              console.error(`[Inworld Publish] API error: ${res.statusCode} - ${data.substring(0, 500)}`);
+              reject(new Error(`Inworld publish error: ${res.statusCode} - ${data}`));
+              return;
+            }
+
+            const result = JSON.parse(data);
+            console.log(`[Inworld Publish] ✓ Voz publicada exitosamente: ${voiceId}`);
+
+            resolve({
+              success: true,
+              voiceId: voiceId,
+              status: result.status || 'ACTIVE'
+            });
+
+          } catch (err) {
+            console.error('[Inworld Publish] Error parseando respuesta:', err.message);
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error('[Inworld Publish] Error en request:', err.message);
+        reject(err);
+      });
+
+      req.write(requestBody);
+      req.end();
+    });
+  }
+
+  /**
    * Obtener voces disponibles
    */
   async getAvailableVoices() {

@@ -383,6 +383,17 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
       previewText
     );
 
+    console.log(`[Generate] Voz diseñada: ${result.voiceId}, publicando...`);
+
+    // Publicar la voz (convertir de DRAFT a ACTIVE)
+    try {
+      await inworldTtsService.publishVoice(result.voiceId);
+      console.log(`[Generate] ✓ Voz publicada exitosamente`);
+    } catch (publishErr) {
+      console.warn(`[Generate] Advertencia al publicar voz: ${publishErr.message}`);
+      // Continuar de todas formas - la voz ya está generada
+    }
+
     // Generar un nombre amigable para la voz (puede ser editado por el usuario)
     const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
 
