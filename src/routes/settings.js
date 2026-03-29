@@ -203,6 +203,82 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 });
 
 /**
+ * POST /api/voices/generate - Generar voz personalizada con descripción
+ * Body: { description, voiceType, language, scriptMode, script? }
+ */
+router.post('/voices/generate', verifyToken, async (req, res) => {
+  const { description, voiceType, language, scriptMode, script } = req.body;
+
+  if (!description || !voiceType || !language) {
+    return res.status(400).json({ error: 'description, voiceType y language son requeridos' });
+  }
+
+  // Límite de voces generadas según plan del usuario
+  const voiceLimits = { free: 0, basic: 1, professional: 3, premium: 5 };
+  try {
+    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    const userPlan = userResult.rows[0]?.plan || 'free';
+    const maxVoices = voiceLimits[userPlan] || 0;
+
+    if (maxVoices === 0) {
+      return res.status(403).json({ error: 'Tu plan Free no incluye generación de voces. Mejora tu plan para desbloquear esta función.' });
+    }
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1 AND provider = 'inworld-generated'`,
+      [req.user.userId]
+    );
+    if (parseInt(countResult.rows[0].total) >= maxVoices) {
+      return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces generadas. Elimina una o mejora tu plan.` });
+    }
+  } catch (err) {
+    console.error('[Generate] Error verificando límite:', err);
+  }
+
+  try {
+    console.log(`[Generate] Usuario ${req.user.userId} generando voz: "${description.substring(0, 50)}..."`);
+
+    // Construir el prompt para Inworld
+    const voicePrompt = `${description}\n\nVoice Type: ${voiceType}\nLanguage: ${language}`;
+
+    // Usar el script proporcionado o generar uno automáticamente
+    const voiceScript = scriptMode === 'custom' && script ? script : undefined;
+
+    // Llamar a Inworld para generar
+    const result = await inworldTtsService.cloneVoice(
+      `Generated_${Date.now()}`,  // Nombre único temporal
+      Buffer.from(voicePrompt),   // "audio" es en realidad el prompt
+      voiceScript || ''
+    );
+
+    // Generar un nombre amigable para la voz
+    const voiceFriendlyName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
+
+    // Guardar en la base de datos del usuario
+    const dbResult = await pool.query(
+      `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       RETURNING id, voice_name, voice_id, provider, created_at`,
+      [req.user.userId, voiceFriendlyName, result, 'inworld-generated']
+    );
+
+    console.log(`[Generate] ✓ Voz generada y guardada para usuario ${req.user.userId}`);
+
+    return res.status(201).json({
+      success: true,
+      voice: dbResult.rows[0],
+      message: `Voz personalizada generada exitosamente: ${voiceFriendlyName}`
+    });
+  } catch (error) {
+    console.error('[Generate] Error generando voz:', error.message);
+    return res.status(500).json({
+      error: 'Error generando la voz personalizada',
+      details: error.message
+    });
+  }
+});
+
+/**
  * POST /api/settings/voices/migrate - Migrar voces existentes de Inworld a la DB del usuario
  * Solo funciona una vez por voz (ON CONFLICT ignora duplicados)
  */
