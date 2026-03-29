@@ -6,6 +6,53 @@ import inworldTtsService from '../services/inworldTtsService.js';
 const router = Router();
 
 /**
+ * Mapeo de idiomas a códigos válidos de Inworld
+ */
+const languageCodeMap = {
+  'en': 'EN_US',
+  'en-US': 'EN_US',
+  'en-GB': 'EN_US',
+  'es': 'ES_ES',
+  'es-ES': 'ES_ES',
+  'es-MX': 'ES_ES',
+  'es-AR': 'ES_ES',
+  'pt': 'PT_BR',
+  'pt-BR': 'PT_BR',
+  'pt-PT': 'PT_BR',
+  'fr': 'FR_FR',
+  'fr-FR': 'FR_FR',
+  'de': 'DE_DE',
+  'de-DE': 'DE_DE',
+  'it': 'IT_IT',
+  'it-IT': 'IT_IT',
+  'ru': 'RU_RU',
+  'ru-RU': 'RU_RU',
+  'ja': 'JA_JP',
+  'ja-JP': 'JA_JP',
+  'ko': 'KO_KR',
+  'ko-KR': 'KO_KR',
+  'zh': 'ZH_CN',
+  'zh-CN': 'ZH_CN',
+  'ar': 'AR_SA',
+  'ar-SA': 'AR_SA',
+  'pl': 'PL_PL',
+  'pl-PL': 'PL_PL',
+  'nl': 'NL_NL',
+  'nl-NL': 'NL_NL',
+  'hi': 'HI_IN',
+  'hi-IN': 'HI_IN',
+  'he': 'HE_IL',
+  'he-IL': 'HE_IL',
+};
+
+/**
+ * Convertir código de idioma a formato Inworld válido
+ */
+const mapLanguageCodeToInworld = (languageCode) => {
+  return languageCodeMap[languageCode] || 'EN_US'; // Default a EN_US si no se encuentra
+};
+
+/**
  * Traducir texto al inglés para Inworld
  * Usa google-translate-free con fallback al texto original
  */
@@ -178,14 +225,12 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'voiceName y base64Audio son requeridos' });
   }
 
-  // Convertir código de idioma de es-ES a ES_ES (formato Inworld)
+  // Convertir código de idioma a formato Inworld válido
   let finalLangCode = 'ES_ES'; // default
   if (language) {
-    // Frontend envía es-ES, convertir a ES_ES
-    finalLangCode = language.toUpperCase().replace('-', '_');
+    finalLangCode = mapLanguageCodeToInworld(language);
   } else if (langCode) {
-    // Backwards compatibility
-    finalLangCode = langCode;
+    finalLangCode = mapLanguageCodeToInworld(langCode);
   }
 
   // Límite de voces clonadas según plan del usuario
@@ -285,8 +330,9 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   try {
     console.log(`[Generate] Usuario ${req.user.userId} generando voz: "${description.substring(0, 50)}..."`);
 
-    // Convertir el código de idioma: es-MX → ES_MX (para Inworld)
-    const langCode = language.toUpperCase().replace('-', '_');
+    // Mapear el código de idioma a uno válido de Inworld
+    const langCode = mapLanguageCodeToInworld(language);
+    console.log(`[Generate] Language mapping: ${language} → ${langCode}`);
 
     // Traducir descripción al inglés (Inworld lo requiere)
     const languageCode = language.split('-')[0]; // es, pt, en, etc
