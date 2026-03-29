@@ -2,7 +2,8 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
-import { translate } from 'google-translate-free';
+import pkg from 'google-translate-free';
+const { translate } = pkg;
 
 const router = Router();
 
