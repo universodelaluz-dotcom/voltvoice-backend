@@ -263,6 +263,101 @@ class InworldTtsService {
   }
 
   /**
+   * Diseñar una voz personalizada usando Inworld AI Voice Design
+   * Endpoint: POST https://api.inworld.ai/voices/v1/voices:design
+   * Params: designPrompt, langCode, previewText
+   */
+  async designVoice(designPrompt, langCode = 'ES_ES', previewText = '') {
+    return new Promise((resolve, reject) => {
+      if (!designPrompt || designPrompt.length === 0) {
+        reject(new Error('Design prompt is required'));
+        return;
+      }
+
+      if (!this.apiKey) {
+        reject(new Error('Inworld API key not configured'));
+        return;
+      }
+
+      console.log(`[Inworld Design] Diseñando voz: "${designPrompt.substring(0, 50)}..." (lang: ${langCode})`);
+
+      const requestBody = JSON.stringify({
+        designPrompt: designPrompt,
+        langCode: langCode,
+        previewText: previewText || designPrompt.substring(0, 100),
+        voiceDesignConfig: {
+          numberOfSamples: 1
+        }
+      });
+
+      const options = {
+        hostname: 'api.inworld.ai',
+        port: 443,
+        path: '/voices/v1/voices:design',
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+
+        res.on('end', () => {
+          try {
+            const dataBuffer = Buffer.concat(chunks);
+            const data = dataBuffer.toString('utf-8');
+
+            console.log(`[Inworld Design] Response status: ${res.statusCode}`);
+
+            if (res.statusCode !== 200) {
+              console.error(`[Inworld Design] API error: ${res.statusCode} - ${data.substring(0, 500)}`);
+              reject(new Error(`Inworld design error: ${res.statusCode} - ${data}`));
+              return;
+            }
+
+            const result = JSON.parse(data);
+            const previewVoices = result.previewVoices || [];
+
+            if (previewVoices.length === 0) {
+              console.error('[Inworld Design] No preview voices generated');
+              reject(new Error('No preview voices generated from Inworld'));
+              return;
+            }
+
+            const voiceId = previewVoices[0].voiceId;
+            console.log(`[Inworld Design] ✓ Voz diseñada exitosamente: ${voiceId}`);
+
+            resolve({
+              success: true,
+              voiceId: voiceId,
+              langCode: result.langCode,
+              previewText: previewVoices[0].previewText,
+              previewAudio: previewVoices[0].previewAudio
+            });
+
+          } catch (err) {
+            console.error('[Inworld Design] Error parseando respuesta:', err.message);
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error('[Inworld Design] Error en request:', err.message);
+        reject(err);
+      });
+
+      req.write(requestBody);
+      req.end();
+    });
+  }
+
+  /**
    * Obtener voces disponibles
    */
   async getAvailableVoices() {

@@ -2,13 +2,12 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
-import pkg from 'google-translate-free';
-const { translate } = pkg;
 
 const router = Router();
 
 /**
  * Traducir texto al inglés para Inworld
+ * Usa google-translate-free con fallback al texto original
  */
 const translateToEnglish = async (text, language = 'es') => {
   if (!text || text.trim().length === 0) return text;
@@ -19,7 +18,10 @@ const translateToEnglish = async (text, language = 'es') => {
       return text;
     }
 
-    console.log(`[Translate] Traduciendo de ${language} a inglés: "${text.substring(0, 50)}..."`);
+    console.log(`[Translate] Intentando traducir de ${language} a inglés: "${text.substring(0, 50)}..."`);
+
+    // Intenta importar dinámicamente
+    const { translate } = await import('google-translate-free');
     const result = await translate({
       text: text,
       source: language.split('-')[0], // es, pt, fr, etc
@@ -29,7 +31,7 @@ const translateToEnglish = async (text, language = 'es') => {
     console.log(`[Translate] ✓ Traducido: "${result}"`);
     return result;
   } catch (error) {
-    console.error('[Translate] Error:', error.message);
+    console.warn(`[Translate] No se pudo traducir, usando texto original: ${error.message}`);
     // Si falla la traducción, retornar el texto original
     return text;
   }
@@ -248,7 +250,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 });
 
 /**
- * POST /api/voices/generate - Generar voz personalizada con descripción
+ * POST /api/settings/voices/generate - Generar voz personalizada con descripción
  * Body: { description, voiceType, language, scriptMode, script? }
  */
 router.post('/voices/generate', verifyToken, async (req, res) => {
@@ -283,22 +285,27 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   try {
     console.log(`[Generate] Usuario ${req.user.userId} generando voz: "${description.substring(0, 50)}..."`);
 
-    // Traducir descripción al inglés (Inworld requiere inglés)
+    // Convertir el código de idioma: es-MX → ES_MX (para Inworld)
+    const langCode = language.toUpperCase().replace('-', '_');
+
+    // Traducir descripción al inglés (Inworld lo requiere)
     const languageCode = language.split('-')[0]; // es, pt, en, etc
     const descriptionEnglish = await translateToEnglish(description, languageCode);
     const voiceTypeEnglish = voiceTypeTranslations[voiceType] || voiceType;
-    const scriptEnglish = scriptMode === 'custom' && script ? await translateToEnglish(script, languageCode) : undefined;
 
-    // Construir el prompt para Inworld (EN INGLÉS)
-    const voicePrompt = `${descriptionEnglish}\n\nVoice Type: ${voiceTypeEnglish}\nLanguage: ${language}`;
+    // Construir el prompt para Inworld (en inglés)
+    const designPrompt = `${descriptionEnglish}. Voice type: ${voiceTypeEnglish}`;
+    const previewText = script && scriptMode === 'custom'
+      ? await translateToEnglish(script, languageCode)
+      : `This is a ${voiceTypeEnglish.toLowerCase()} speaking naturally.`;
 
-    console.log(`[Generate] Prompt para Inworld (en inglés): "${voicePrompt.substring(0, 100)}..."`);
+    console.log(`[Generate] Design prompt: "${designPrompt.substring(0, 80)}..."`);
 
-    // Llamar a Inworld para generar
-    const result = await inworldTtsService.cloneVoice(
-      `Generated_${Date.now()}`,  // Nombre único temporal
-      Buffer.from(voicePrompt),   // "audio" es en realidad el prompt
-      scriptEnglish || ''
+    // Llamar a Inworld para diseñar la voz
+    const result = await inworldTtsService.designVoice(
+      designPrompt,
+      langCode,
+      previewText
     );
 
     // Generar un nombre amigable para la voz
@@ -309,7 +316,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
        VALUES ($1, $2, $3, $4, NOW())
        RETURNING id, voice_name, voice_id, provider, created_at`,
-      [req.user.userId, voiceFriendlyName, result, 'inworld-generated']
+      [req.user.userId, voiceFriendlyName, result.voiceId, 'inworld-generated']
     );
 
     console.log(`[Generate] ✓ Voz generada y guardada para usuario ${req.user.userId}`);
