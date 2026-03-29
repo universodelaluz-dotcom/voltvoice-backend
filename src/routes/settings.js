@@ -101,7 +101,7 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const voiceLimits = { free: 0, basic: 2, professional: 4, premium: 8 };
+    const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8 };
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
     const maxVoices = voiceLimits[userPlan] || 0;
@@ -187,7 +187,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 
   // Límite de voces clonadas según plan del usuario
-  const voiceLimits = { free: 0, basic: 2, professional: 4, premium: 8 };
+  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8 };
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
