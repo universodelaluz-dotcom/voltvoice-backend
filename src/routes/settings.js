@@ -194,6 +194,35 @@ router.post('/voices', verifyToken, async (req, res) => {
 });
 
 /**
+ * PATCH /api/settings/voices/:id - Actualizar nombre de voz
+ */
+router.patch('/voices/:id', verifyToken, async (req, res) => {
+  const { voiceName } = req.body;
+
+  if (!voiceName) {
+    return res.status(400).json({ error: 'voiceName requerido' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE user_voices SET voice_name = $1 WHERE id = $2 AND user_id = $3 RETURNING id, voice_name, voice_id, provider, created_at',
+      [voiceName, req.params.id, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Voz no encontrada' });
+    }
+
+    console.log(`[Settings] Voz ${req.params.id} renombrada a: ${voiceName}`);
+
+    return res.json({ success: true, voice: result.rows[0] });
+  } catch (error) {
+    console.error('[Settings] Error actualizando voz:', error.message);
+    return res.status(500).json({ error: 'Error actualizando voz' });
+  }
+});
+
+/**
  * DELETE /api/settings/voices/:id - Eliminar voz clonada
  */
 router.delete('/voices/:id', verifyToken, async (req, res) => {
@@ -354,23 +383,37 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
       previewText
     );
 
-    // Generar un nombre amigable para la voz
-    const voiceFriendlyName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
+    // Generar un nombre amigable para la voz (puede ser editado por el usuario)
+    const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
 
     // Guardar en la base de datos del usuario
     const dbResult = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
        VALUES ($1, $2, $3, $4, NOW())
        RETURNING id, voice_name, voice_id, provider, created_at`,
-      [req.user.userId, voiceFriendlyName, result.voiceId, 'inworld-generated']
+      [req.user.userId, defaultVoiceName, result.voiceId, 'inworld-generated']
     );
 
     console.log(`[Generate] ✓ Voz generada y guardada para usuario ${req.user.userId}`);
 
+    // Convertir preview audio a data URL si existe
+    let previewAudioUrl = null;
+    if (result.previewAudio) {
+      const base64Audio = Buffer.isBuffer(result.previewAudio)
+        ? result.previewAudio.toString('base64')
+        : result.previewAudio;
+      previewAudioUrl = `data:audio/mpeg;base64,${base64Audio}`;
+    }
+
     return res.status(201).json({
       success: true,
-      voice: dbResult.rows[0],
-      message: `Voz personalizada generada exitosamente: ${voiceFriendlyName}`
+      voice: {
+        ...dbResult.rows[0],
+        defaultName: defaultVoiceName,  // Nombre sugerido
+        previewAudio: previewAudioUrl,   // Audio para reproducir
+        voiceId: result.voiceId           // ID de Inworld
+      },
+      message: `Voz personalizada generada exitosamente`
     });
   } catch (error) {
     console.error('[Generate] Error generando voz:', error.message);
