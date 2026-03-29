@@ -360,9 +360,10 @@ class InworldTtsService {
   /**
    * Publicar una voz generada (convertir de DRAFT a activa)
    * Endpoint: POST https://api.inworld.ai/voices/v1/voices/{voiceId}:publish
+   * Body requiere: displayName (string)
    * Devuelve el voiceId final para usar en síntesis
    */
-  async publishVoice(voiceId) {
+  async publishVoice(voiceId, displayName = 'Mi Voz Personalizada') {
     return new Promise((resolve, reject) => {
       if (!voiceId) {
         reject(new Error('Voice ID is required'));
@@ -376,7 +377,9 @@ class InworldTtsService {
 
       console.log(`[Inworld Publish] Publicando voz: ${voiceId}`);
 
-      const requestBody = JSON.stringify({});
+      const requestBody = JSON.stringify({
+        displayName: displayName
+      });
 
       const options = {
         hostname: 'api.inworld.ai',
@@ -409,14 +412,16 @@ class InworldTtsService {
             }
 
             const result = JSON.parse(data);
-            const publishedVoiceId = result.voice?.voiceId || voiceId;
+            // El voiceId publicado está directamente en result.voiceId
+            const publishedVoiceId = result.voiceId || voiceId;
 
             console.log(`[Inworld Publish] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
 
             resolve({
               success: true,
-              voiceId: publishedVoiceId,  // Usar el voiceId publicado
-              status: result.voice?.status || 'PUBLISHED'
+              voiceId: publishedVoiceId,
+              displayName: result.displayName,
+              source: result.source
             });
 
           } catch (err) {

@@ -385,19 +385,19 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
 
     console.log(`[Generate] Voz diseñada: ${result.voiceId}, publicando...`);
 
+    // Generar un nombre amigable para la voz (puede ser editado por el usuario)
+    const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
+
     // Publicar la voz (convertir de DRAFT a ACTIVE)
     let publishedVoiceId = result.voiceId;
     try {
-      const publishResult = await inworldTtsService.publishVoice(result.voiceId);
+      const publishResult = await inworldTtsService.publishVoice(result.voiceId, defaultVoiceName);
       publishedVoiceId = publishResult.voiceId;
       console.log(`[Generate] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
     } catch (publishErr) {
       console.warn(`[Generate] Advertencia al publicar voz: ${publishErr.message}`);
       // Continuar de todas formas - la voz ya está generada
     }
-
-    // Generar un nombre amigable para la voz (puede ser editado por el usuario)
-    const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
 
     // Guardar en la base de datos del usuario (usar voiceId publicado)
     const dbResult = await pool.query(
