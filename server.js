@@ -18,6 +18,7 @@ import settingsRoutes from './src/routes/settings.js';
 import statsRoutes from './src/routes/stats.js';
 import banRoutes from './src/routes/bans.js';
 import nickRoutes from './src/routes/nicks.js';
+import botRoutes from './src/routes/bot.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -147,6 +148,32 @@ import pool from './src/db.js';
         UNIQUE(user_id, original_username)
       );
       CREATE INDEX IF NOT EXISTS idx_nick_overrides_user ON nick_overrides(user_id);
+      -- Bot characters (custom AI characters para cada usuario)
+      CREATE TABLE IF NOT EXISTS bot_characters (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        system_prompt TEXT NOT NULL,
+        voice_id VARCHAR(255),
+        avatar_url VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bot_characters_user_id ON bot_characters(user_id);
+      -- Bot moderation log (registro de acciones de moderación ejecutadas por bot)
+      CREATE TABLE IF NOT EXISTS bot_moderations_log (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        action_type VARCHAR(50) NOT NULL,
+        target_username VARCHAR(255) NOT NULL,
+        reason TEXT,
+        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(50) DEFAULT 'executed'
+      );
+      CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_user_id ON bot_moderations_log(user_id);
+      CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_executed ON bot_moderations_log(executed_at);
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
@@ -181,6 +208,8 @@ try {
   console.log('[STARTUP] ✓ Ban routes loaded');
   app.use('/api', nickRoutes);
   console.log('[STARTUP] ✓ Nick override routes loaded');
+  app.use('/api/bot', botRoutes);
+  console.log('[STARTUP] ✓ Bot routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
