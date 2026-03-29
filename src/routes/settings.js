@@ -101,7 +101,7 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8 };
+    const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
     const maxVoices = voiceLimits[userPlan] || 0;
@@ -187,7 +187,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 
   // Límite de voces clonadas según plan del usuario
-  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8 };
+  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
@@ -259,7 +259,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   }
 
   // Límite de voces generadas según plan del usuario
-  const voiceLimits = { free: 0, basic: 1, professional: 3, premium: 5 };
+  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
@@ -365,6 +365,68 @@ router.post('/voices/migrate', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('[Migrate] Error:', error.message);
     return res.status(500).json({ error: 'Error migrando voces' });
+  }
+});
+
+/**
+ * GET /api/settings/plan - Ver plan actual del usuario
+ */
+router.get('/plan', verifyToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email, plan, tokens FROM users WHERE id = $1',
+      [req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const user = result.rows[0];
+    return res.json({
+      success: true,
+      userId: user.id,
+      email: user.email,
+      currentPlan: user.plan || 'free',
+      tokens: user.tokens
+    });
+  } catch (error) {
+    console.error('[Plan] Error:', error.message);
+    return res.status(500).json({ error: 'Error obteniendo plan' });
+  }
+});
+
+/**
+ * POST /api/settings/plan - Actualizar plan del usuario (DEBUG)
+ */
+router.post('/plan', verifyToken, async (req, res) => {
+  const { newPlan } = req.body;
+
+  if (!['free', 'pro', 'premium', 'elite', 'on_demand'].includes(newPlan)) {
+    return res.status(400).json({ error: 'Plan inválido. Use: free, pro, premium, elite, on_demand' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE users SET plan = $1 WHERE id = $2 RETURNING id, plan, tokens',
+      [newPlan, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    console.log(`[Plan] Usuario ${req.user.userId} plan actualizado a ${newPlan}`);
+
+    return res.json({
+      success: true,
+      message: `Plan actualizado a ${newPlan}`,
+      plan: result.rows[0].plan,
+      tokens: result.rows[0].tokens
+    });
+  } catch (error) {
+    console.error('[Plan] Error actualizando:', error.message);
+    return res.status(500).json({ error: 'Error actualizando plan' });
   }
 });
 
