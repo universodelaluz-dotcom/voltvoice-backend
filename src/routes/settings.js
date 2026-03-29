@@ -527,6 +527,39 @@ router.post('/plan', verifyToken, async (req, res) => {
 });
 
 /**
+ * GET /api/settings/voices/:id/play - Sintetizar audio de prueba con una voz
+ */
+router.get('/voices/:id/play', verifyToken, async (req, res) => {
+  try {
+    const voiceResult = await pool.query(
+      'SELECT voice_id FROM user_voices WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.userId]
+    );
+
+    if (voiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Voz no encontrada' });
+    }
+
+    const voiceId = voiceResult.rows[0].voice_id;
+    const testText = 'Esta es una prueba de audio de mi voz personalizada.';
+
+    console.log(`[Voice Play] Sintetizando audio con voz ${voiceId}`);
+
+    // Sintetizar audio con Inworld
+    const result = await inworldTtsService.synthesize(testText, voiceId);
+
+    // Devolver audio como bytes
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(result);
+
+  } catch (error) {
+    console.error('[Voice Play] Error sintetizando:', error.message);
+    return res.status(500).json({ error: 'Error sintetizando audio' });
+  }
+});
+
+/**
  * POST /api/settings/plan/update-by-email - Actualizar plan por email (DEBUG - sin auth)
  */
 router.post('/plan/update-by-email', async (req, res) => {
