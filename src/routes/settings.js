@@ -430,4 +430,41 @@ router.post('/plan', verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/settings/plan/update-by-email - Actualizar plan por email (DEBUG - sin auth)
+ */
+router.post('/plan/update-by-email', async (req, res) => {
+  const { email, newPlan } = req.body;
+
+  if (!email || !newPlan) {
+    return res.status(400).json({ error: 'email y newPlan requeridos' });
+  }
+
+  if (!['free', 'pro', 'premium', 'elite', 'on_demand'].includes(newPlan)) {
+    return res.status(400).json({ error: 'Plan inválido. Use: free, pro, premium, elite, on_demand' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE users SET plan = $1 WHERE email = $2 RETURNING id, email, plan, tokens',
+      [newPlan, email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    console.log(`[Plan DEBUG] Usuario ${email} plan actualizado a ${newPlan}`);
+
+    return res.json({
+      success: true,
+      message: `Plan de ${email} actualizado a ${newPlan}`,
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[Plan DEBUG] Error actualizando:', error.message);
+    return res.status(500).json({ error: 'Error actualizando plan' });
+  }
+});
+
 export default router;
