@@ -1,5 +1,5 @@
 import pool from '../db.js';
-import { tiktokLiveService } from './tiktokLiveService.js';
+import tiktokLiveService from './tiktokLiveService.js';
 
 /**
  * Bot Context Service
