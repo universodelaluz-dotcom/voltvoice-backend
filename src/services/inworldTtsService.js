@@ -359,7 +359,8 @@ class InworldTtsService {
 
   /**
    * Publicar una voz generada (convertir de DRAFT a activa)
-   * Endpoint: PATCH https://api.inworld.ai/voices/v1/voices/{voiceId}
+   * Endpoint: POST https://api.inworld.ai/voices/v1/voices/{voiceId}:publish
+   * Devuelve el voiceId final para usar en síntesis
    */
   async publishVoice(voiceId) {
     return new Promise((resolve, reject) => {
@@ -375,15 +376,13 @@ class InworldTtsService {
 
       console.log(`[Inworld Publish] Publicando voz: ${voiceId}`);
 
-      const requestBody = JSON.stringify({
-        status: 'ACTIVE'
-      });
+      const requestBody = JSON.stringify({});
 
       const options = {
         hostname: 'api.inworld.ai',
         port: 443,
-        path: `/voices/v1/voices/${voiceId}`,
-        method: 'PATCH',
+        path: `/voices/v1/voices/${voiceId}:publish`,
+        method: 'POST',
         headers: {
           'Authorization': `Basic ${this.apiKey}`,
           'Content-Type': 'application/json',
@@ -410,12 +409,14 @@ class InworldTtsService {
             }
 
             const result = JSON.parse(data);
-            console.log(`[Inworld Publish] ✓ Voz publicada exitosamente: ${voiceId}`);
+            const publishedVoiceId = result.voice?.voiceId || voiceId;
+
+            console.log(`[Inworld Publish] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
 
             resolve({
               success: true,
-              voiceId: voiceId,
-              status: result.status || 'ACTIVE'
+              voiceId: publishedVoiceId,  // Usar el voiceId publicado
+              status: result.voice?.status || 'PUBLISHED'
             });
 
           } catch (err) {

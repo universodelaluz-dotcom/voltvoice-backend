@@ -386,9 +386,11 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     console.log(`[Generate] Voz diseñada: ${result.voiceId}, publicando...`);
 
     // Publicar la voz (convertir de DRAFT a ACTIVE)
+    let publishedVoiceId = result.voiceId;
     try {
-      await inworldTtsService.publishVoice(result.voiceId);
-      console.log(`[Generate] ✓ Voz publicada exitosamente`);
+      const publishResult = await inworldTtsService.publishVoice(result.voiceId);
+      publishedVoiceId = publishResult.voiceId;
+      console.log(`[Generate] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
     } catch (publishErr) {
       console.warn(`[Generate] Advertencia al publicar voz: ${publishErr.message}`);
       // Continuar de todas formas - la voz ya está generada
@@ -397,12 +399,12 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     // Generar un nombre amigable para la voz (puede ser editado por el usuario)
     const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
 
-    // Guardar en la base de datos del usuario
+    // Guardar en la base de datos del usuario (usar voiceId publicado)
     const dbResult = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
        VALUES ($1, $2, $3, $4, NOW())
        RETURNING id, voice_name, voice_id, provider, created_at`,
-      [req.user.userId, defaultVoiceName, result.voiceId, 'inworld-generated']
+      [req.user.userId, defaultVoiceName, publishedVoiceId, 'inworld-generated']
     );
 
     console.log(`[Generate] ✓ Voz generada y guardada para usuario ${req.user.userId}`);
@@ -422,7 +424,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
         ...dbResult.rows[0],
         defaultName: defaultVoiceName,  // Nombre sugerido
         previewAudio: previewAudioUrl,   // Audio para reproducir
-        voiceId: result.voiceId           // ID de Inworld
+        voiceId: publishedVoiceId        // ID de Inworld publicado
       },
       message: `Voz personalizada generada exitosamente`
     });
