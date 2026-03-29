@@ -2,8 +2,52 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
+import { translate } from 'google-translate-free';
 
 const router = Router();
+
+/**
+ * Traducir texto al inglés para Inworld
+ */
+const translateToEnglish = async (text, language = 'es') => {
+  if (!text || text.trim().length === 0) return text;
+
+  try {
+    // Si ya está en inglés, retornar tal cual
+    if (language === 'en' || language === 'en-US' || language === 'en-GB') {
+      return text;
+    }
+
+    console.log(`[Translate] Traduciendo de ${language} a inglés: "${text.substring(0, 50)}..."`);
+    const result = await translate({
+      text: text,
+      source: language.split('-')[0], // es, pt, fr, etc
+      target: 'en'
+    });
+
+    console.log(`[Translate] ✓ Traducido: "${result}"`);
+    return result;
+  } catch (error) {
+    console.error('[Translate] Error:', error.message);
+    // Si falla la traducción, retornar el texto original
+    return text;
+  }
+};
+
+/**
+ * Mapeo de tipos de voz a inglés
+ */
+const voiceTypeTranslations = {
+  'Narrador': 'Narrator',
+  'Agente de Soporte': 'Support Agent',
+  'Compañero': 'Companion',
+  'Instructor de Meditación': 'Meditation Instructor',
+  // Ya en inglés
+  'Narrator': 'Narrator',
+  'Support Agent': 'Support Agent',
+  'Companion': 'Companion',
+  'Meditation Instructor': 'Meditation Instructor'
+};
 
 /**
  * GET /api/settings - Cargar config del usuario
@@ -238,17 +282,22 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   try {
     console.log(`[Generate] Usuario ${req.user.userId} generando voz: "${description.substring(0, 50)}..."`);
 
-    // Construir el prompt para Inworld
-    const voicePrompt = `${description}\n\nVoice Type: ${voiceType}\nLanguage: ${language}`;
+    // Traducir descripción al inglés (Inworld requiere inglés)
+    const languageCode = language.split('-')[0]; // es, pt, en, etc
+    const descriptionEnglish = await translateToEnglish(description, languageCode);
+    const voiceTypeEnglish = voiceTypeTranslations[voiceType] || voiceType;
+    const scriptEnglish = scriptMode === 'custom' && script ? await translateToEnglish(script, languageCode) : undefined;
 
-    // Usar el script proporcionado o generar uno automáticamente
-    const voiceScript = scriptMode === 'custom' && script ? script : undefined;
+    // Construir el prompt para Inworld (EN INGLÉS)
+    const voicePrompt = `${descriptionEnglish}\n\nVoice Type: ${voiceTypeEnglish}\nLanguage: ${language}`;
+
+    console.log(`[Generate] Prompt para Inworld (en inglés): "${voicePrompt.substring(0, 100)}..."`);
 
     // Llamar a Inworld para generar
     const result = await inworldTtsService.cloneVoice(
       `Generated_${Date.now()}`,  // Nombre único temporal
       Buffer.from(voicePrompt),   // "audio" es en realidad el prompt
-      voiceScript || ''
+      scriptEnglish || ''
     );
 
     // Generar un nombre amigable para la voz
