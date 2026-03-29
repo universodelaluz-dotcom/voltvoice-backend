@@ -372,7 +372,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     const designPrompt = `${descriptionEnglish}. Voice type: ${voiceTypeEnglish}`;
     const previewText = script && scriptMode === 'custom'
       ? await translateToEnglish(script, languageCode)
-      : `This is a ${voiceTypeEnglish.toLowerCase()} speaking naturally.`;
+      : descriptionEnglish; // Usar la descripción como preview para que sea más representativo
 
     console.log(`[Generate] Design prompt: "${designPrompt.substring(0, 80)}..."`);
 
