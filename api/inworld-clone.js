@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { voiceName, base64Audio, contentType } = req.body;
+    const { voiceName, base64Audio, contentType, language } = req.body;
 
     if (!voiceName || !base64Audio) {
       return res.status(400).json({
@@ -27,13 +27,19 @@ export default async function handler(req, res) {
       });
     }
 
+    // Convertir código de idioma de es-ES a ES_ES (formato Inworld)
+    let langCode = 'ES_ES'; // default
+    if (language) {
+      langCode = language.toUpperCase().replace('-', '_');
+    }
+
     // Convertir base64 a Buffer
     const audioBuffer = Buffer.from(base64Audio, 'base64');
 
-    console.log(`[Inworld Clone] Clonando voz: "${voiceName}" (${audioBuffer.length} bytes)`);
+    console.log(`[Inworld Clone] Clonando voz: "${voiceName}" (${audioBuffer.length} bytes) - Idioma: ${langCode}`);
 
     // Clonar voz con Inworld
-    const clonedVoiceId = await inworldTtsService.cloneVoice(voiceName, audioBuffer);
+    const clonedVoiceId = await inworldTtsService.cloneVoice(voiceName, audioBuffer, '', langCode);
 
     return res.status(200).json({
       success: true,

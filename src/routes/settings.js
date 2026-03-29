@@ -122,13 +122,23 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
 
 /**
  * POST /api/settings/voices/clone - Clonar voz con Inworld AI
- * Body: { voiceName, base64Audio, transcription?, langCode? }
+ * Body: { voiceName, base64Audio, transcription?, language?, langCode? }
  */
 router.post('/voices/clone', verifyToken, async (req, res) => {
-  const { voiceName, base64Audio, transcription, langCode } = req.body;
+  const { voiceName, base64Audio, transcription, language, langCode } = req.body;
 
   if (!voiceName || !base64Audio) {
     return res.status(400).json({ error: 'voiceName y base64Audio son requeridos' });
+  }
+
+  // Convertir código de idioma de es-ES a ES_ES (formato Inworld)
+  let finalLangCode = 'ES_ES'; // default
+  if (language) {
+    // Frontend envía es-ES, convertir a ES_ES
+    finalLangCode = language.toUpperCase().replace('-', '_');
+  } else if (langCode) {
+    // Backwards compatibility
+    finalLangCode = langCode;
   }
 
   // Límite de voces clonadas según plan del usuario
@@ -154,7 +164,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 
   try {
-    console.log(`[Clone] Usuario ${req.user.userId} clonando voz: "${voiceName}"`);
+    console.log(`[Clone] Usuario ${req.user.userId} clonando voz: "${voiceName}" - Idioma: ${finalLangCode}`);
 
     // Convertir base64 a Buffer
     const audioBuffer = Buffer.from(base64Audio, 'base64');
@@ -164,7 +174,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       voiceName,
       audioBuffer,
       transcription || '',
-      langCode || 'ES_ES'
+      finalLangCode
     );
 
     // Guardar en la base de datos del usuario
