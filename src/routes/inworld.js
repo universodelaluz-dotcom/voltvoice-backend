@@ -182,22 +182,10 @@ router.get('/config', async (req, res) => {
       });
     }
 
-    // Generate JWT token for Inworld Realtime API
-    let token;
-    try {
-      token = jwt.sign(
-        { iss: jwtKey },
-        jwtSecret,
-        { algorithm: 'HS256', expiresIn: '1h' }
-      );
-      console.log('[Inworld Config] Generated JWT token');
-    } catch (err) {
-      console.error('[Inworld Config] Error generating JWT:', err.message);
-      return res.status(500).json({
-        error: 'Failed to generate JWT token',
-        detail: err.message
-      });
-    }
+    // Use Basic Auth with JWT_KEY:JWT_SECRET
+    const basicAuth = `Basic ${Buffer.from(`${jwtKey}:${jwtSecret}`).toString('base64')}`;
+
+    console.log('[Inworld Config] Using Basic Auth for Inworld API');
 
     // Fetch ICE servers from Inworld
     let iceServers = [];
@@ -205,7 +193,7 @@ router.get('/config', async (req, res) => {
       const iceResponse = await fetch('https://api.inworld.ai/v1/realtime/ice-servers', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': basicAuth
         }
       });
 
@@ -223,7 +211,7 @@ router.get('/config', async (req, res) => {
 
     // Return config to client
     return res.status(200).json({
-      api_key: token,  // JWT token instead of raw API key
+      api_key: basicAuth,  // Basic Auth token
       ice_servers: iceServers,
       url: 'https://api.inworld.ai/v1/realtime/calls',
       workspace_id: process.env.INWORLD_WORKSPACE_ID || 'default-cfjnp8x4nt-owd7yg-1xsw',
