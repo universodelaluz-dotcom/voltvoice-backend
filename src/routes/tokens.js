@@ -2,24 +2,15 @@
 
 import express from 'express';
 import * as tokenService from '../services/tokenService.js';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
-// Middleware para verificar autenticación (básico)
-const authMiddleware = (req, res, next) => {
-  const userId = req.headers['x-user-id']; // Temporal, después usar JWT
-  if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  req.userId = userId;
-  next();
-};
-
 // GET - Obtener tokens actuales del usuario
-router.get('/balance', authMiddleware, async (req, res) => {
+router.get('/balance', verifyToken, async (req, res) => {
   try {
-    const tokens = await tokenService.getUserTokens(req.userId);
-    const stats = await tokenService.getTokenStats(req.userId);
+    const tokens = await tokenService.getUserTokens(req.user.userId);
+    const stats = await tokenService.getTokenStats(req.user.userId);
 
     res.json({
       currentTokens: tokens,
@@ -31,7 +22,7 @@ router.get('/balance', authMiddleware, async (req, res) => {
 });
 
 // POST - Sintetizar voz (gasta tokens)
-router.post('/synthesize', authMiddleware, async (req, res) => {
+router.post('/synthesize', verifyToken, async (req, res) => {
   try {
     const { text, voiceName } = req.body;
 
@@ -43,18 +34,18 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     const tokensNeeded = tokenService.calculateTokensCost(text.length);
 
     // Verificar si tiene suficientes tokens
-    const hasEnough = await tokenService.hasEnoughTokens(req.userId, tokensNeeded);
+    const hasEnough = await tokenService.hasEnoughTokens(req.user.userId, tokensNeeded);
     if (!hasEnough) {
       return res.status(402).json({
         error: 'Insufficient tokens',
         tokensNeeded: tokensNeeded,
-        tokensAvailable: await tokenService.getUserTokens(req.userId)
+        tokensAvailable: await tokenService.getUserTokens(req.user.userId)
       });
     }
 
     // Aquí iría la llamada a ElevenLabs para sintetizar
     // Por ahora, solo descontamos tokens
-    const result = await tokenService.deductTokens(req.userId, tokensNeeded, text.length, voiceName);
+    const result = await tokenService.deductTokens(req.user.userId, tokensNeeded, text.length, voiceName);
 
     res.json({
       success: true,
@@ -69,7 +60,7 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
 });
 
 // POST - Comprar tokens (integrado con Stripe después)
-router.post('/purchase', authMiddleware, async (req, res) => {
+router.post('/purchase', verifyToken, async (req, res) => {
   try {
     const { tokensPurchase, stripePaymentId } = req.body;
 
@@ -79,7 +70,7 @@ router.post('/purchase', authMiddleware, async (req, res) => {
 
     // Aquí iría validación de Stripe
     // Por ahora, agregamos tokens directo
-    const result = await tokenService.addTokens(req.userId, tokensPurchase, 'purchase');
+    const result = await tokenService.addTokens(req.user.userId, tokensPurchase, 'purchase');
 
     res.json({
       success: true,
@@ -93,9 +84,9 @@ router.post('/purchase', authMiddleware, async (req, res) => {
 });
 
 // GET - Ver historial de uso
-router.get('/history', authMiddleware, async (req, res) => {
+router.get('/history', verifyToken, async (req, res) => {
   try {
-    const history = await tokenService.getTokenHistory(req.userId);
+    const history = await tokenService.getTokenHistory(req.user.userId);
     res.json({ history });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -103,7 +94,7 @@ router.get('/history', authMiddleware, async (req, res) => {
 });
 
 // POST - Upgrade de plan
-router.post('/upgrade-plan', authMiddleware, async (req, res) => {
+router.post('/upgrade-plan', verifyToken, async (req, res) => {
   try {
     const { newPlan } = req.body;
 
@@ -111,7 +102,7 @@ router.post('/upgrade-plan', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid plan' });
     }
 
-    const updatedUser = await tokenService.updateUserPlan(req.userId, newPlan);
+    const updatedUser = await tokenService.updateUserPlan(req.user.userId, newPlan);
 
     res.json({
       success: true,

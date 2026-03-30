@@ -8,6 +8,7 @@ import db from '../db.js';
 import FormData from 'form-data';
 import { Writer } from 'wav';
 import { Readable } from 'stream';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -57,15 +58,8 @@ function getElevenLabsApiKey() {
   return (process.env.ELEVENLABS_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
 }
 
-// Middleware para verificar autenticación
-const authMiddleware = (req, res, next) => {
-  const userId = req.headers['x-user-id'];
-  if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  req.userId = userId;
-  next();
-};
+// verifyToken usa verifyToken JWT (Bearer token)
+// req.user.userId queda disponible tras pasar el middleware
 
 // DEBUG - Test espeak-ng installation
 router.get('/debug/espeak', async (req, res) => {
@@ -276,7 +270,7 @@ router.post('/admin/add-tokens', async (req, res) => {
 });
 
 // GET - Obtener voces disponibles
-router.get('/voices', authMiddleware, async (req, res) => {
+router.get('/voices', verifyToken, async (req, res) => {
   try {
     let voices;
     let provider = 'elevenlabs';
@@ -331,7 +325,7 @@ router.get('/voices', authMiddleware, async (req, res) => {
 });
 
 // POST - Sintetizar voz (gasta tokens)
-router.post('/synthesize', authMiddleware, async (req, res) => {
+router.post('/synthesize', verifyToken, async (req, res) => {
   try {
     const { text, voiceId } = req.body;
 
@@ -343,12 +337,12 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     const tokensNeeded = tokenService.calculateTokensCost(text.length);
 
     // Verificar si usuario tiene suficientes tokens
-    const hasEnough = await tokenService.hasEnoughTokens(req.userId, tokensNeeded);
+    const hasEnough = await tokenService.hasEnoughTokens(req.user.userId, tokensNeeded);
     if (!hasEnough) {
       return res.status(402).json({
         error: 'Insufficient tokens',
         tokensNeeded: tokensNeeded,
-        tokensAvailable: await tokenService.getUserTokens(req.userId)
+        tokensAvailable: await tokenService.getUserTokens(req.user.userId)
       });
     }
 
@@ -358,12 +352,12 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     let provider = 'elevenlabs';
 
     try {
-      audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.userId);
+      audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.user.userId);
     } catch (ttsError) {
       console.warn('[SYNTHESIS] ElevenLabs failed, trying fallback provider:', ttsError.message);
 
       try {
-        audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.userId);
+        audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.user.userId);
         usedFallback = true;
         provider = 'fallback';
       } catch (fallbackError) {
@@ -381,7 +375,7 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
 
     // Deducir tokens
     const tokenResult = await tokenService.deductTokens(
-      req.userId,
+      req.user.userId,
       tokensNeeded,
       text.length,
       voiceId
@@ -401,7 +395,7 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
     console.error('[SYNTHESIS ERROR]', {
       message: error.message,
       stack: error.stack,
-      userId: req.userId,
+      userId: req.user.userId,
       text: req.body?.text ? req.body.text.substring(0, 50) : 'N/A'
     });
     res.status(500).json({ error: error.message, details: error.stack });
@@ -409,7 +403,7 @@ router.post('/synthesize', authMiddleware, async (req, res) => {
 });
 
 // POST - Clonar voz (requiere archivo de audio)
-router.post('/clone-voice', authMiddleware, async (req, res) => {
+router.post('/clone-voice', verifyToken, async (req, res) => {
   try {
     const { voiceName, audioBase64 } = req.body;
 
@@ -442,7 +436,7 @@ router.post('/clone-voice', authMiddleware, async (req, res) => {
 });
 
 // GET - Obtener voces del usuario
-router.get('/user-voices', authMiddleware, async (req, res) => {
+router.get('/user-voices', verifyToken, async (req, res) => {
   try {
     const voices = await elevenLabsService.getUserVoices();
     res.json({
@@ -455,7 +449,7 @@ router.get('/user-voices', authMiddleware, async (req, res) => {
 });
 
 // GET - Obtener uso de API
-router.get('/usage', authMiddleware, async (req, res) => {
+router.get('/usage', verifyToken, async (req, res) => {
   try {
     const usage = await elevenLabsService.getUsage();
     res.json({
@@ -468,7 +462,7 @@ router.get('/usage', authMiddleware, async (req, res) => {
 });
 
 // DELETE - Eliminar voz clonada
-router.delete('/voice/:voiceId', authMiddleware, async (req, res) => {
+router.delete('/voice/:voiceId', verifyToken, async (req, res) => {
   try {
     const { voiceId } = req.params;
     const result = await elevenLabsService.deleteVoice(voiceId);
