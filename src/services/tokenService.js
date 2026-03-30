@@ -34,7 +34,7 @@ class TokenService {
         INSERT INTO token_logs (user_id, action, tokens_used, characters_count, voice_name)
         VALUES ($1, $2, $3, $4, $5)
       `;
-      await db.query(logQuery, [userId, 'synthesis', tokensToDeduct, characterCount, voiceName]);
+      await db.query(logQuery, [userId, action, tokensToDeduct, characterCount, voiceName]);
 
       return {
         success: true,

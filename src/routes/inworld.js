@@ -3,6 +3,7 @@ import https from 'https';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import tokenService from '../services/tokenService.js';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ const apiKey = process.env.INWORLD_API_KEY;
  * $5 per million characters
  * CRITICAL: Inworld retorna STREAMING JSON con múltiples audioContent chunks
  */
-router.post('/tts', (req, res) => {
+router.post('/tts', async (req, res) => {
   try {
     const { text, voiceId } = req.body;
 
@@ -109,7 +110,7 @@ router.post('/tts', (req, res) => {
         chunks.push(chunk);
       });
 
-      response.on('end', () => {
+      response.on('end', async () => {
         try {
           if (response.statusCode !== 200) {
             const dataBuffer = Buffer.concat(chunks);
@@ -170,7 +171,20 @@ router.post('/tts', (req, res) => {
           console.log(`[Inworld TTS] ✅ Audio completo: ${audioChunks.length} chunks → ${audioBuffer.length} bytes`);
 
           if (userId && tokensNeeded) {
-            await tokenService.deductTokens(userId, tokensNeeded, text.length, mappedVoice, 'ptt_speech');
+            const deduction = await tokenService.deductTokens(userId, tokensNeeded, text.length, mappedVoice, 'ptt_speech');
+            return res.status(200).json({
+              success: true,
+              audio: `data:audio/mpeg;base64,${base64Audio}`,
+              audioSize: audioBuffer.length,
+              voiceId: voiceId,
+              characters: text.length,
+              tokensUsed: tokensNeeded,
+              remainingTokens: deduction.remainingTokens,
+              estimatedCost: {
+                mini: `$${(text.length / 1000000 * 5).toFixed(6)}`,
+                max: `$${(text.length / 1000000 * 10).toFixed(6)}`
+              }
+            });
           }
           return res.status(200).json({
             success: true,
@@ -208,6 +222,51 @@ router.post('/tts', (req, res) => {
     console.error('[Inworld TTS] Error:', error.message);
     return res.status(500).json({
       error: 'Error en TTS',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/inworld/realtime-usage - Charge tokens for push-to-talk realtime answers
+ */
+router.post('/realtime-usage', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const text = String(req.body?.text || '').trim();
+    const voiceId = String(req.body?.voiceId || 'Clive').trim();
+
+    if (!text) {
+      return res.status(400).json({ error: 'text required' });
+    }
+
+    const tokensNeeded = tokenService.calculateTokensCost(text.length);
+    const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
+
+    if (!hasEnough) {
+      return res.status(402).json({
+        error: 'token_insufficient',
+        detail: 'No tienes suficientes tokens para respuesta realtime del asistente.'
+      });
+    }
+
+    const deduction = await tokenService.deductTokens(
+      userId,
+      tokensNeeded,
+      text.length,
+      voiceId || 'Clive',
+      'ptt_realtime'
+    );
+
+    return res.status(200).json({
+      success: true,
+      tokensUsed: tokensNeeded,
+      remainingTokens: deduction.remainingTokens
+    });
+  } catch (error) {
+    console.error('[Inworld Realtime Usage] Error:', error.message);
+    return res.status(500).json({
+      error: 'Failed to record realtime usage',
       detail: error.message
     });
   }
