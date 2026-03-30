@@ -116,9 +116,10 @@ router.post('/tts', async (req, res) => {
             const dataBuffer = Buffer.concat(chunks);
             const errorText = dataBuffer.toString('utf-8');
             console.error(`[Inworld TTS] Error ${response.statusCode}: ${errorText.substring(0, 300)}`);
-            return res.status(response.statusCode).json({
-              error: `Inworld API error: ${response.statusCode}`,
-              detail: errorText.substring(0, 200)
+            return res.status(502).json({
+              success: false,
+              error: 'Inworld API error',
+              detail: `Status ${response.statusCode}: ${errorText.substring(0, 200)}`
             });
           }
 
