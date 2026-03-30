@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import https from 'https';
+import jwt from 'jsonwebtoken';
+import { config } from '../config.js';
+import tokenService from '../services/tokenService.js';
 
 const router = Router();
 
 function getRealtimeApiKey() {
-  const apiKey = process.env.INWORLD_API_KEY;
+const apiKey = process.env.INWORLD_API_KEY;
   if (apiKey) {
     return apiKey;
   }
@@ -59,6 +62,30 @@ router.post('/tts', (req, res) => {
       voiceId: mappedVoice,
       modelId: 'inworld-tts-1.5-max'
     });
+
+    let userId = null;
+    const authHeader = req.headers.authorization || ''
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const decoded = jwt.verify(token, config.JWT_SECRET);
+        userId = decoded.userId;
+      } catch (err) {
+        console.warn('[Inworld TTS] Invalid token provided for stats, skipping token deduction.');
+      }
+    }
+
+    let tokensNeeded = null;
+    if (userId) {
+      tokensNeeded = tokenService.calculateTokensCost(text.length);
+      const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
+      if (!hasEnough) {
+        return res.status(402).json({
+          error: 'token_insufficient',
+          detail: 'No tienes suficientes tokens para sintetizar este mensaje. Puedes recargar desde el panel.'
+        });
+      }
+    }
 
     // API key from portal is already base64-encoded, use with Bearer token
     const options = {
@@ -142,6 +169,9 @@ router.post('/tts', (req, res) => {
 
           console.log(`[Inworld TTS] ✅ Audio completo: ${audioChunks.length} chunks → ${audioBuffer.length} bytes`);
 
+          if (userId && tokensNeeded) {
+            await tokenService.deductTokens(userId, tokensNeeded, text.length, mappedVoice, 'ptt_speech');
+          }
           return res.status(200).json({
             success: true,
             audio: `data:audio/mpeg;base64,${base64Audio}`,

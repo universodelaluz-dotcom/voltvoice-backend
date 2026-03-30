@@ -23,7 +23,7 @@ class TokenService {
   }
 
   // Restar tokens después de usar síntesis de voz
-  async deductTokens(userId, tokensToDeduct, characterCount, voiceName) {
+  async deductTokens(userId, tokensToDeduct, characterCount, voiceName, action = 'synthesis') {
     try {
       // Actualizar tokens en usuario
       const updateQuery = 'UPDATE users SET tokens = tokens - $1 WHERE id = $2 RETURNING tokens';
