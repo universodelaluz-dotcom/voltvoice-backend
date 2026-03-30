@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import https from 'https';
+import jwt from 'jsonwebtoken';
 
 const router = Router();
 
@@ -43,13 +44,14 @@ router.post('/tts', (req, res) => {
       modelId: 'inworld-tts-1.5-max'
     });
 
+    // API key from portal is already base64-encoded, use with Bearer token
     const options = {
       hostname: 'api.inworld.ai',
       port: 443,
       path: '/tts/v1/voice:stream',
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(requestBody),
       },
@@ -166,16 +168,34 @@ router.post('/tts', (req, res) => {
 });
 
 /**
- * GET /api/inworld/config - Get WebRTC config (API key + ICE servers)
- * SECURE: API key served from backend, not exposed to client directly
+ * GET /api/inworld/config - Get WebRTC config (JWT token + ICE servers)
+ * SECURE: JWT token generated on backend, API credentials never exposed to client
  */
 router.get('/config', async (req, res) => {
   try {
-    const apiKey = process.env.INWORLD_API_KEY;
+    const jwtKey = process.env.INWORLD_JWT_KEY;
+    const jwtSecret = process.env.INWORLD_JWT_SECRET;
 
-    if (!apiKey) {
+    if (!jwtKey || !jwtSecret) {
       return res.status(500).json({
-        error: 'INWORLD_API_KEY not configured on server'
+        error: 'INWORLD_JWT_KEY or INWORLD_JWT_SECRET not configured on server'
+      });
+    }
+
+    // Generate JWT token for Inworld Realtime API
+    let token;
+    try {
+      token = jwt.sign(
+        { iss: jwtKey },
+        jwtSecret,
+        { algorithm: 'HS256', expiresIn: '1h' }
+      );
+      console.log('[Inworld Config] Generated JWT token');
+    } catch (err) {
+      console.error('[Inworld Config] Error generating JWT:', err.message);
+      return res.status(500).json({
+        error: 'Failed to generate JWT token',
+        detail: err.message
       });
     }
 
@@ -185,7 +205,7 @@ router.get('/config', async (req, res) => {
       const iceResponse = await fetch('https://api.inworld.ai/v1/realtime/ice-servers', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -201,9 +221,9 @@ router.get('/config', async (req, res) => {
       // Continue anyway - client can work without TURN servers
     }
 
-    // Return config to client (API key will be used for SDP exchange)
+    // Return config to client
     return res.status(200).json({
-      api_key: apiKey,
+      api_key: token,  // JWT token instead of raw API key
       ice_servers: iceServers,
       url: 'https://api.inworld.ai/v1/realtime/calls',
       workspace_id: process.env.INWORLD_WORKSPACE_ID || 'default-cfjnp8x4nt-owd7yg-1xsw',
