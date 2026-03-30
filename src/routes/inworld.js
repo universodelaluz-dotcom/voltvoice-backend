@@ -1,8 +1,24 @@
 import { Router } from 'express';
 import https from 'https';
-import jwt from 'jsonwebtoken';
 
 const router = Router();
+
+function getRealtimeApiKey() {
+  const apiKey = process.env.INWORLD_API_KEY;
+  if (apiKey) {
+    return apiKey;
+  }
+
+  const jwtKey = process.env.INWORLD_JWT_KEY;
+  const jwtSecret = process.env.INWORLD_JWT_SECRET;
+
+  if (jwtKey && jwtSecret) {
+    // Inworld's portal API key is the base64-encoded KEY:SECRET pair.
+    return Buffer.from(`${jwtKey}:${jwtSecret}`).toString('base64');
+  }
+
+  return null;
+}
 
 /**
  * POST /api/inworld/tts - Inworld Text-to-Speech
@@ -168,24 +184,18 @@ router.post('/tts', (req, res) => {
 });
 
 /**
- * GET /api/inworld/config - Get WebRTC config (JWT token + ICE servers)
- * SECURE: JWT token generated on backend, API credentials never exposed to client
+ * GET /api/inworld/config - Get WebRTC config (API key + ICE servers)
+ * SECURE: credentials stay server-side in env vars and are only proxied to the client session
  */
 router.get('/config', async (req, res) => {
   try {
-    const jwtKey = process.env.INWORLD_JWT_KEY;
-    const jwtSecret = process.env.INWORLD_JWT_SECRET;
+    const realtimeApiKey = getRealtimeApiKey();
 
-    if (!jwtKey || !jwtSecret) {
+    if (!realtimeApiKey) {
       return res.status(500).json({
-        error: 'INWORLD_JWT_KEY or INWORLD_JWT_SECRET not configured on server'
+        error: 'INWORLD_API_KEY or INWORLD_JWT_KEY/INWORLD_JWT_SECRET not configured on server'
       });
     }
-
-    // Use Basic Auth with JWT_KEY:JWT_SECRET
-    const basicAuth = `Basic ${Buffer.from(`${jwtKey}:${jwtSecret}`).toString('base64')}`;
-
-    console.log('[Inworld Config] Using Basic Auth for Inworld API');
 
     // Fetch ICE servers from Inworld
     let iceServers = [];
@@ -193,7 +203,7 @@ router.get('/config', async (req, res) => {
       const iceResponse = await fetch('https://api.inworld.ai/v1/realtime/ice-servers', {
         method: 'GET',
         headers: {
-          'Authorization': basicAuth
+          'Authorization': `Bearer ${realtimeApiKey}`
         }
       });
 
@@ -211,7 +221,7 @@ router.get('/config', async (req, res) => {
 
     // Return config to client
     return res.status(200).json({
-      api_key: basicAuth,  // Basic Auth token
+      api_key: realtimeApiKey,
       ice_servers: iceServers,
       url: 'https://api.inworld.ai/v1/realtime/calls',
       workspace_id: process.env.INWORLD_WORKSPACE_ID || 'default-cfjnp8x4nt-owd7yg-1xsw',
@@ -244,82 +254,55 @@ router.get('/health', (req, res) => {
  */
 router.post('/test', async (req, res) => {
   try {
-    const apiKey = process.env.INWORLD_API_KEY;
+    const apiKey = getRealtimeApiKey();
 
     if (!apiKey) {
       return res.status(500).json({
-        error: 'INWORLD_API_KEY not configured',
+        error: 'INWORLD_API_KEY or INWORLD_JWT_KEY/INWORLD_JWT_SECRET not configured',
         hasKey: false
       });
     }
 
-    const authHeader = `Basic ${Buffer.from(apiKey).toString('base64')}`;
+    const authHeader = `Bearer ${apiKey}`;
 
     console.log('[Inworld Test] Testing connection...');
     console.log('[Inworld Test] API Key length:', apiKey.length);
     console.log('[Inworld Test] Auth header preview:', authHeader.substring(0, 20) + '...');
 
-    const response = await axios.post(
-      'https://api.inworld.ai/tts/v1/voice:stream',
-      {
-        text: 'Test message',
-        voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret',
-        model_id: 'inworld-tts-1.5-max',
-        audio_config: {
-          audio_encoding: 'MP3',
-          speaking_rate: 1
-        },
-        temperature: 1
-      },
-      {
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'text',
-        timeout: 30000,
-        validateStatus: () => true
+    const response = await fetch('https://api.inworld.ai/v1/realtime/ice-servers', {
+      method: 'GET',
+      headers: {
+        'Authorization': authHeader
       }
-    );
+    });
 
     console.log('[Inworld Test] Response status:', response.status);
 
-    if (response.status === 200) {
-      try {
-        const jsonData = JSON.parse(response.data);
-        if (jsonData.result && jsonData.result.audioContent) {
-          const audioBuffer = Buffer.from(jsonData.result.audioContent, 'base64');
-          return res.status(200).json({
-            success: true,
-            message: 'Inworld API connection successful',
-            audioSize: audioBuffer.length,
-            voiceId: 'default-cfjnp8x4nt-owd7yg-1xsw__garret'
-          });
-        }
-      } catch (e) {
-        console.error('[Inworld Test] Parse error:', e.message);
-      }
-
-      return res.status(500).json({
-        success: false,
-        error: 'Invalid response format',
-        detail: response.data.substring(0, 200)
+    if (response.ok) {
+      const data = await response.json();
+      return res.status(200).json({
+        success: true,
+        message: 'Inworld Realtime API connection successful',
+        iceServers: data.ice_servers?.length || 0
       });
     } else {
-      let errorText = '';
+      const errorText = await response.text();
       try {
-        const errorData = JSON.parse(response.data);
-        errorText = JSON.stringify(errorData);
+        const errorData = JSON.parse(errorText);
+        return res.status(response.status).json({
+          success: false,
+          error: 'Inworld API test failed',
+          status: response.status,
+          detail: errorData
+        });
       } catch (e) {
-        errorText = response.data.substring(0, 200);
+        return res.status(response.status).json({
+          success: false,
+          error: 'Inworld API test failed',
+          status: response.status,
+          detail: errorText.substring(0, 200)
+        });
       }
-
-      return res.status(response.status).json({
-        success: false,
-        error: 'Inworld API test failed',
-        status: response.status,
-        detail: errorText
-      });
     }
   } catch (error) {
     console.error('[Inworld Test] Error:', error.message);
