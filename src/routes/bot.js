@@ -5,6 +5,47 @@ import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
+async function resolveCharacterVoice(userId, character) {
+  if (!character) {
+    return character;
+  }
+
+  if (character.voice_id) {
+    return character;
+  }
+
+  if (!character.name || character.id === 'streamer_ai_example') {
+    return character;
+  }
+
+  try {
+    const voiceResult = await pool.query(
+      `SELECT voice_id, voice_name
+       FROM user_voices
+       WHERE user_id = $1 AND LOWER(voice_name) = LOWER($2)
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, character.name]
+    );
+
+    if (voiceResult.rows.length === 0) {
+      return character;
+    }
+
+    const matchedVoice = voiceResult.rows[0];
+    console.log(`[Bot] Resolved character voice by name: ${character.name} -> ${matchedVoice.voice_id}`);
+
+    return {
+      ...character,
+      voice_id: matchedVoice.voice_id,
+      resolved_voice_name: matchedVoice.voice_name
+    };
+  } catch (err) {
+    console.warn('[Bot] Could not resolve character voice by name:', err.message);
+    return character;
+  }
+}
+
 /**
  * GET /api/bot/context/:tiktok_username
  * Get aggregated context for a TikTok stream (real-time + historical data)
@@ -50,9 +91,12 @@ router.get('/characters', verifyToken, async (req, res) => {
       [userId]
     );
 
-    const characters = result.rows.map(char => ({
-      ...char,
-      is_custom: true
+    const characters = await Promise.all(result.rows.map(async (char) => {
+      const resolvedCharacter = await resolveCharacterVoice(userId, char);
+      return {
+        ...resolvedCharacter,
+        is_custom: true
+      };
     }));
 
     // Add example character
@@ -270,7 +314,7 @@ router.post('/invoke', verifyToken, async (req, res) => {
         });
       }
 
-      character = result.rows[0];
+      character = await resolveCharacterVoice(userId, result.rows[0]);
     }
 
     // Get stream context
