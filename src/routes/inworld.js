@@ -166,6 +166,59 @@ router.post('/tts', (req, res) => {
 });
 
 /**
+ * GET /api/inworld/config - Get WebRTC config (API key + ICE servers)
+ * SECURE: API key served from backend, not exposed to client directly
+ */
+router.get('/config', async (req, res) => {
+  try {
+    const apiKey = process.env.INWORLD_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'INWORLD_API_KEY not configured on server'
+      });
+    }
+
+    // Fetch ICE servers from Inworld
+    let iceServers = [];
+    try {
+      const iceResponse = await fetch('https://api.inworld.ai/v1/realtime/ice-servers', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      if (iceResponse.ok) {
+        const iceData = await iceResponse.json();
+        iceServers = iceData.ice_servers || [];
+        console.log('[Inworld Config] Fetched ICE servers:', iceServers.length);
+      } else {
+        console.warn('[Inworld Config] Failed to fetch ICE servers:', iceResponse.status);
+      }
+    } catch (err) {
+      console.warn('[Inworld Config] Error fetching ICE servers:', err.message);
+      // Continue anyway - client can work without TURN servers
+    }
+
+    // Return config to client (API key will be used for SDP exchange)
+    return res.status(200).json({
+      api_key: apiKey,
+      ice_servers: iceServers,
+      url: 'https://api.inworld.ai/v1/realtime/calls',
+      workspace_id: process.env.INWORLD_WORKSPACE_ID || 'default-cfjnp8x4nt-owd7yg-1xsw',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Inworld Config] Error:', error.message);
+    return res.status(500).json({
+      error: 'Failed to get config',
+      detail: error.message
+    });
+  }
+});
+
+/**
  * GET /api/inworld/health - Health check
  */
 router.get('/health', (req, res) => {
