@@ -1,6 +1,6 @@
 // Servicio de PayPal para pagos
 import axios from 'axios';
-import { config } from '../../config.js';
+import { config } from '../config.js';
 
 const PAYPAL_API = config.PAYPAL_MODE === 'sandbox'
   ? 'https://api-m.sandbox.paypal.com'

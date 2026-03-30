@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import https from 'https';
 import jwt from 'jsonwebtoken';
-import { config } from '../../config.js';
+import { config } from '../config.js';
 import tokenService from '../services/tokenService.js';
 import { verifyToken } from '../../middleware/auth.js';
 
