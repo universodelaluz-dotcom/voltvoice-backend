@@ -160,17 +160,7 @@ router.get('/voices', verifyToken, async (req, res) => {
       [req.user.userId]
     );
 
-    // Filtrar voces con IDs problemáticos (ej: Arno)
-    const validVoices = result.rows.filter(v => {
-      // Rechazar TODAS las voces llamadas 'Arno' (incompletas/problemáticas)
-      if (v.voice_name.toLowerCase() === 'arno') {
-        console.warn(`[Settings] Eliminando voz problemática: ${v.voice_name} (${v.voice_id})`);
-        return false;
-      }
-      return true;
-    });
-
-    return res.json({ success: true, voices: validVoices, plan: userPlan, maxVoices, used: validVoices.length });
+    return res.json({ success: true, voices: result.rows, plan: userPlan, maxVoices, used: result.rows.length });
   } catch (error) {
     console.error('[Settings] Error listando voces:', error.message);
     return res.status(500).json({ error: 'Error listando voces' });
@@ -318,15 +308,6 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     } catch (publishError) {
       console.warn(`[Clone] No se pudo publicar inmediatamente la voz ${result.voiceId}: ${publishError.message}`);
     }
-
-    // Esperar a que Inworld termine de entrenar la voz (60 segundos)
-    console.log(`[Clone] Esperando entrenamiento de voz (60s)...`);
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const progressPercent = Math.round(((i + 1) / 60) * 100);
-      process.stdout.write(`[Clone] Entrenamiento: ${progressPercent}%\r`);
-    }
-    console.log(`[Clone] ✓ Entrenamiento completado`);
 
     // Guardar en la base de datos del usuario
     const dbResult = await pool.query(
