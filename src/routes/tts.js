@@ -16,11 +16,25 @@ router.post('/say', async (req, res) => {
       return res.status(400).json({ error: 'text required' });
     }
 
-    console.log(`[TTS] Google TTS: "${text.substring(0, 50)}..."`);
+    console.log(`[TTS] Google TTS: "${text.substring(0, 50)}..." (voice: ${voice || 'es-MX'})`);
 
-    // Obtener URL de Google TTS (español México)
+    // Mapear voiceId a código de idioma de Google
+    const voiceToLangMap = {
+      'en-US': 'en',
+      'es-ES': 'es',
+      'es-MX': 'es-MX',
+      'en-GB': 'en',
+      'fr-FR': 'fr',
+      'de-DE': 'de',
+      'it-IT': 'it',
+      'pt-BR': 'pt-br',
+    };
+
+    const langCode = voiceToLangMap[voice] || 'es-MX'; // default a español
+
+    // Obtener URL de Google TTS con el idioma correcto
     const url = gTTS.getAudioUrl(text, {
-      lang: 'es-MX',
+      lang: langCode,
       slow: false,
     });
 
