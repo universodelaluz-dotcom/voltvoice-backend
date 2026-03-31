@@ -34,8 +34,12 @@ class GoogleTtsService {
         throw new Error('Text too long. Maximum 5000 characters.');
       }
 
-      // Mapear voiceId de ElevenLabs a Google Cloud voice names
+      // Mapear voiceId de ElevenLabs y voces básicas a Google Cloud voice names
       const voiceMap = {
+        // Voces básicas (limitadas)
+        'en-US': 'en-US-Neural2-C',  // Voz Básica Inglés
+        'es-ES': 'es-ES-Neural2-A',  // Voz Básica Español
+        // ElevenLabs voices
         'EXAVITQu4vr4xnSDxMaL': 'es-MX-Neural2-A', // Bella -> Spanish (Mexico)
         '21m00Tcm4TlvDq8ikWAM': 'en-US-Neural2-C', // Rachel -> English (US)
         'AZnzlk1uvptSRtMUZeKw': 'en-US-Neural2-A', // Domi -> English (US)

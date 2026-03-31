@@ -3,6 +3,7 @@
 import express from 'express';
 import espeakTtsService from '../services/espeak-tts-service.js';
 import elevenLabsService from '../services/elevenLabsService.js';
+import googleTtsService from '../services/googleTtsService.js';
 import tokenService from '../services/tokenService.js';
 import db from '../db.js';
 import FormData from 'form-data';
@@ -351,10 +352,22 @@ router.post('/synthesize', verifyToken, async (req, res) => {
     let usedFallback = false;
     let provider = 'elevenlabs';
 
+    // Detectar si es una voz básica (Google TTS)
+    const basicVoices = ['en-US', 'es-ES'];
+    const isBasicVoice = basicVoices.includes(voiceId);
+
     try {
-      audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.user.userId);
+      if (isBasicVoice) {
+        // Usar Google TTS para voces básicas
+        console.log(`[SYNTHESIS] Using Google TTS for basic voice: ${voiceId}`);
+        audioResult = await googleTtsService.synthesizeAndSave(text, voiceId, req.user.userId);
+        provider = 'google-tts';
+      } else {
+        // Usar ElevenLabs para voces premium/clonadas
+        audioResult = await elevenLabsService.synthesizeAndSave(text, voiceId, req.user.userId);
+      }
     } catch (ttsError) {
-      console.warn('[SYNTHESIS] ElevenLabs failed, trying fallback provider:', ttsError.message);
+      console.warn(`[SYNTHESIS] Primary provider (${provider}) failed, trying fallback:`, ttsError.message);
 
       try {
         audioResult = await espeakTtsService.synthesizeAndSave(text, voiceId, req.user.userId);
