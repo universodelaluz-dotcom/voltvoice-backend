@@ -160,7 +160,17 @@ router.get('/voices', verifyToken, async (req, res) => {
       [req.user.userId]
     );
 
-    return res.json({ success: true, voices: result.rows, plan: userPlan, maxVoices, used: result.rows.length });
+    // Filtrar voces con IDs problemáticos (ej: Arno)
+    const validVoices = result.rows.filter(v => {
+      // Rechazar voces con patrón 'default-*__arno' (problemático)
+      if (v.voice_id === 'default-cfjnp8x4nt-owd7yg-1xsw__arno') {
+        console.warn(`[Settings] Filtrando voz problemática: ${v.voice_name} (${v.voice_id})`);
+        return false;
+      }
+      return true;
+    });
+
+    return res.json({ success: true, voices: validVoices, plan: userPlan, maxVoices, used: validVoices.length });
   } catch (error) {
     console.error('[Settings] Error listando voces:', error.message);
     return res.status(500).json({ error: 'Error listando voces' });
@@ -306,7 +316,8 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
         console.log(`[Clone] Voz publicada: ${result.voiceId} -> ${finalVoiceId}`);
       }
     } catch (publishError) {
-      console.warn(`[Clone] No se pudo publicar inmediatamente la voz ${result.voiceId}: ${publishError.message}`);
+      console.error(`[Clone] CRÍTICO: No se pudo publicar la voz ${result.voiceId}: ${publishError.message}`);
+      throw new Error(`Clonación incompleta: no se pudo publicar la voz. Intenta de nuevo.`);
     }
 
     // Guardar en la base de datos del usuario
@@ -460,7 +471,6 @@ router.post('/voices/migrate', verifyToken, async (req, res) => {
     // Voces pre-existentes por email
     const preExistingVoices = {
       'alainsh@gmail.com': [
-        { voice_name: 'Arno', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__arno', provider: 'inworld' },
         { voice_name: 'Garret', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret', provider: 'inworld' },
         { voice_name: 'Connor', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__connor', provider: 'inworld' },
       ]
