@@ -9,44 +9,65 @@ class InworldTtsService {
     // La API key ya viene en base64 desde el .env (igual que el local)
     this.apiKey = process.env.INWORLD_API_KEY;
     this.modelId = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
+    this.builtinVoices = new Set(['Diego', 'Lupita', 'Miguel', 'Rafael', 'Garret', 'Connor', 'Arno']);
 
     if (!this.apiKey) {
       console.warn('[Inworld TTS] API key not configured');
     }
   }
 
+  shouldAttemptPublish(voiceId) {
+    if (!voiceId) return false;
+    if (this.builtinVoices.has(voiceId)) return false;
+    if (voiceId.startsWith('default-')) return false;
+    if (voiceId.includes('__')) return false;
+    return true;
+  }
+
   /**
    * Sintetizar texto a voz - COPIA EXACTA del local speakInworld()
    */
   async synthesize(text, voiceId = 'Diego') {
+    if (!text || text.length === 0) {
+      throw new Error('Text cannot be empty');
+    }
+
+    if (!this.apiKey) {
+      throw new Error('Inworld API key not configured');
+    }
+
+    let resolvedVoiceId = voiceId;
+
+    // Para voces clonadas nuevas o guardadas con IDs "draft", intenta publicarlas
+    // una sola vez antes de sintetizar. Esto evita que Inworld lea el sample text.
+    if (this.shouldAttemptPublish(resolvedVoiceId)) {
+      try {
+        const publishResult = await this.publishVoice(resolvedVoiceId, `Voice ${resolvedVoiceId}`);
+        if (publishResult?.voiceId) {
+          console.log(`[Inworld TTS] Voice auto-published: ${resolvedVoiceId} -> ${publishResult.voiceId}`);
+          resolvedVoiceId = publishResult.voiceId;
+        }
+      } catch (publishError) {
+        console.warn(`[Inworld TTS] Auto-publish skipped for ${resolvedVoiceId}: ${publishError.message}`);
+      }
+    }
+
     return new Promise((resolve, reject) => {
-      if (!text || text.length === 0) {
-        reject(new Error('Text cannot be empty'));
-        return;
-      }
+      console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${resolvedVoiceId}`);
 
-      if (!this.apiKey) {
-        reject(new Error('Inworld API key not configured'));
-        return;
-      }
-
-      console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${voiceId}`);
-
-      // REQUEST BODY - EXACTO como el local (camelCase)
       const requestBody = JSON.stringify({
         text: text,
-        voiceId: voiceId,
+        voiceId: resolvedVoiceId,
         modelId: this.modelId
       });
 
-      // HTTP OPTIONS - EXACTO como el local
       const options = {
         hostname: 'api.inworld.ai',
         port: 443,
         path: '/tts/v1/voice:stream',
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${this.apiKey}`,  // Key YA es base64 desde .env
+          'Authorization': `Basic ${this.apiKey}`,
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
         },
@@ -79,10 +100,7 @@ class InworldTtsService {
               return;
             }
 
-            // PARSEO - EXACTO como el local
-            // La respuesta contiene MÚLTIPLES audioContent fields (streaming chunks)
             const data = dataBuffer.toString('utf-8');
-
             const allMatches = data.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/g) || [];
             console.log(`[Inworld TTS] audioContent fields found: ${allMatches.length}`);
 
@@ -92,7 +110,6 @@ class InworldTtsService {
               return;
             }
 
-            // Decodificar CADA chunk por separado y concatenar como BINARIO
             const audioChunks = [];
 
             for (let i = 0; i < allMatches.length; i++) {
@@ -109,7 +126,6 @@ class InworldTtsService {
               }
             }
 
-            // Concatenar todos los chunks binarios
             const audioBuffer = Buffer.concat(audioChunks);
             console.log(`[Inworld TTS] Audio combined: ${audioBuffer.length} bytes from ${audioChunks.length} chunks`);
 
@@ -121,7 +137,8 @@ class InworldTtsService {
             resolve({
               success: true,
               audio: audioBuffer,
-              contentType: 'audio/mpeg'
+              contentType: 'audio/mpeg',
+              resolvedVoiceId
             });
 
           } catch (err) {
@@ -136,7 +153,7 @@ class InworldTtsService {
         reject(err);
       });
 
-      console.log(`[Inworld TTS] Sending request - voiceId: ${voiceId}, modelId: ${this.modelId}`);
+      console.log(`[Inworld TTS] Sending request - voiceId: ${resolvedVoiceId}, modelId: ${this.modelId}`);
       req.write(requestBody);
       req.end();
     });
@@ -216,7 +233,7 @@ class InworldTtsService {
             }
 
             const result = JSON.parse(data);
-            const voiceId = result.voice?.voiceId || result.voice?.name || null;
+            const voiceId = result.voiceId || result.voice?.voiceId || result.voice?.name || result.name || null;
 
             if (!voiceId) {
               console.error('[Inworld Clone] No voiceId in response:', data.substring(0, 300));
@@ -224,11 +241,10 @@ class InworldTtsService {
               return;
             }
 
-            console.log(`[Inworld Clone] ✓ Voice cloned successfully: ${voiceName} → ${voiceId}`);
+            console.log(`[Inworld Clone] Voice cloned successfully: ${voiceName} -> ${voiceId}`);
 
-            // Verificar warnings del audio
             if (result.audioSamplesValidated) {
-              result.audioSamplesValidated.forEach((sample, i) => {
+              result.audioSamplesValidated.forEach((sample) => {
                 if (sample.warnings?.length > 0) {
                   console.warn(`[Inworld Clone] Audio warnings: ${sample.warnings.join(', ')}`);
                 }
@@ -330,7 +346,7 @@ class InworldTtsService {
             }
 
             const voiceId = previewVoices[0].voiceId;
-            console.log(`[Inworld Design] ✓ Voz diseñada exitosamente: ${voiceId}`);
+            console.log(`[Inworld Design] Voz diseñada exitosamente: ${voiceId}`);
 
             resolve({
               success: true,
@@ -358,10 +374,7 @@ class InworldTtsService {
   }
 
   /**
-   * Publicar una voz generada (convertir de DRAFT a activa)
-   * Endpoint: POST https://api.inworld.ai/voices/v1/voices/{voiceId}:publish
-   * Body requiere: displayName (string)
-   * Devuelve el voiceId final para usar en síntesis
+   * Publicar una voz generada o clonada (convertir de DRAFT a activa)
    */
   async publishVoice(voiceId, displayName = 'Mi Voz Personalizada') {
     return new Promise((resolve, reject) => {
@@ -412,10 +425,9 @@ class InworldTtsService {
             }
 
             const result = JSON.parse(data);
-            // El voiceId publicado está directamente en result.voiceId
             const publishedVoiceId = result.voiceId || voiceId;
 
-            console.log(`[Inworld Publish] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
+            console.log(`[Inworld Publish] Voz publicada exitosamente: ${publishedVoiceId}`);
 
             resolve({
               success: true,

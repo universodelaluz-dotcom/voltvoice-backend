@@ -298,13 +298,24 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       finalLangCode
     );
 
+    let finalVoiceId = result.voiceId;
+    try {
+      const publishResult = await inworldTtsService.publishVoice(result.voiceId, voiceName);
+      if (publishResult?.voiceId) {
+        finalVoiceId = publishResult.voiceId;
+        console.log(`[Clone] Voz publicada: ${result.voiceId} -> ${finalVoiceId}`);
+      }
+    } catch (publishError) {
+      console.warn(`[Clone] No se pudo publicar inmediatamente la voz ${result.voiceId}: ${publishError.message}`);
+    }
+
     // Guardar en la base de datos del usuario
     const dbResult = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, voice_name) DO UPDATE SET voice_id = $3
        RETURNING id, voice_name, voice_id, provider, created_at`,
-      [req.user.userId, voiceName, result.voiceId, 'inworld']
+      [req.user.userId, voiceName, finalVoiceId, 'inworld-cloned']
     );
 
     console.log(`[Clone] ✓ Voz "${voiceName}" clonada y guardada para usuario ${req.user.userId}`);
