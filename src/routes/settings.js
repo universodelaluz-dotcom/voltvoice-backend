@@ -162,9 +162,9 @@ router.get('/voices', verifyToken, async (req, res) => {
 
     // Filtrar voces con IDs problemáticos (ej: Arno)
     const validVoices = result.rows.filter(v => {
-      // Rechazar voces con patrón 'default-*__arno' (problemático)
-      if (v.voice_id === 'default-cfjnp8x4nt-owd7yg-1xsw__arno') {
-        console.warn(`[Settings] Filtrando voz problemática: ${v.voice_name} (${v.voice_id})`);
+      // Rechazar TODAS las voces llamadas 'Arno' (incompletas/problemáticas)
+      if (v.voice_name.toLowerCase() === 'arno') {
+        console.warn(`[Settings] Eliminando voz problemática: ${v.voice_name} (${v.voice_id})`);
         return false;
       }
       return true;
@@ -467,6 +467,12 @@ router.post('/voices/migrate', verifyToken, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.userId]);
     const email = userResult.rows[0]?.email;
+
+    // Limpiar voces problemáticas primero
+    await pool.query(
+      `DELETE FROM user_voices WHERE user_id = $1 AND LOWER(voice_name) = 'arno'`,
+      [req.user.userId]
+    );
 
     // Voces pre-existentes por email
     const preExistingVoices = {
