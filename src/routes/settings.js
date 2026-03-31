@@ -649,34 +649,54 @@ router.post('/plan/update-by-email', async (req, res) => {
 });
 
 /**
- * TEMPORAL: POST /api/settings/voices/add-existing - Agregar voz existente de Inworld
- * Body: { voiceName, voiceId }
+ * PRIVADO: POST /api/settings/voices/add-to-user - Agregar voz a usuario específico
+ * Solo funciona con API key privada, no se expone en frontend
+ * Body: { email, voiceName, voiceId }
  */
-router.post('/voices/add-existing', verifyToken, async (req, res) => {
-  const { voiceName, voiceId } = req.body;
+router.post('/voices/add-to-user', async (req, res) => {
+  const { email, voiceName, voiceId } = req.body;
+  const adminKey = req.headers['x-admin-key'];
 
-  if (!voiceName || !voiceId) {
-    return res.status(400).json({ error: 'voiceName y voiceId requeridos' });
+  // Verificar API key privada
+  if (adminKey !== process.env.ADMIN_API_KEY) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  if (!email || !voiceName || !voiceId) {
+    return res.status(400).json({ error: 'email, voiceName y voiceId requeridos' });
   }
 
   try {
+    // Buscar usuario por email
+    const userResult = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: `Usuario ${email} no encontrado` });
+    }
+
+    const userId = userResult.rows[0].id;
+
+    // Agregar voz
     const result = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, voice_name) DO UPDATE SET voice_id = $3, provider = $4
        RETURNING id, voice_name, voice_id, provider, created_at`,
-      [req.user.userId, voiceName, voiceId, 'inworld']
+      [userId, voiceName, voiceId, 'inworld']
     );
 
-    console.log(`[AddExisting] ✓ Voz "${voiceName}" agregada a usuario ${req.user.userId}`);
+    console.log(`[Admin] ✓ Voz "${voiceName}" agregada a ${email} (${userId})`);
 
     return res.status(201).json({
       success: true,
       voice: result.rows[0],
-      message: `Voz "${voiceName}" agregada exitosamente`
+      message: `Voz "${voiceName}" agregada a ${email}`
     });
   } catch (error) {
-    console.error('[AddExisting] Error agregando voz:', error.message);
+    console.error('[Admin] Error agregando voz:', error.message);
     return res.status(500).json({ error: 'Error agregando voz' });
   }
 });
