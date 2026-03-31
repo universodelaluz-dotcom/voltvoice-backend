@@ -576,7 +576,7 @@ router.get('/voices/:id/play', verifyToken, async (req, res) => {
     }
 
     const voiceId = voiceResult.rows[0].voice_id;
-    const testText = 'Esta es una prueba de audio de mi voz personalizada.';
+    const testText = 'HOLA';
 
     console.log(`[Voice Play] Sintetizando audio con voz ${voiceId}`);
 
