@@ -449,6 +449,7 @@ router.post('/voices/migrate', verifyToken, async (req, res) => {
     // Voces pre-existentes por email
     const preExistingVoices = {
       'alainsh@gmail.com': [
+        { voice_name: 'Arno', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__arno', provider: 'inworld' },
         { voice_name: 'Garret', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret', provider: 'inworld' },
         { voice_name: 'Connor', voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__connor', provider: 'inworld' },
       ]

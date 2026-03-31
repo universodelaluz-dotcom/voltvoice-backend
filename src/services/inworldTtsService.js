@@ -447,6 +447,7 @@ class InworldTtsService {
   async getAvailableVoices() {
     return [
       { voice_id: 'Diego', name: 'Diego', category: 'premade' },
+      { voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__arno', name: 'Arno (Clonada)', category: 'cloned' },
       { voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__garret', name: 'Garret (Clonada)', category: 'cloned' },
       { voice_id: 'default-cfjnp8x4nt-owd7yg-1xsw__connor', name: 'Connor (Clonada)', category: 'cloned' }
     ];
