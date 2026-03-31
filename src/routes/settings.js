@@ -319,6 +319,15 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       console.warn(`[Clone] No se pudo publicar inmediatamente la voz ${result.voiceId}: ${publishError.message}`);
     }
 
+    // Esperar a que Inworld termine de entrenar la voz (60 segundos)
+    console.log(`[Clone] Esperando entrenamiento de voz (60s)...`);
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const progressPercent = Math.round(((i + 1) / 60) * 100);
+      process.stdout.write(`[Clone] Entrenamiento: ${progressPercent}%\r`);
+    }
+    console.log(`[Clone] ✓ Entrenamiento completado`);
+
     // Guardar en la base de datos del usuario
     const dbResult = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
