@@ -223,20 +223,42 @@ router.patch('/voices/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * DELETE /api/settings/voices/:id - Eliminar voz clonada
+ * DELETE /api/settings/voices/:id - Eliminar voz clonada (también de Inworld)
  */
 router.delete('/voices/:id', verifyToken, async (req, res) => {
   try {
-    const result = await pool.query(
+    // Primero obtener la voz para conseguir el voiceId de Inworld
+    const voiceResult = await pool.query(
+      'SELECT voice_id, voice_name, provider FROM user_voices WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.userId]
+    );
+
+    if (voiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Voz no encontrada' });
+    }
+
+    const { voice_id, voice_name, provider } = voiceResult.rows[0];
+
+    // Si es una voz clonada, eliminarla también de Inworld
+    if (provider === 'inworld-cloned' || provider === 'inworld-generated') {
+      try {
+        await inworldTtsService.deleteVoice(voice_id);
+        console.log(`[Delete] ✓ Voz "${voice_name}" (${voice_id}) eliminada de Inworld`);
+      } catch (inworldError) {
+        console.warn(`[Delete] Advertencia eliminando de Inworld: ${inworldError.message}`);
+        // No rechazamos la solicitud si Inworld falla, pero lo registramos
+      }
+    }
+
+    // Eliminar de la base de datos local
+    const deleteResult = await pool.query(
       'DELETE FROM user_voices WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.id, req.user.userId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Voz no encontrada' });
-    }
+    console.log(`[Delete] ✓ Voz "${voice_name}" eliminada de la base de datos`);
 
-    return res.json({ success: true });
+    return res.json({ success: true, message: `Voz "${voice_name}" eliminada exitosamente` });
   } catch (error) {
     console.error('[Settings] Error eliminando voz:', error.message);
     return res.status(500).json({ error: 'Error eliminando voz' });

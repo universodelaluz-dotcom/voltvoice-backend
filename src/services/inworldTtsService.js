@@ -449,6 +449,75 @@ class InworldTtsService {
   }
 
   /**
+   * Eliminar una voz de Inworld AI
+   * Endpoint: DELETE https://api.inworld.ai/voices/v1/voices/{voiceId}
+   */
+  async deleteVoice(voiceId) {
+    return new Promise((resolve, reject) => {
+      if (!voiceId) {
+        reject(new Error('Voice ID is required'));
+        return;
+      }
+
+      if (!this.apiKey) {
+        reject(new Error('Inworld API key not configured'));
+        return;
+      }
+
+      console.log(`[Inworld Delete] Eliminando voz: ${voiceId}`);
+
+      const options = {
+        hostname: 'api.inworld.ai',
+        port: 443,
+        path: `/voices/v1/voices/${voiceId}`,
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Basic ${this.apiKey}`,
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+
+        res.on('end', () => {
+          try {
+            const dataBuffer = Buffer.concat(chunks);
+            const data = dataBuffer.toString('utf-8');
+
+            console.log(`[Inworld Delete] Response status: ${res.statusCode}`);
+
+            if (res.statusCode !== 200 && res.statusCode !== 204) {
+              console.error(`[Inworld Delete] API error: ${res.statusCode} - ${data.substring(0, 500)}`);
+              reject(new Error(`Inworld delete error: ${res.statusCode} - ${data}`));
+              return;
+            }
+
+            console.log(`[Inworld Delete] ✓ Voz eliminada exitosamente: ${voiceId}`);
+
+            resolve({
+              success: true,
+              voiceId: voiceId
+            });
+
+          } catch (err) {
+            console.error('[Inworld Delete] Error parseando respuesta:', err.message);
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error('[Inworld Delete] Error en request:', err.message);
+        reject(err);
+      });
+
+      req.end();
+    });
+  }
+
+  /**
    * Obtener voces disponibles
    */
   async getAvailableVoices() {
