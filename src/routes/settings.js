@@ -648,4 +648,37 @@ router.post('/plan/update-by-email', async (req, res) => {
   }
 });
 
+/**
+ * TEMPORAL: POST /api/settings/voices/add-existing - Agregar voz existente de Inworld
+ * Body: { voiceName, voiceId }
+ */
+router.post('/voices/add-existing', verifyToken, async (req, res) => {
+  const { voiceName, voiceId } = req.body;
+
+  if (!voiceName || !voiceId) {
+    return res.status(400).json({ error: 'voiceName y voiceId requeridos' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, voice_name) DO UPDATE SET voice_id = $3, provider = $4
+       RETURNING id, voice_name, voice_id, provider, created_at`,
+      [req.user.userId, voiceName, voiceId, 'inworld']
+    );
+
+    console.log(`[AddExisting] ✓ Voz "${voiceName}" agregada a usuario ${req.user.userId}`);
+
+    return res.status(201).json({
+      success: true,
+      voice: result.rows[0],
+      message: `Voz "${voiceName}" agregada exitosamente`
+    });
+  } catch (error) {
+    console.error('[AddExisting] Error agregando voz:', error.message);
+    return res.status(500).json({ error: 'Error agregando voz' });
+  }
+});
+
 export default router;
