@@ -192,14 +192,9 @@ class InworldTtsService {
         langCode: langCode,
         voiceSamples: [
           {
-            audioData: base64Audio,
-            transcription: transcription || `Sample audio for voice ${voiceName}`
+            audioData: base64Audio
           }
-        ],
-        description: `Voz clonada: ${voiceName} - StreamVoicer`,
-        audioProcessingConfig: {
-          removeBackgroundNoise: true
-        }
+        ]
       });
 
       const options = {
