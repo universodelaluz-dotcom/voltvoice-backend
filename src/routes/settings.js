@@ -320,6 +320,24 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       throw new Error(`Clonación incompleta: no se pudo publicar la voz. Intenta de nuevo.`);
     }
 
+    // Validar que el voiceId sea válido sintetizando un test
+    try {
+      console.log(`[Clone] Validando voiceId: ${finalVoiceId}`);
+      const testSynthesis = await inworldTtsService.synthesize('test', finalVoiceId);
+      const audioLength = testSynthesis.audio?.length || 0;
+
+      // Si el audio es muy largo (>50KB), es probablemente el audio de ejemplo
+      if (audioLength > 50000) {
+        console.error(`[Clone] VALIDACIÓN FALLIDA: voiceId ${finalVoiceId} devolvió ${audioLength} bytes (esperado <50KB)`);
+        throw new Error(`La voz clonada no se entrenó correctamente. Inworld devolvió audio de ejemplo en lugar de síntesis. Intenta clonar de nuevo con un audio más claro.`);
+      }
+
+      console.log(`[Clone] ✓ voiceId validado: ${audioLength} bytes (OK)`);
+    } catch (validationError) {
+      console.error(`[Clone] Error validando voiceId: ${validationError.message}`);
+      throw validationError;
+    }
+
     // Guardar en la base de datos del usuario
     const dbResult = await pool.query(
       `INSERT INTO user_voices (user_id, voice_name, voice_id, provider)
