@@ -94,15 +94,9 @@ class TikTokLiveService {
   }
 
   _isCommunityMember(data = {}) {
-    const userSceneTypes = this._getUserSceneTypes(data);
-    const looksLikeFanClubScene =
-      userSceneTypes.includes(10)
-      && !data?.userIdentity?.isModeratorOfAnchor;
-
     return Boolean(
       this._hasCommunityMemberBadge(data)
       || this._hasPortraitTag(data, 'memberdays')
-      || looksLikeFanClubScene
     );
   }
 
