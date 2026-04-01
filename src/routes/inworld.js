@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import tokenService from '../services/tokenService.js';
 import { verifyToken } from '../../middleware/auth.js';
+import pool from '../db.js';
 
 const router = Router();
 
@@ -65,19 +66,23 @@ router.post('/tts', async (req, res) => {
     });
 
     let userId = null;
+    let isAdmin = false;
     const authHeader = req.headers.authorization || ''
     if (authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       try {
         const decoded = jwt.verify(token, config.JWT_SECRET);
         userId = decoded.userId;
+        // Verificar si es admin para bypass de tokens
+        const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+        isAdmin = userRow.rows[0]?.role === 'admin';
       } catch (err) {
         console.warn('[Inworld TTS] Invalid token provided for stats, skipping token deduction.');
       }
     }
 
     let tokensNeeded = null;
-    if (userId) {
+    if (userId && !isAdmin) {
       tokensNeeded = tokenService.calculateTokensCost(text.length);
       const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
       if (!hasEnough) {
@@ -241,23 +246,30 @@ router.post('/realtime-usage', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'text required' });
     }
 
-    const tokensNeeded = tokenService.calculateTokensCost(text.length);
-    const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
+    const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const isAdmin = userRow.rows[0]?.role === 'admin';
 
-    if (!hasEnough) {
-      return res.status(402).json({
-        error: 'token_insufficient',
-        detail: 'No tienes suficientes tokens para respuesta realtime del asistente.'
-      });
+    const tokensNeeded = tokenService.calculateTokensCost(text.length);
+
+    if (!isAdmin) {
+      const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
+      if (!hasEnough) {
+        return res.status(402).json({
+          error: 'token_insufficient',
+          detail: 'No tienes suficientes tokens para respuesta realtime del asistente.'
+        });
+      }
     }
 
-    const deduction = await tokenService.deductTokens(
-      userId,
-      tokensNeeded,
-      text.length,
-      voiceId || 'Clive',
-      'ptt_realtime'
-    );
+    const deduction = isAdmin
+      ? { remainingTokens: 999999999 }
+      : await tokenService.deductTokens(
+          userId,
+          tokensNeeded,
+          text.length,
+          voiceId || 'Clive',
+          'ptt_realtime'
+        );
 
     return res.status(200).json({
       success: true,
