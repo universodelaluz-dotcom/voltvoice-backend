@@ -94,9 +94,13 @@ class TikTokLiveService {
   }
 
   _isCommunityMember(data = {}) {
+    const userSceneTypes = this._getUserSceneTypes(data);
+    const hasCommunityScenePair = userSceneTypes.includes(8) && userSceneTypes.includes(10);
+
     return Boolean(
       this._hasCommunityMemberBadge(data)
       || this._hasPortraitTag(data, 'memberdays')
+      || hasCommunityScenePair
     );
   }
 
