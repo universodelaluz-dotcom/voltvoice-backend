@@ -285,22 +285,30 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 
   // Límite de voces clonadas según plan del usuario
-  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
+  const voiceLimits = { free: 0, creator: 2, pro: 4, premium: 6, elite: 10, admin: 999, on_demand: 999 };
   try {
-    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
-    const maxVoices = voiceLimits[userPlan] || 0;
+    const userRole = userResult.rows[0]?.role || 'user';
 
-    if (maxVoices === 0) {
-      return res.status(403).json({ error: 'Tu plan Free no incluye clonación de voces. Mejora tu plan para desbloquear esta función.' });
-    }
+    // Admin sin límite
+    if (userRole === 'admin') {
+      console.log(`[Clone] Admin clonando sin límite`);
+    } else {
+      const maxVoices = voiceLimits[userPlan] ?? 0;
 
-    const countResult = await pool.query(
-      'SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1',
-      [req.user.userId]
-    );
-    if (parseInt(countResult.rows[0].total) >= maxVoices) {
-      return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces clonadas. Elimina una o mejora tu plan.` });
+      if (maxVoices === 0) {
+        return res.status(403).json({ error: 'Tu plan Free no incluye clonación de voces. Mejora tu plan para desbloquear esta función.' });
+      }
+
+      // Contar solo voces clonadas (no las predeterminadas del sistema)
+      const countResult = await pool.query(
+        `SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1 AND provider = 'inworld-cloned'`,
+        [req.user.userId]
+      );
+      if (parseInt(countResult.rows[0].total) >= maxVoices) {
+        return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces clonadas. Elimina una o mejora tu plan.` });
+      }
     }
   } catch (err) {
     console.error('[Clone] Error verificando límite:', err);
