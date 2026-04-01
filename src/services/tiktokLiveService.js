@@ -78,7 +78,7 @@ class TikTokLiveService {
 
   _sanitizeDebugValue(value, depth = 0) {
     if (value == null) return value;
-    if (depth >= 4) return '[max-depth]';
+    if (depth >= 6) return '[max-depth]';
     if (typeof value === 'string') {
       return value.length > 240 ? `${value.slice(0, 240)}...` : value;
     }
@@ -90,7 +90,7 @@ class TikTokLiveService {
     }
     if (typeof value === 'object') {
       const output = {};
-      Object.entries(value).slice(0, 24).forEach(([key, innerValue]) => {
+      Object.entries(value).slice(0, 40).forEach(([key, innerValue]) => {
         output[key] = this._sanitizeDebugValue(innerValue, depth + 1);
       });
       return output;
@@ -248,6 +248,9 @@ class TikTokLiveService {
           teamMemberLevel: data.teamMemberLevel,
           fanTicketCount: data.fanTicketCount,
           badges: data.userBadges,
+          userIdentity: data.userIdentity,
+          commentTag: data.commentTag,
+          publicAreaMessageCommon: data.publicAreaMessageCommon,
           rawKeys: Object.keys(data || {})
         });
 
