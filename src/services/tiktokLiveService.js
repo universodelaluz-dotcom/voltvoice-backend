@@ -60,6 +60,42 @@ class TikTokLiveService {
     return this._normalizeUsername(resolved || '');
   }
 
+  _getPortraitTags(data = {}) {
+    const portraitTags = data?.publicAreaMessageCommon?.portraitInfo?.portraitTag;
+    return Array.isArray(portraitTags) ? portraitTags : [];
+  }
+
+  _hasPortraitTag(data = {}, needle = '') {
+    const normalizedNeedle = String(needle || '').toLowerCase();
+    if (!normalizedNeedle) return false;
+
+    return this._getPortraitTags(data).some((tag) =>
+      String(tag?.showValue || '').toLowerCase().includes(normalizedNeedle)
+    );
+  }
+
+  _isSubscriber(data = {}) {
+    return Boolean(
+      data.isSubscriber
+      || data?.userIdentity?.isSubscriberOfAnchor
+      || this._hasPortraitTag(data, 'subformo')
+    );
+  }
+
+  _isModerator(data = {}) {
+    return Boolean(
+      data.isModerator
+      || data?.userIdentity?.isModeratorOfAnchor
+    );
+  }
+
+  _isCommunityMember(data = {}) {
+    return Boolean(
+      this._hasCommunityMemberBadge(data)
+      || this._hasPortraitTag(data, 'memberdays')
+    );
+  }
+
   _markCommunityMember(streamUsername, memberUsername) {
     const normalizedStream = this._normalizeUsername(streamUsername);
     const normalizedMember = this._normalizeUsername(memberUsername);
@@ -200,11 +236,11 @@ class TikTokLiveService {
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
         // Los campos están DIRECTAMENTE en data, no en sub-objetos
-        const isModerator = data.isModerator || false;
-        const isSubscriber = data.isSubscriber || false;
+        const isModerator = this._isModerator(data);
+        const isSubscriber = this._isSubscriber(data);
         const normalizedCommentUser = this._normalizeUsername(data.uniqueId);
         const isCommunityMember =
-          this._hasCommunityMemberBadge(data)
+          this._isCommunityMember(data)
           || (communitySet ? communitySet.has(normalizedCommentUser) : false);
         const topGifterRank = data.topGifterRank || 0;
         const isNewGifter = data.isNewGifter || false;
@@ -248,6 +284,7 @@ class TikTokLiveService {
           teamMemberLevel: data.teamMemberLevel,
           fanTicketCount: data.fanTicketCount,
           badges: data.userBadges,
+          portraitTag: this._getPortraitTags(data),
           userIdentity: data.userIdentity,
           commentTag: data.commentTag,
           publicAreaMessageCommon: data.publicAreaMessageCommon,
