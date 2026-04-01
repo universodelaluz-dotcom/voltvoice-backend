@@ -10,21 +10,45 @@ class TikTokLiveService {
     this.donors = new Map(); // username -> Set de usuarios que han donado
   }
 
+  _hasCommunityMemberBadge(data = {}) {
+    const candidateValues = [
+      data.isFanClubMember,
+      data.isCommunityMember,
+      data.fanClubMember,
+      data.fanClub,
+      data.memberBadge,
+      data.memberLevel,
+      data.teamMemberLevel,
+      data.fansTeamLevel,
+      data.fanTicketCount
+    ];
+
+    return candidateValues.some((value) => {
+      if (typeof value === 'boolean') return value;
+      return Number(value) > 0;
+    });
+  }
+
+  _normalizeUsername(username = '') {
+    return String(username || '').trim().replace(/^@+/, '');
+  }
+
   /**
    * Registrar callback para enviar mensajes a cliente
    */
   registerClientCallback(username, callback) {
-    if (!this.clientCallbacks.has(username)) {
-      this.clientCallbacks.set(username, []);
+    const normalizedUsername = this._normalizeUsername(username);
+    if (!this.clientCallbacks.has(normalizedUsername)) {
+      this.clientCallbacks.set(normalizedUsername, []);
     }
-    this.clientCallbacks.get(username).push(callback);
+    this.clientCallbacks.get(normalizedUsername).push(callback);
   }
 
   /**
    * Desregistrar callback de cliente
    */
   unregisterClientCallback(username, callback) {
-    const callbacks = this.clientCallbacks.get(username);
+    const callbacks = this.clientCallbacks.get(this._normalizeUsername(username));
     if (callbacks) {
       const index = callbacks.indexOf(callback);
       if (index > -1) callbacks.splice(index, 1);
@@ -35,7 +59,7 @@ class TikTokLiveService {
    * Emitir mensaje a todos los clientes conectados
    */
   emitMessageToClients(username, message) {
-    const callbacks = this.clientCallbacks.get(username);
+    const callbacks = this.clientCallbacks.get(this._normalizeUsername(username));
     if (callbacks) {
       callbacks.forEach(callback => {
         try {
@@ -52,27 +76,34 @@ class TikTokLiveService {
    */
   async connectToStream(username, onMessage) {
     try {
-      console.log(`[TikTok] Conectando a @${username}...`);
+      const normalizedUsername = this._normalizeUsername(username);
+
+      if (!normalizedUsername) {
+        throw new Error('Username de TikTok invalido');
+      }
+
+      console.log(`[TikTok] Conectando a @${normalizedUsername}...`);
 
       // Crear nueva conexión de TikTok
-      const tiktokConnection = new WebcastPushConnection(username);
+      const tiktokConnection = new WebcastPushConnection(normalizedUsername);
 
       // Configurar listeners
       tiktokConnection.on('chat', (data) => {
-        const donorsSet = this.donors.get(username);
+        const donorsSet = this.donors.get(normalizedUsername);
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
         // Los campos están DIRECTAMENTE en data, no en sub-objetos
         const isModerator = data.isModerator || false;
         const isSubscriber = data.isSubscriber || false;
+        const isCommunityMember = this._hasCommunityMemberBadge(data);
         const topGifterRank = data.topGifterRank || 0;
         const isNewGifter = data.isNewGifter || false;
         const gifterLevel = data.gifterLevel || 0;
 
-        console.log(`[DEBUG] @${data.uniqueId}: mod=${isModerator}, sub=${isSubscriber}, topGifter=${topGifterRank}, newGifter=${isNewGifter}, gifterLvl=${gifterLevel}`);
+        console.log(`[DEBUG] @${data.uniqueId}: mod=${isModerator}, sub=${isSubscriber}, community=${isCommunityMember}, topGifter=${topGifterRank}, newGifter=${isNewGifter}, gifterLvl=${gifterLevel}`);
 
         const message = {
-          id: `${username}-${Date.now()}-${Math.random()}`,
+          id: `${normalizedUsername}-${Date.now()}-${Math.random()}`,
           username: data.uniqueId,
           nickname: data.nickname || data.uniqueId,
           text: data.comment,
@@ -81,6 +112,7 @@ class TikTokLiveService {
           isDonor,
           isModerator,
           isSubscriber,
+          isCommunityMember,
           topGifterRank
         };
 
@@ -88,11 +120,12 @@ class TikTokLiveService {
           isDonor,
           isModerator,
           isSubscriber,
+          isCommunityMember,
           topGifterRank
         });
 
         // Agregar a cola
-        this.addMessage(username, {
+        this.addMessage(normalizedUsername, {
           username: message.username,
           text: message.text
         });
@@ -101,7 +134,7 @@ class TikTokLiveService {
         if (onMessage) onMessage(message);
 
         // Emitir a todos los clientes WebSocket conectados
-        this.emitMessageToClients(username, message);
+        this.emitMessageToClients(normalizedUsername, message);
       });
 
       // Detectar regalos/donaciones
@@ -113,14 +146,14 @@ class TikTokLiveService {
         console.log(`[TikTok] 🎁 Regalo de @${donorUser}: ${giftName} x${repeatCount}`);
 
         // Registrar como donador
-        if (!this.donors.has(username)) {
-          this.donors.set(username, new Set());
+        if (!this.donors.has(normalizedUsername)) {
+          this.donors.set(normalizedUsername, new Set());
         }
-        this.donors.get(username).add(donorUser);
+        this.donors.get(normalizedUsername).add(donorUser);
 
         // Emitir evento de regalo a los clientes
-        this.emitMessageToClients(username, {
-          id: `gift-${username}-${Date.now()}`,
+        this.emitMessageToClients(normalizedUsername, {
+          id: `gift-${normalizedUsername}-${Date.now()}`,
           type: 'gift',
           username: donorUser,
           giftName,
@@ -134,12 +167,12 @@ class TikTokLiveService {
         const socialUser = data.uniqueId || data.nickname || 'alguien';
         if (data.displayType === 'follow' || data.label === 'follow') {
           console.log(`[TikTok] 👤 Nuevo seguidor: @${socialUser}`);
-          this.emitMessageToClients(username, {
+          this.emitMessageToClients(normalizedUsername, {
             type: 'follow', username: socialUser, timestamp: Date.now()
           });
         } else {
           console.log(`[TikTok] 📤 Share de @${socialUser}`);
-          this.emitMessageToClients(username, {
+          this.emitMessageToClients(normalizedUsername, {
             type: 'share', username: socialUser, timestamp: Date.now()
           });
         }
@@ -148,7 +181,7 @@ class TikTokLiveService {
       // Detectar likes
       tiktokConnection.on('like', (data) => {
         console.log(`[TikTok] ❤️ ${data.totalLikeCount} likes totales`);
-        this.emitMessageToClients(username, {
+        this.emitMessageToClients(normalizedUsername, {
           type: 'like', totalLikeCount: data.totalLikeCount, username: data.uniqueId || '', timestamp: Date.now()
         });
       });
@@ -156,7 +189,7 @@ class TikTokLiveService {
       // Detectar viewers
       tiktokConnection.on('roomUser', (data) => {
         console.log(`[TikTok] 👁️ ${data.viewerCount} viewers`);
-        this.emitMessageToClients(username, {
+        this.emitMessageToClients(normalizedUsername, {
           type: 'viewer_count', viewerCount: data.viewerCount, timestamp: Date.now()
         });
       });
@@ -164,7 +197,7 @@ class TikTokLiveService {
       // Detectar batallas
       tiktokConnection.on('linkMicBattle', (data) => {
         console.log(`[TikTok] ⚔️ Batalla detectada`);
-        this.emitMessageToClients(username, {
+        this.emitMessageToClients(normalizedUsername, {
           type: 'battle', timestamp: Date.now()
         });
       });
@@ -172,7 +205,7 @@ class TikTokLiveService {
       // Detectar encuestas
       tiktokConnection.on('poll', (data) => {
         console.log(`[TikTok] 📊 Encuesta detectada`);
-        this.emitMessageToClients(username, {
+        this.emitMessageToClients(normalizedUsername, {
           type: 'poll', text: data?.questionText || 'Nueva encuesta', timestamp: Date.now()
         });
       });
@@ -180,19 +213,19 @@ class TikTokLiveService {
       // Detectar metas/goals
       tiktokConnection.on('goalUpdate', (data) => {
         console.log(`[TikTok] 🎯 Meta actualizada`);
-        this.emitMessageToClients(username, {
+        this.emitMessageToClients(normalizedUsername, {
           type: 'goal', text: 'Avance en meta del stream', timestamp: Date.now()
         });
       });
 
       // Agregar isModerator a mensajes de chat
       tiktokConnection.on('error', (error) => {
-        console.error(`[TikTok] Error en stream @${username}:`, error);
+        console.error(`[TikTok] Error en stream @${normalizedUsername}:`, error);
       });
 
       tiktokConnection.on('disconnect', () => {
-        console.log(`[TikTok] Desconectado de @${username}`);
-        this.disconnectStream(username);
+        console.log(`[TikTok] Desconectado de @${normalizedUsername}`);
+        this.disconnectStream(normalizedUsername);
       });
 
       // Conectar
@@ -201,21 +234,21 @@ class TikTokLiveService {
 
       // Registrar conexión
       const stream = {
-        username,
+        username: normalizedUsername,
         isConnected: true,
         messageCount: 0,
         startTime: Date.now(),
         tiktokConnection
       };
 
-      this.activeStreams.set(username, stream);
-      this.messageQueue.set(username, []);
-      this.tiktokConnections.set(username, tiktokConnection);
+      this.activeStreams.set(normalizedUsername, stream);
+      this.messageQueue.set(normalizedUsername, []);
+      this.tiktokConnections.set(normalizedUsername, tiktokConnection);
 
       return stream;
     } catch (error) {
       console.error('[TikTok] Error conectando:', error.message);
-      throw new Error(`No se pudo conectar a @${username}: ${error.message}`);
+      throw new Error(`No se pudo conectar a @${this._normalizeUsername(username)}: ${error.message}`);
     }
   }
 
@@ -223,11 +256,12 @@ class TikTokLiveService {
    * Agregar mensaje a procesar
    */
   addMessage(username, message) {
-    const stream = this.activeStreams.get(username);
+    const normalizedUsername = this._normalizeUsername(username);
+    const stream = this.activeStreams.get(normalizedUsername);
     if (!stream) return null;
 
     const msg = {
-      id: `${username}-${Date.now()}`,
+      id: `${normalizedUsername}-${Date.now()}`,
       username: message.username,
       text: message.text,
       timestamp: Date.now(),
@@ -235,7 +269,7 @@ class TikTokLiveService {
     };
 
     stream.messageCount++;
-    this.messageQueue.get(username).push(msg);
+    this.messageQueue.get(normalizedUsername).push(msg);
 
     console.log(`[TikTok] Mensaje en cola: @${message.username}: ${message.text}`);
 
@@ -246,7 +280,7 @@ class TikTokLiveService {
    * Obtener siguientes mensajes a procesar
    */
   getNextMessage(username) {
-    const queue = this.messageQueue.get(username);
+    const queue = this.messageQueue.get(this._normalizeUsername(username));
     if (!queue || queue.length === 0) return null;
 
     return queue.shift();
@@ -256,7 +290,8 @@ class TikTokLiveService {
    * Desconectar de stream
    */
   async disconnectStream(username) {
-    const tiktokConnection = this.tiktokConnections.get(username);
+    const normalizedUsername = this._normalizeUsername(username);
+    const tiktokConnection = this.tiktokConnections.get(normalizedUsername);
 
     if (tiktokConnection) {
       try {
@@ -264,13 +299,13 @@ class TikTokLiveService {
       } catch (err) {
         console.error('[TikTok] Error desconectando:', err);
       }
-      this.tiktokConnections.delete(username);
+      this.tiktokConnections.delete(normalizedUsername);
     }
 
-    this.activeStreams.delete(username);
-    this.messageQueue.delete(username);
-    this.clientCallbacks.delete(username);
-    this.donors.delete(username);
+    this.activeStreams.delete(normalizedUsername);
+    this.messageQueue.delete(normalizedUsername);
+    this.clientCallbacks.delete(normalizedUsername);
+    this.donors.delete(normalizedUsername);
 
     console.log(`[TikTok] ✓ Desconectado de @${username}`);
   }
@@ -279,7 +314,7 @@ class TikTokLiveService {
    * Obtener estado del stream
    */
   getStreamStatus(username) {
-    const stream = this.activeStreams.get(username);
+    const stream = this.activeStreams.get(this._normalizeUsername(username));
     if (!stream) return null;
 
     return {

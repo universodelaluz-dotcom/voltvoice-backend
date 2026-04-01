@@ -6,6 +6,20 @@ import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
 
+const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '');
+
+const isNotLiveError = (message = '') => {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('offline')
+    || normalized.includes('not found')
+    || normalized.includes('user_not_found')
+    || normalized.includes('live has ended')
+    || normalized.includes('live ended')
+    || normalized.includes('room is not open')
+    || normalized.includes('is not live')
+    || normalized.includes('not currently live');
+};
+
 /**
  * Normalizar Unicode para evitar homóglifos y caracteres de evasión
  * Detecta intentos de evasión usando caracteres especiales (griegos, cirílicos, CJK, etc.)
@@ -52,7 +66,7 @@ router.use((req, res, next) => {
  * GET /api/tiktok/status/:username - Verificar estado de conexión
  */
 router.get('/status/:username', (req, res) => {
-  const { username } = req.params;
+  const username = normalizeUsername(req.params.username);
 
   try {
     const status = tiktokLiveService.getStreamStatus(username);
@@ -75,7 +89,7 @@ router.get('/status/:username', (req, res) => {
  * POST /api/tiktok/connect - Conectar a stream de TikTok LIVE
  */
 router.post('/connect', async (req, res) => {
-  const { username } = req.body;
+  const username = normalizeUsername(req.body?.username);
 
   if (!username) {
     return res.status(400).json({ error: 'username required' });
@@ -108,8 +122,11 @@ router.post('/connect', async (req, res) => {
     });
   } catch (error) {
     console.error('[TikTok] Error conectando:', error.message);
-    return res.status(400).json({
-      error: error.message || 'Error conectando a TikTok LIVE'
+    const notLive = isNotLiveError(error.message);
+    return res.status(notLive ? 409 : 400).json({
+      error: error.message || 'Error conectando a TikTok LIVE',
+      notLive,
+      username
     });
   }
 });
@@ -204,7 +221,7 @@ router.post('/message', async (req, res) => {
  * GET /api/tiktok/status/:username - Obtener estado del stream
  */
 router.get('/status/:username', (req, res) => {
-  const { username } = req.params;
+  const username = normalizeUsername(req.params.username);
 
   const status = tiktokLiveService.getStreamStatus(username);
 
@@ -225,7 +242,7 @@ router.get('/status/:username', (req, res) => {
  * POST /api/tiktok/disconnect - Desconectar del stream
  */
 router.post('/disconnect', async (req, res) => {
-  const { username } = req.body;
+  const username = normalizeUsername(req.body?.username);
 
   if (!username) {
     return res.status(400).json({ error: 'username required' });
