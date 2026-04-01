@@ -498,7 +498,7 @@ function recordFailedLogin(ip, now) {
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, plan, tokens, role, created_at FROM users WHERE id = $1',
+      'UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id, email, plan, tokens, role, created_at',
       [req.user.userId]
     );
 

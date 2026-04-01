@@ -178,6 +178,8 @@ import pool from './src/db.js';
       -- Admin role
       ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user';
       UPDATE users SET role = 'admin' WHERE email = 'alainsh@gmail.com';
+      -- Last seen for online tracking
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
