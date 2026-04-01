@@ -85,6 +85,31 @@ router.get('/status/:username', (req, res) => {
   }
 });
 
+router.get('/debug/:username', (req, res) => {
+  const username = normalizeUsername(req.params.username);
+
+  if (!username) {
+    return res.status(400).json({ error: 'username required' });
+  }
+
+  try {
+    const limit = Number(req.query.limit || 25);
+    const events = tiktokLiveService.getDebugEvents(username, limit);
+
+    return res.status(200).json({
+      success: true,
+      username,
+      count: events.length,
+      events
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 /**
  * POST /api/tiktok/connect - Conectar a stream de TikTok LIVE
  */

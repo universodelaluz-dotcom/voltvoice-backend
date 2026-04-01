@@ -9,6 +9,7 @@ class TikTokLiveService {
     this.clientCallbacks = new Map(); // Callbacks para enviar mensajes a clientes
     this.donors = new Map(); // username -> Set de usuarios que han donado
     this.communityMembers = new Map(); // username -> Set de usuarios Fan Club detectados
+    this.debugEvents = new Map(); // username -> eventos decodificados recientes
   }
 
   _hasCommunityMemberBadge(data = {}) {
@@ -75,6 +76,55 @@ class TikTokLiveService {
     return true;
   }
 
+  _sanitizeDebugValue(value, depth = 0) {
+    if (value == null) return value;
+    if (depth >= 4) return '[max-depth]';
+    if (typeof value === 'string') {
+      return value.length > 240 ? `${value.slice(0, 240)}...` : value;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 8).map((item) => this._sanitizeDebugValue(item, depth + 1));
+    }
+    if (typeof value === 'object') {
+      const output = {};
+      Object.entries(value).slice(0, 24).forEach(([key, innerValue]) => {
+        output[key] = this._sanitizeDebugValue(innerValue, depth + 1);
+      });
+      return output;
+    }
+    return String(value);
+  }
+
+  _recordDebugEvent(streamUsername, type, payload = {}) {
+    const normalizedStream = this._normalizeUsername(streamUsername);
+    if (!normalizedStream) return;
+
+    if (!this.debugEvents.has(normalizedStream)) {
+      this.debugEvents.set(normalizedStream, []);
+    }
+
+    const events = this.debugEvents.get(normalizedStream);
+    events.push({
+      timestamp: Date.now(),
+      type,
+      payload: this._sanitizeDebugValue(payload)
+    });
+
+    if (events.length > 60) {
+      events.splice(0, events.length - 60);
+    }
+  }
+
+  getDebugEvents(username, limit = 25) {
+    const normalizedUsername = this._normalizeUsername(username);
+    const events = this.debugEvents.get(normalizedUsername) || [];
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 60));
+    return events.slice(-safeLimit);
+  }
+
   /**
    * Registrar callback para enviar mensajes a cliente
    */
@@ -130,6 +180,20 @@ class TikTokLiveService {
       const tiktokConnection = new WebcastPushConnection(normalizedUsername);
 
       // Configurar listeners
+      tiktokConnection.on('decodedData', (type, decodedData) => {
+        if (![
+          'WebcastChatMessage',
+          'WebcastMemberMessage',
+          'WebcastSocialMessage',
+          'WebcastBarrageMessage',
+          'WebcastGiftMessage'
+        ].includes(type)) {
+          return;
+        }
+
+        this._recordDebugEvent(normalizedUsername, type, decodedData);
+      });
+
       tiktokConnection.on('chat', (data) => {
         const donorsSet = this.donors.get(normalizedUsername);
         const communitySet = this.communityMembers.get(normalizedUsername);
@@ -174,6 +238,19 @@ class TikTokLiveService {
           topGifterRank
         });
 
+        this._recordDebugEvent(normalizedUsername, 'chat:resolved', {
+          username: message.username,
+          nickname: message.nickname,
+          isModerator,
+          isSubscriber,
+          isCommunityMember,
+          topGifterRank,
+          teamMemberLevel: data.teamMemberLevel,
+          fanTicketCount: data.fanTicketCount,
+          badges: data.userBadges,
+          rawKeys: Object.keys(data || {})
+        });
+
         // Agregar a cola
         this.addMessage(normalizedUsername, {
           username: message.username,
@@ -190,6 +267,17 @@ class TikTokLiveService {
       tiktokConnection.on('superFan', (data) => {
         const memberUsername = this._extractCommunityUsername(data);
         const marked = this._markCommunityMember(normalizedUsername, memberUsername);
+
+        this._recordDebugEvent(normalizedUsername, 'superFan:resolved', {
+          memberUsername,
+          marked,
+          displayType: data?.content?.displayType,
+          eventName: data?.event?.eventName,
+          eventParams: data?.event?.params,
+          fansLevelParam: data?.fansLevelParam,
+          userGradeParam: data?.userGradeParam,
+          badge: data?.badge
+        });
 
         console.log(`[TikTok] SUPER_FAN detectado en @${normalizedUsername}`, {
           memberUsername,
@@ -369,6 +457,7 @@ class TikTokLiveService {
     this.clientCallbacks.delete(normalizedUsername);
     this.donors.delete(normalizedUsername);
     this.communityMembers.delete(normalizedUsername);
+    this.debugEvents.delete(normalizedUsername);
 
     console.log(`[TikTok] ✓ Desconectado de @${username}`);
   }
