@@ -12,8 +12,8 @@ class TokenService {
 
   // Calcular tokens necesarios basado en caracteres
   calculateTokensCost(characterCount) {
-    // 1 token = 100 caracteres (ajustable)
-    return Math.ceil(characterCount / 100);
+    // 1 token = 1 caracter
+    return Math.max(0, Math.ceil(Number(characterCount) || 0));
   }
 
   // Verificar si usuario tiene suficientes tokens

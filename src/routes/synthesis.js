@@ -334,7 +334,7 @@ router.post('/synthesize', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Missing text or voiceId' });
     }
 
-    // Calcular tokens necesarios (1 token = 100 caracteres)
+    // Calcular tokens necesarios (1 token = 1 caracter)
     const tokensNeeded = tokenService.calculateTokensCost(text.length);
 
     // Verificar si usuario tiene suficientes tokens
