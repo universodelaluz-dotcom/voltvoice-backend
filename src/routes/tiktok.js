@@ -9,7 +9,8 @@ const router = Router();
 const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '');
 
 const isNotLiveError = (message = '') => {
-  const normalized = String(message || '').toLowerCase();
+  const raw = String(message || '').trim();
+  const normalized = raw.toLowerCase();
   return normalized.includes('offline')
     || normalized.includes('not found')
     || normalized.includes('user_not_found')
@@ -17,7 +18,8 @@ const isNotLiveError = (message = '') => {
     || normalized.includes('live ended')
     || normalized.includes('room is not open')
     || normalized.includes('is not live')
-    || normalized.includes('not currently live');
+    || normalized.includes('not currently live')
+    || /^no se pudo conectar a @[^:]+:\s*$/i.test(raw);
 };
 
 /**
