@@ -13,29 +13,28 @@ class TikTokLiveService {
   }
 
   _hasCommunityMemberBadge(data = {}) {
-    const candidateValues = [
-      data.isFanClubMember,
-      data.isCommunityMember,
-      data.fanClubMember,
-      data.fanClub,
-      data.memberBadge,
-      data.memberLevel,
-      data.teamMemberLevel,
-      data.fansTeamLevel,
-      data.fanTicketCount,
-      data?.user?.fansClub,
-      data?.user?.fansClubInfo,
-      data?.user?.fanTicketCount,
-      data?.user?.teamMemberLevel,
-      data?.fansLevelParam?.currentGrade,
-      data?.fansLevelParam?.user?.fansClub,
-      data?.fansLevelParam?.user?.fansClubInfo
+    const user = data?.user || {};
+    const fansClub = user?.fansClub || data?.fansClub;
+    const fansClubInfo = user?.fansClubInfo || data?.fansClubInfo;
+    const badgeCandidates = [
+      ...(Array.isArray(user?.badges) ? user.badges : []),
+      ...(Array.isArray(data?.badges) ? data.badges : []),
+      ...(Array.isArray(data?.userBadges) ? data.userBadges : []),
     ];
 
-    return candidateValues.some((value) => {
-      if (typeof value === 'boolean') return value;
-      return Number(value) > 0;
-    });
+    const hasActiveFansClubStatus =
+      Number(fansClub?.data?.userFansClubStatus) === 1
+      || Number(fansClub?.userFansClubStatus) === 1;
+
+    const hasActiveFansClubInfo =
+      Number(fansClubInfo?.fansLevel) > 0
+      && fansClubInfo?.isSleeping === false;
+
+    const hasFansBadgeScene = badgeCandidates.some((badge) =>
+      Number(badge?.badgeScene) === 10 || Number(badge?.badgeSceneType) === 10
+    );
+
+    return hasActiveFansClubStatus || hasActiveFansClubInfo || hasFansBadgeScene;
   }
 
   _normalizeUsername(username = '') {
@@ -94,13 +93,9 @@ class TikTokLiveService {
   }
 
   _isCommunityMember(data = {}) {
-    const userSceneTypes = this._getUserSceneTypes(data);
-    const hasCommunityScenePair = userSceneTypes.includes(8) && userSceneTypes.includes(10);
-
     return Boolean(
       this._hasCommunityMemberBadge(data)
       || this._hasPortraitTag(data, 'memberdays')
-      || hasCommunityScenePair
     );
   }
 
