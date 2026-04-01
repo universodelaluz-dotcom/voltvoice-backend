@@ -4,6 +4,32 @@ import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
+const BUILTIN_VOICE_LABELS = {
+  'es-ES': 'Voz Local Espanol (ilimitada)',
+  'en-US': 'Voz Local Ingles (ilimitada)',
+  Diego: 'Voz natural de Luis - Premium',
+  Lupita: 'Voz natural de Sofia - Premium',
+  Miguel: 'Voz natural de Gustavo - Premium',
+  Rafael: 'Voz natural de Leonel - Premium'
+};
+
+function resolveVoiceDisplayName(rawVoiceName, userVoices = []) {
+  const raw = String(rawVoiceName || '').trim();
+  if (!raw) return 'Sin nombre';
+
+  if (BUILTIN_VOICE_LABELS[raw]) {
+    return BUILTIN_VOICE_LABELS[raw];
+  }
+
+  const lowered = raw.toLowerCase();
+  const matchedUserVoice = userVoices.find((voice) =>
+    String(voice.voice_id || '').trim().toLowerCase() === lowered
+    || String(voice.voice_name || '').trim().toLowerCase() === lowered
+  );
+
+  return matchedUserVoice?.voice_name || raw;
+}
+
 // GET /api/stats - Obtener estadísticas del usuario
 router.get('/stats', verifyToken, async (req, res) => {
   try {
@@ -16,6 +42,8 @@ router.get('/stats', verifyToken, async (req, res) => {
     }
     const user = userRes.rows[0];
     const accountAgeDays = Math.floor((Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24));
+    const userVoicesRes = await db.query('SELECT voice_id, voice_name FROM user_voices WHERE user_id = $1', [userId]);
+    const userVoices = userVoicesRes.rows || [];
 
     // Contar voces clonadas
     const voicesRes = await db.query('SELECT COUNT(*) as count FROM user_voices WHERE user_id = $1', [userId]);
@@ -137,6 +165,13 @@ router.get('/stats', verifyToken, async (req, res) => {
       }
     };
 
+    const normalizedTopVoices = topVoicesRes.rows.map(row => ({
+      voice_name: resolveVoiceDisplayName(row.voice_name, userVoices),
+      raw_voice_name: row.voice_name,
+      count: parseInt(row.count),
+      tokens_used: parseInt(row.tokens_used) || 0
+    }));
+
     // Respuesta final
     res.json({
       success: true,
@@ -147,7 +182,7 @@ router.get('/stats', verifyToken, async (req, res) => {
         total_tokens_used: parseInt(allTime.total_tokens) || 0,
         total_characters: parseInt(allTime.total_characters) || 0,
         voices_cloned: voicesClonesUsed,
-        most_used_voice: allTime.most_used_voice || 'N/A',
+        most_used_voice: resolveVoiceDisplayName(allTime.most_used_voice, userVoices),
         account_age_days: accountAgeDays,
         total_money_saved_usd: parseFloat(moneySavedAllTime.toFixed(2)),
         total_hours_saved: parseFloat(hoursSavedAllTime.toFixed(2))
@@ -157,11 +192,7 @@ router.get('/stats', verifyToken, async (req, res) => {
         messages: parseInt(row.messages),
         tokens_used: parseInt(row.tokens_used) || 0
       })),
-      top_voices: topVoicesRes.rows.map(row => ({
-        voice_name: row.voice_name,
-        count: parseInt(row.count),
-        tokens_used: parseInt(row.tokens_used) || 0
-      })),
+      top_voices: normalizedTopVoices,
       plan_info: {
         current_plan: user.plan,
         tokens_balance: parseInt(user.tokens),
