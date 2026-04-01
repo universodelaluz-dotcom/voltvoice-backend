@@ -2,11 +2,19 @@
 
 import express from 'express';
 import mercadoPagoService from '../services/mercadoPagoService.js';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
 // Middleware para verificar autenticación
 const authMiddleware = (req, res, next) => {
+  if (req.headers.authorization) {
+    return verifyToken(req, res, () => {
+      req.userId = req.user.userId;
+      next();
+    });
+  }
+
   const userId = req.headers['x-user-id'];
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -18,15 +26,15 @@ const authMiddleware = (req, res, next) => {
 // POST - Crear preferencia de pago (checkout)
 router.post('/create-preference', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType } = req.body;
 
-    if (!tokensPackage) {
-      return res.status(400).json({ error: 'Missing tokensPackage' });
+    if (!tokensPackage && !planId) {
+      return res.status(400).json({ error: 'Missing checkout item' });
     }
 
     const preference = await mercadoPagoService.createPaymentPreference(
       req.userId,
-      tokensPackage
+      { tokensPackage, planId, billingCycle, itemType }
     );
 
     res.json({

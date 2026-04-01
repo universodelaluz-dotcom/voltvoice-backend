@@ -361,7 +361,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT id, email, password_hash, plan, tokens, email_verified FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, plan, tokens, role, email_verified FROM users WHERE email = $1',
       [email]
     );
 
@@ -398,8 +398,9 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.plan,
-        tokens: user.tokens,
+        plan: user.role === 'admin' ? 'admin' : user.plan,
+        tokens: user.role === 'admin' ? 999999999 : user.tokens,
+        role: user.role || 'user',
       }
     });
   } catch (error) {
@@ -437,7 +438,7 @@ router.post('/google', async (req, res) => {
     console.log(`[Auth] Google login para: ${email}`);
 
     let result = await pool.query(
-      'SELECT id, email, plan, tokens FROM users WHERE email = $1',
+      'SELECT id, email, plan, tokens, role FROM users WHERE email = $1',
       [email]
     );
 
@@ -465,8 +466,9 @@ router.post('/google', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.plan,
-        tokens: user.tokens,
+        plan: user.role === 'admin' ? 'admin' : user.plan,
+        tokens: user.role === 'admin' ? 999999999 : user.tokens,
+        role: user.role || 'user',
         name,
         picture,
       }
@@ -496,7 +498,7 @@ function recordFailedLogin(ip, now) {
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, plan, tokens, created_at FROM users WHERE id = $1',
+      'SELECT id, email, plan, tokens, role, created_at FROM users WHERE id = $1',
       [req.user.userId]
     );
 
@@ -510,8 +512,9 @@ router.get('/me', verifyToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.plan,
-        tokens: user.tokens,
+        plan: user.role === 'admin' ? 'admin' : user.plan,
+        tokens: user.role === 'admin' ? 999999999 : user.tokens,
+        role: user.role || 'user',
         created_at: user.created_at,
       }
     });

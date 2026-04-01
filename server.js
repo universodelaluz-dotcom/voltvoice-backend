@@ -19,6 +19,7 @@ import statsRoutes from './src/routes/stats.js';
 import banRoutes from './src/routes/bans.js';
 import nickRoutes from './src/routes/nicks.js';
 import botRoutes from './src/routes/bot.js';
+import adminRoutes from './src/routes/admin.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -174,6 +175,9 @@ import pool from './src/db.js';
       );
       CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_user_id ON bot_moderations_log(user_id);
       CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_executed ON bot_moderations_log(executed_at);
+      -- Admin role
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user';
+      UPDATE users SET role = 'admin' WHERE email = 'alainsh@gmail.com';
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
@@ -210,6 +214,8 @@ try {
   console.log('[STARTUP] ✓ Nick override routes loaded');
   app.use('/api/bot', botRoutes);
   console.log('[STARTUP] ✓ Bot routes loaded');
+  app.use('/api/admin', adminRoutes);
+  console.log('[STARTUP] ✓ Admin routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }

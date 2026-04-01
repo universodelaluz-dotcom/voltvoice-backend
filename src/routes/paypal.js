@@ -2,10 +2,18 @@
 import express from 'express';
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypalService.js';
 import { config } from '../config.js';
+import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
 const authMiddleware = (req, res, next) => {
+  if (req.headers.authorization) {
+    return verifyToken(req, res, () => {
+      req.userId = req.user.userId;
+      next();
+    });
+  }
+
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
   req.userId = userId;
@@ -23,10 +31,10 @@ router.get('/client-id', (req, res) => {
 // Crear orden de PayPal (el frontend la crea via SDK popup)
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage } = req.body;
-    if (!tokensPackage) return res.status(400).json({ error: 'Missing tokensPackage' });
+    const { tokensPackage, planId, billingCycle, itemType } = req.body;
+    if (!tokensPackage && !planId) return res.status(400).json({ error: 'Missing checkout item' });
 
-    const result = await createPaypalOrder(req.userId, tokensPackage);
+    const result = await createPaypalOrder(req.userId, { tokensPackage, planId, billingCycle, itemType });
     res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
