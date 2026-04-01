@@ -8,6 +8,7 @@ class TikTokLiveService {
     this.tiktokConnections = new Map(); // Almacenar conexiones de TikTok
     this.clientCallbacks = new Map(); // Callbacks para enviar mensajes a clientes
     this.donors = new Map(); // username -> Set de usuarios que han donado
+    this.communityMembers = new Map(); // username -> Set de usuarios Fan Club detectados
   }
 
   _hasCommunityMemberBadge(data = {}) {
@@ -20,7 +21,14 @@ class TikTokLiveService {
       data.memberLevel,
       data.teamMemberLevel,
       data.fansTeamLevel,
-      data.fanTicketCount
+      data.fanTicketCount,
+      data?.user?.fansClub,
+      data?.user?.fansClubInfo,
+      data?.user?.fanTicketCount,
+      data?.user?.teamMemberLevel,
+      data?.fansLevelParam?.currentGrade,
+      data?.fansLevelParam?.user?.fansClub,
+      data?.fansLevelParam?.user?.fansClubInfo
     ];
 
     return candidateValues.some((value) => {
@@ -31,6 +39,40 @@ class TikTokLiveService {
 
   _normalizeUsername(username = '') {
     return String(username || '').trim().replace(/^@+/, '');
+  }
+
+  _extractCommunityUsername(data = {}) {
+    const candidates = [
+      data.uniqueId,
+      data.nickname,
+      data?.user?.uniqueId,
+      data?.fromUser?.uniqueId,
+      data?.fansLevelParam?.user?.uniqueId,
+      data?.userGradeParam?.user?.uniqueId,
+      data?.event?.params?.unique_id,
+      data?.event?.params?.uniqueId,
+      data?.event?.params?.user_unique_id,
+      data?.event?.params?.userId
+    ];
+
+    const resolved = candidates.find((value) => typeof value === 'string' && value.trim());
+    return this._normalizeUsername(resolved || '');
+  }
+
+  _markCommunityMember(streamUsername, memberUsername) {
+    const normalizedStream = this._normalizeUsername(streamUsername);
+    const normalizedMember = this._normalizeUsername(memberUsername);
+
+    if (!normalizedStream || !normalizedMember) {
+      return false;
+    }
+
+    if (!this.communityMembers.has(normalizedStream)) {
+      this.communityMembers.set(normalizedStream, new Set());
+    }
+
+    this.communityMembers.get(normalizedStream).add(normalizedMember);
+    return true;
   }
 
   /**
@@ -90,15 +132,23 @@ class TikTokLiveService {
       // Configurar listeners
       tiktokConnection.on('chat', (data) => {
         const donorsSet = this.donors.get(normalizedUsername);
+        const communitySet = this.communityMembers.get(normalizedUsername);
         const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
 
         // Los campos están DIRECTAMENTE en data, no en sub-objetos
         const isModerator = data.isModerator || false;
         const isSubscriber = data.isSubscriber || false;
-        const isCommunityMember = this._hasCommunityMemberBadge(data);
+        const normalizedCommentUser = this._normalizeUsername(data.uniqueId);
+        const isCommunityMember =
+          this._hasCommunityMemberBadge(data)
+          || (communitySet ? communitySet.has(normalizedCommentUser) : false);
         const topGifterRank = data.topGifterRank || 0;
         const isNewGifter = data.isNewGifter || false;
         const gifterLevel = data.gifterLevel || 0;
+
+        if (isCommunityMember) {
+          this._markCommunityMember(normalizedUsername, normalizedCommentUser);
+        }
 
         console.log(`[DEBUG] @${data.uniqueId}: mod=${isModerator}, sub=${isSubscriber}, community=${isCommunityMember}, topGifter=${topGifterRank}, newGifter=${isNewGifter}, gifterLvl=${gifterLevel}`);
 
@@ -135,6 +185,18 @@ class TikTokLiveService {
 
         // Emitir a todos los clientes WebSocket conectados
         this.emitMessageToClients(normalizedUsername, message);
+      });
+
+      tiktokConnection.on('superFan', (data) => {
+        const memberUsername = this._extractCommunityUsername(data);
+        const marked = this._markCommunityMember(normalizedUsername, memberUsername);
+
+        console.log(`[TikTok] SUPER_FAN detectado en @${normalizedUsername}`, {
+          memberUsername,
+          marked,
+          displayType: data?.content?.displayType,
+          eventName: data?.event?.eventName
+        });
       });
 
       // Detectar regalos/donaciones
@@ -306,6 +368,7 @@ class TikTokLiveService {
     this.messageQueue.delete(normalizedUsername);
     this.clientCallbacks.delete(normalizedUsername);
     this.donors.delete(normalizedUsername);
+    this.communityMembers.delete(normalizedUsername);
 
     console.log(`[TikTok] ✓ Desconectado de @${username}`);
   }
