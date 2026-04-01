@@ -10,7 +10,10 @@ const BUILTIN_VOICE_LABELS = {
   Diego: 'Voz natural de Luis - Premium',
   Lupita: 'Voz natural de Sofia - Premium',
   Miguel: 'Voz natural de Gustavo - Premium',
-  Rafael: 'Voz natural de Leonel - Premium'
+  Rafael: 'Voz natural de Leonel - Premium',
+  Garret: 'Garret',
+  Connor: 'Connor',
+  Arno: 'Arno'
 };
 
 function resolveVoiceDisplayName(rawVoiceName, userVoices = []) {
@@ -27,7 +30,44 @@ function resolveVoiceDisplayName(rawVoiceName, userVoices = []) {
     || String(voice.voice_name || '').trim().toLowerCase() === lowered
   );
 
-  return matchedUserVoice?.voice_name || raw;
+  if (matchedUserVoice?.voice_name) {
+    return matchedUserVoice.voice_name;
+  }
+
+  const defaultVoiceMatch = raw.match(/__([a-z0-9_-]+)$/i);
+  if (defaultVoiceMatch?.[1]) {
+    const inferredName = defaultVoiceMatch[1]
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+      .trim();
+
+    return BUILTIN_VOICE_LABELS[inferredName] || inferredName;
+  }
+
+  return raw;
+}
+
+function normalizeAndGroupTopVoices(rows = [], userVoices = []) {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const displayName = resolveVoiceDisplayName(row.voice_name, userVoices);
+    const current = grouped.get(displayName) || {
+      voice_name: displayName,
+      raw_voice_names: [],
+      count: 0,
+      tokens_used: 0
+    };
+
+    current.raw_voice_names.push(row.voice_name);
+    current.count += parseInt(row.count) || 0;
+    current.tokens_used += parseInt(row.tokens_used) || 0;
+    grouped.set(displayName, current);
+  });
+
+  return Array.from(grouped.values())
+    .sort((a, b) => (b.count - a.count) || (b.tokens_used - a.tokens_used))
+    .slice(0, 5);
 }
 
 // GET /api/stats - Obtener estadísticas del usuario
@@ -99,7 +139,7 @@ router.get('/stats', verifyToken, async (req, res) => {
        WHERE user_id = $1
        GROUP BY voice_name
        ORDER BY count DESC
-       LIMIT 5`,
+       LIMIT 50`,
       [userId]
     );
 
@@ -165,12 +205,7 @@ router.get('/stats', verifyToken, async (req, res) => {
       }
     };
 
-    const normalizedTopVoices = topVoicesRes.rows.map(row => ({
-      voice_name: resolveVoiceDisplayName(row.voice_name, userVoices),
-      raw_voice_name: row.voice_name,
-      count: parseInt(row.count),
-      tokens_used: parseInt(row.tokens_used) || 0
-    }));
+    const normalizedTopVoices = normalizeAndGroupTopVoices(topVoicesRes.rows, userVoices);
 
     // Respuesta final
     res.json({
