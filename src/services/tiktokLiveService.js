@@ -49,7 +49,6 @@ class TikTokLiveService {
   _extractCommunityUsername(data = {}) {
     const candidates = [
       data.uniqueId,
-      data.nickname,
       data?.user?.uniqueId,
       data?.fromUser?.uniqueId,
       data?.fansLevelParam?.user?.uniqueId,
@@ -139,14 +138,10 @@ class TikTokLiveService {
   _isCommunityMember(data = {}) {
     return Boolean(
       Number(data?.teamMemberLevel || 0) > 0
-      || Number(data?.communityflaggedStatus || 0) > 0
       || Number(data?.fansLevel || 0) > 0
       || Number(data?.fansClubInfo?.fansLevel || 0) > 0
+      || Number(data?.fansClub?.data?.userFansClubStatus || data?.fansClub?.userFansClubStatus || 0) === 1
       || this._hasCommunityMemberBadge(data)
-      || this._hasPortraitTag(data, 'memberdays')
-      || this._hasPortraitTag(data, 'fan club')
-      || this._hasPortraitTag(data, 'fans club')
-      || this._hasPortraitTag(data, 'super fan')
     );
   }
 
