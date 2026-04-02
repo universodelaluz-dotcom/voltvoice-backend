@@ -99,6 +99,20 @@ class TikTokLiveService {
     );
   }
 
+  _isDonorSignal(data = {}) {
+    return Boolean(
+      data.isDonor
+      || data.isNewGifter
+      || Number(data.topGifterRank || 0) > 0
+      || Number(data.gifterLevel || 0) > 0
+      || data?.user?.isGifter
+      || data?.user?.isGiftGiverOfAnchor
+      || data?.userIdentity?.isGiftGiverOfAnchor
+      || this._hasPortraitTag(data, 'gift')
+      || this._hasPortraitTag(data, 'gifter')
+    );
+  }
+
   _markCommunityMember(streamUsername, memberUsername) {
     const normalizedStream = this._normalizeUsername(streamUsername);
     const normalizedMember = this._normalizeUsername(memberUsername);
@@ -236,12 +250,21 @@ class TikTokLiveService {
       tiktokConnection.on('chat', (data) => {
         const donorsSet = this.donors.get(normalizedUsername);
         const communitySet = this.communityMembers.get(normalizedUsername);
-        const isDonor = donorsSet ? donorsSet.has(data.uniqueId) : false;
+        const normalizedCommentUser = this._normalizeUsername(data.uniqueId);
+        const donorFromSet = donorsSet ? donorsSet.has(normalizedCommentUser) : false;
+        const donorFromSignal = this._isDonorSignal(data);
+        const isDonor = donorFromSet || donorFromSignal;
+
+        if (isDonor && normalizedCommentUser) {
+          if (!this.donors.has(normalizedUsername)) {
+            this.donors.set(normalizedUsername, new Set());
+          }
+          this.donors.get(normalizedUsername).add(normalizedCommentUser);
+        }
 
         // Los campos están DIRECTAMENTE en data, no en sub-objetos
         const isModerator = this._isModerator(data);
         const isSubscriber = this._isSubscriber(data);
-        const normalizedCommentUser = this._normalizeUsername(data.uniqueId);
         const isCommunityMember =
           this._isCommunityMember(data)
           || (communitySet ? communitySet.has(normalizedCommentUser) : false);
@@ -332,6 +355,9 @@ class TikTokLiveService {
 
       // Detectar regalos/donaciones
       tiktokConnection.on('gift', (data) => {
+        const normalizedDonorUser = this._normalizeUsername(
+          data.uniqueId || data?.user?.uniqueId || data?.fromUser?.uniqueId || ''
+        );
         const donorUser = data.uniqueId || data.nickname || 'anónimo';
         const giftName = data.giftName || 'regalo';
         const repeatCount = data.repeatCount || 1;
@@ -342,7 +368,10 @@ class TikTokLiveService {
         if (!this.donors.has(normalizedUsername)) {
           this.donors.set(normalizedUsername, new Set());
         }
-        this.donors.get(normalizedUsername).add(donorUser);
+        const donorKey = normalizedDonorUser || this._normalizeUsername(donorUser);
+        if (donorKey) {
+          this.donors.get(normalizedUsername).add(donorKey);
+        }
 
         // Emitir evento de regalo a los clientes
         this.emitMessageToClients(normalizedUsername, {
