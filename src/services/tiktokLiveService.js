@@ -21,6 +21,8 @@ class TikTokLiveService {
       ...(Array.isArray(data?.badges) ? data.badges : []),
       ...(Array.isArray(data?.userBadges) ? data.userBadges : []),
     ];
+    const userSceneTypes = Array.isArray(data?.userSceneTypes) ? data.userSceneTypes : [];
+    const teamMemberLevel = Number(data?.teamMemberLevel || user?.teamMemberLevel || 0);
 
     const hasActiveFansClubStatus =
       Number(fansClub?.data?.userFansClubStatus) === 1
@@ -34,7 +36,10 @@ class TikTokLiveService {
       Number(badge?.badgeScene) === 10 || Number(badge?.badgeSceneType) === 10
     );
 
-    return hasActiveFansClubStatus || hasActiveFansClubInfo || hasFansBadgeScene;
+    const hasFansSceneType = userSceneTypes.some((scene) => Number(scene) === 10);
+    const hasTeamMemberLevel = teamMemberLevel > 0;
+
+    return hasActiveFansClubStatus || hasActiveFansClubInfo || hasFansBadgeScene || hasFansSceneType || hasTeamMemberLevel;
   }
 
   _normalizeUsername(username = '') {
@@ -57,6 +62,45 @@ class TikTokLiveService {
 
     const resolved = candidates.find((value) => typeof value === 'string' && value.trim());
     return this._normalizeUsername(resolved || '');
+  }
+
+  _hasBadgeScene10Deep(value, depth = 0) {
+    if (value == null || depth > 6) return false;
+    if (Array.isArray(value)) {
+      return value.some((item) => this._hasBadgeScene10Deep(item, depth + 1));
+    }
+    if (typeof value !== 'object') return false;
+
+    if (Number(value.badgeSceneType) === 10 || Number(value.badgeScene) === 10) {
+      return true;
+    }
+
+    return Object.values(value).some((inner) => this._hasBadgeScene10Deep(inner, depth + 1));
+  }
+
+  _isCommunityMemberFromDecodedData(type, decodedData = {}) {
+    const user = decodedData?.user || {};
+    const fansClub = user?.fansClub || decodedData?.fansClub;
+    const fansClubInfo = user?.fansClubInfo || decodedData?.fansClubInfo;
+
+    const hasActiveFansClubStatus =
+      Number(fansClub?.data?.userFansClubStatus) === 1
+      || Number(fansClub?.userFansClubStatus) === 1;
+
+    const hasFansLevel =
+      Number(user?.fansClubInfo?.fansLevel || 0) > 0
+      || Number(fansClubInfo?.fansLevel || 0) > 0
+      || Number(decodedData?.teamMemberLevel || 0) > 0
+      || Number(decodedData?.fansLevel || 0) > 0;
+
+    const hasFansBadgeScene10 = this._hasBadgeScene10Deep(user?.badges)
+      || this._hasBadgeScene10Deep(decodedData?.badges)
+      || this._hasBadgeScene10Deep(decodedData?.userBadges);
+
+    const isSuperFanEvent = type === 'WebcastBarrageMessage'
+      && String(decodedData?.content?.displayType || '').includes('ttlive_superFan');
+
+    return Boolean(hasActiveFansClubStatus || hasFansLevel || hasFansBadgeScene10 || isSuperFanEvent);
   }
 
   _getPortraitTags(data = {}) {
@@ -94,8 +138,15 @@ class TikTokLiveService {
 
   _isCommunityMember(data = {}) {
     return Boolean(
-      this._hasCommunityMemberBadge(data)
+      Number(data?.teamMemberLevel || 0) > 0
+      || Number(data?.communityflaggedStatus || 0) > 0
+      || Number(data?.fansLevel || 0) > 0
+      || Number(data?.fansClubInfo?.fansLevel || 0) > 0
+      || this._hasCommunityMemberBadge(data)
       || this._hasPortraitTag(data, 'memberdays')
+      || this._hasPortraitTag(data, 'fan club')
+      || this._hasPortraitTag(data, 'fans club')
+      || this._hasPortraitTag(data, 'super fan')
     );
   }
 
@@ -244,7 +295,21 @@ class TikTokLiveService {
           return;
         }
 
+        const decodedCommunityUser = this._extractCommunityUsername(decodedData);
+        const decodedCommunity = this._isCommunityMemberFromDecodedData(type, decodedData);
+        if (decodedCommunity && decodedCommunityUser) {
+          this._markCommunityMember(normalizedUsername, decodedCommunityUser);
+        }
+
         this._recordDebugEvent(normalizedUsername, type, decodedData);
+        this._recordDebugEvent(normalizedUsername, `${type}:communitySignals`, {
+          username: decodedCommunityUser,
+          isCommunityMember: decodedCommunity,
+          teamMemberLevel: decodedData?.teamMemberLevel,
+          userFansClubStatus: decodedData?.user?.fansClub?.data?.userFansClubStatus ?? decodedData?.fansClub?.data?.userFansClubStatus,
+          fansLevel: decodedData?.user?.fansClubInfo?.fansLevel ?? decodedData?.fansClubInfo?.fansLevel,
+          communityflaggedStatus: decodedData?.communityflaggedStatus
+        });
       });
 
       tiktokConnection.on('chat', (data) => {
