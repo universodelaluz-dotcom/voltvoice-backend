@@ -9,7 +9,7 @@ import db from '../db.js';
 import FormData from 'form-data';
 import { Writer } from 'wav';
 import { Readable } from 'stream';
-import { verifyToken } from '../../middleware/auth.js';
+import { verifyToken, requireAdmin } from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -63,7 +63,7 @@ function getElevenLabsApiKey() {
 // req.user.userId queda disponible tras pasar el middleware
 
 // DEBUG - Test espeak-ng installation
-router.get('/debug/espeak', async (req, res) => {
+router.get('/debug/espeak', requireAdmin, async (req, res) => {
   try {
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
@@ -90,7 +90,7 @@ router.get('/debug/espeak', async (req, res) => {
 });
 
 // DEBUG - Test gTTS
-router.get('/debug/gtts-test', async (req, res) => {
+router.get('/debug/gtts-test', requireAdmin, async (req, res) => {
   try {
     const testText = 'Hello world, this is a test';
     const result = await espeakTtsService.synthesize(testText, '21m00Tcm4TlvDq8ikWAM');
@@ -112,7 +112,7 @@ router.get('/debug/gtts-test', async (req, res) => {
 });
 
 // DEBUG - Test ElevenLabs connection
-router.get('/debug/elevenlabs', (req, res) => {
+router.get('/debug/elevenlabs', requireAdmin, (req, res) => {
   try {
     const apiKey = getElevenLabsApiKey();
     const baseUrl = 'https://api.elevenlabs.io/v1';
@@ -130,7 +130,7 @@ router.get('/debug/elevenlabs', (req, res) => {
 });
 
 // DEBUG - Test ElevenLabs with Fetch instead of Axios
-router.get('/debug/elevenlabs-fetch', async (req, res) => {
+router.get('/debug/elevenlabs-fetch', requireAdmin, async (req, res) => {
   try {
     const apiKey = getElevenLabsApiKey();
 
@@ -155,7 +155,7 @@ router.get('/debug/elevenlabs-fetch', async (req, res) => {
 });
 
 // DEBUG - Test Flash/Turbo TTS directly
-router.get('/debug/flash-turbo', async (req, res) => {
+router.get('/debug/flash-turbo', requireAdmin, async (req, res) => {
   try {
     const apiKey = getElevenLabsApiKey();
 
@@ -238,7 +238,7 @@ router.get('/debug/flash-turbo', async (req, res) => {
 });
 
 // ADMIN - Add tokens to user (for testing)
-router.post('/admin/add-tokens', async (req, res) => {
+router.post('/admin/add-tokens', requireAdmin, async (req, res) => {
   try {
     const { userId, tokens } = req.body;
 

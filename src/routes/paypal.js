@@ -7,17 +7,10 @@ import { verifyToken } from '../../middleware/auth.js';
 const router = express.Router();
 
 const authMiddleware = (req, res, next) => {
-  if (req.headers.authorization) {
-    return verifyToken(req, res, () => {
-      req.userId = req.user.userId;
-      next();
-    });
-  }
-
-  const userId = req.headers['x-user-id'];
-  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
-  req.userId = userId;
-  next();
+  return verifyToken(req, res, () => {
+    req.userId = req.user.userId;
+    next();
+  });
 };
 
 // GET - Obtener Client ID público (para cargar PayPal SDK en frontend)
@@ -31,11 +24,12 @@ router.get('/client-id', (req, res) => {
 // Crear orden de PayPal (el frontend la crea via SDK popup)
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage, planId, billingCycle, itemType } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId } = req.body;
     if (!tokensPackage && !planId) return res.status(400).json({ error: 'Missing checkout item' });
 
-    const result = await createPaypalOrder(req.userId, { tokensPackage, planId, billingCycle, itemType });
-    res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress;
+    const result = await createPaypalOrder(req.userId, { tokensPackage, planId, billingCycle, itemType, couponCode, couponId }, ip);
+    res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl, couponApplied: result.couponApplied || null });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
     res.status(500).json({ error: error.message });
@@ -48,7 +42,7 @@ router.post('/capture-order', authMiddleware, async (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
 
-    const result = await capturePaypalOrder(orderId);
+    const result = await capturePaypalOrder(orderId, req.userId);
     res.json({ success: true, result });
   } catch (error) {
     console.error('[PAYPAL] Error capturing order:', error.message);

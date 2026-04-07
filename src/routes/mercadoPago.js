@@ -6,43 +6,36 @@ import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
-// Middleware para verificar autenticación
+// Middleware para verificar autenticación (JWT obligatorio)
 const authMiddleware = (req, res, next) => {
-  if (req.headers.authorization) {
-    return verifyToken(req, res, () => {
-      req.userId = req.user.userId;
-      next();
-    });
-  }
-
-  const userId = req.headers['x-user-id'];
-  if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  req.userId = userId;
-  next();
+  return verifyToken(req, res, () => {
+    req.userId = req.user.userId;
+    next();
+  });
 };
 
 // POST - Crear preferencia de pago (checkout)
 router.post('/create-preference', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage, planId, billingCycle, itemType } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId } = req.body;
 
     if (!tokensPackage && !planId) {
       return res.status(400).json({ error: 'Missing checkout item' });
     }
 
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress;
     const preference = await mercadoPagoService.createPaymentPreference(
       req.userId,
-      { tokensPackage, planId, billingCycle, itemType }
+      { tokensPackage, planId, billingCycle, itemType, couponCode, couponId },
+      ip
     );
 
     res.json({
       success: true,
       preferenceId: preference.preferenceId,
-      // Usar init_point para producción, sandbox_init_point para testing
       checkoutUrl: preference.initPoint,
-      sandboxUrl: preference.sandboxInitPoint
+      sandboxUrl: preference.sandboxInitPoint,
+      couponApplied: preference.couponApplied || null
     });
   } catch (error) {
     console.error('[MERCADO_PAGO_ROUTE] Error:', error.message);
