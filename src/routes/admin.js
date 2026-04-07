@@ -4,6 +4,17 @@ import { requireAdmin } from '../../middleware/auth.js';
 
 const router = Router();
 
+const NORMALIZED_PLAN_SQL = `
+  CASE
+    WHEN u.role = 'admin' THEN 'admin'
+    WHEN LOWER(COALESCE(u.plan, 'free')) IN ('start', 'starter') THEN 'start'
+    WHEN LOWER(COALESCE(u.plan, 'free')) = 'creator' THEN 'creator'
+    WHEN LOWER(COALESCE(u.plan, 'free')) IN ('pro', 'premium', 'elite') THEN 'pro'
+    WHEN LOWER(COALESCE(u.plan, 'free')) IN ('free', 'basic') THEN 'free'
+    ELSE LOWER(COALESCE(u.plan, 'free'))
+  END
+`;
+
 /**
  * GET /api/admin/stats - Dashboard principal
  */
@@ -27,10 +38,10 @@ router.get('/stats', requireAdmin, async (req, res) => {
       pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= CURRENT_DATE"),
       pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed'"),
       pool.query(`
-        SELECT plan, COUNT(*) as count,
-               SUM(CASE WHEN last_seen >= NOW() - INTERVAL '5 minutes' THEN 1 ELSE 0 END) AS online
-        FROM users
-        GROUP BY plan
+        SELECT ${NORMALIZED_PLAN_SQL} AS plan, COUNT(*) as count,
+               SUM(CASE WHEN u.last_seen >= NOW() - INTERVAL '5 minutes' THEN 1 ELSE 0 END) AS online
+        FROM users u
+        GROUP BY ${NORMALIZED_PLAN_SQL}
         ORDER BY count DESC
       `),
       pool.query(`
@@ -40,11 +51,11 @@ router.get('/stats', requireAdmin, async (req, res) => {
         ORDER BY tl.timestamp DESC LIMIT 20
       `),
       pool.query(`
-        SELECT u.id, u.email, u.plan, u.tokens, u.created_at,
+        SELECT u.id, u.email, ${NORMALIZED_PLAN_SQL} AS plan, u.tokens, u.created_at,
                COALESCE(SUM(tl.tokens_used), 0) AS total_used
         FROM users u
         LEFT JOIN token_logs tl ON tl.user_id = u.id
-        GROUP BY u.id, u.email, u.plan, u.tokens, u.created_at
+        GROUP BY u.id, u.email, ${NORMALIZED_PLAN_SQL}, u.tokens, u.created_at
         ORDER BY total_used DESC LIMIT 10
       `),
     ]);
@@ -89,24 +100,44 @@ router.get('/users', requireAdmin, async (req, res) => {
       params.push(`%${search}%`);
     }
     if (planFilter && planFilter !== 'all') {
-      conditions.push(`u.plan = $${paramIdx++}`);
+      conditions.push(`u.normalized_plan = $${paramIdx++}`);
       params.push(planFilter);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const query = `
-      SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
-             COALESCE(SUM(tl.tokens_used), 0) AS total_tokens_used
-      FROM users u
-      LEFT JOIN token_logs tl ON tl.user_id = u.id
+      WITH users_norm AS (
+        SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
+               ${NORMALIZED_PLAN_SQL.replaceAll('u.', '')} AS normalized_plan
+        FROM users u
+      )
+      SELECT u.id, u.email, u.plan, u.normalized_plan, u.tokens, u.role, u.created_at, u.last_seen,
+             COALESCE(tl.total_tokens_used, 0) AS total_tokens_used,
+             COALESCE(tx.total_tokens_purchased, 0) AS total_tokens_purchased
+      FROM users_norm u
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(tokens_used), 0) AS total_tokens_used
+        FROM token_logs
+        WHERE user_id = u.id
+      ) tl ON true
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(tokens_purchased), 0) AS total_tokens_purchased
+        FROM transactions
+        WHERE user_id = u.id AND status = 'completed'
+      ) tx ON true
       ${whereClause}
-      GROUP BY u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen
       ORDER BY u.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `;
     params.push(limit, offset);
 
-    const countQuery = `SELECT COUNT(*) FROM users u ${whereClause}`;
+    const countQuery = `
+      WITH users_norm AS (
+        SELECT u.id, ${NORMALIZED_PLAN_SQL.replaceAll('u.', '')} AS normalized_plan
+        FROM users u
+      )
+      SELECT COUNT(*) FROM users_norm u ${whereClause}
+    `;
     const countParams = conditions.length > 0 ? params.slice(0, conditions.length) : [];
 
     const [users, total] = await Promise.all([
