@@ -6,19 +6,18 @@ const PAYPAL_API = config.PAYPAL_MODE === 'sandbox'
   : 'https://api-m.paypal.com';
 
 const TOKEN_PACKAGES = {
-  100000: { kind: 'tokens', price: 3.00, tokens: 100000, description: '100K Tokens - Pequeno' },
-  250000: { kind: 'tokens', price: 7.00, tokens: 250000, description: '250K Tokens - Mediano' },
-  500000: { kind: 'tokens', price: 12.00, tokens: 500000, description: '500K Tokens - Grande' },
-  1000000: { kind: 'tokens', price: 20.00, tokens: 1000000, description: '1M Tokens - Maximo' }
+  150000: { kind: 'tokens', price: 4.99, tokens: 150000, description: 'MINI BOOST - 150K caracteres' },
+  350000: { kind: 'tokens', price: 9.99, tokens: 350000, description: 'POWER BOOST - 350K caracteres' },
+  700000: { kind: 'tokens', price: 14.99, tokens: 700000, description: 'MAX BOOST - 700K caracteres' }
 };
 
 const PLAN_PACKAGES = {
-  'creator_monthly': { kind: 'plan', planKey: 'creator', backendPlan: 'pro', price: 7.99, tokens: 120000, description: 'Plan Creator Mensual' },
-  'creator_annual': { kind: 'plan', planKey: 'creator', backendPlan: 'pro', price: 79.00, tokens: 120000, description: 'Plan Creator Anual' },
-  'pro_monthly': { kind: 'plan', planKey: 'pro', backendPlan: 'premium', price: 19.99, tokens: 500000, description: 'Plan Pro Mensual' },
-  'pro_annual': { kind: 'plan', planKey: 'pro', backendPlan: 'premium', price: 199.00, tokens: 500000, description: 'Plan Pro Anual' },
-  'elite_monthly': { kind: 'plan', planKey: 'elite', backendPlan: 'elite', price: 39.99, tokens: 1500000, description: 'Plan Elite Mensual' },
-  'elite_annual': { kind: 'plan', planKey: 'elite', backendPlan: 'elite', price: 399.00, tokens: 1500000, description: 'Plan Elite Anual' }
+  'start_monthly': { kind: 'plan', planKey: 'start', backendPlan: 'pro', price: 6.99, tokens: 200000, description: 'Plan START Mensual' },
+  'start_annual': { kind: 'plan', planKey: 'start', backendPlan: 'pro', price: 59.00, tokens: 200000, description: 'Plan START Anual' },
+  'creator_monthly': { kind: 'plan', planKey: 'creator', backendPlan: 'premium', price: 12.99, tokens: 500000, description: 'Plan CREATOR Mensual' },
+  'creator_annual': { kind: 'plan', planKey: 'creator', backendPlan: 'premium', price: 109.00, tokens: 500000, description: 'Plan CREATOR Anual' },
+  'pro_monthly': { kind: 'plan', planKey: 'pro', backendPlan: 'elite', price: 17.99, tokens: 800000, description: 'Plan PRO Mensual' },
+  'pro_annual': { kind: 'plan', planKey: 'pro', backendPlan: 'elite', price: 149.00, tokens: 800000, description: 'Plan PRO Anual' }
 };
 
 function getCheckoutItem(payload = {}) {

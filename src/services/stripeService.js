@@ -8,9 +8,9 @@ class StripeService {
   async createCheckoutSession(userId, tokensPackage) {
     try {
       const packages = {
-        500: { price: 499, tokens: 500 },
-        1000: { price: 899, tokens: 1000 },
-        5000: { price: 3999, tokens: 5000 }
+        150000: { price: 499, tokens: 150000 },
+        350000: { price: 999, tokens: 350000 },
+        700000: { price: 1499, tokens: 700000 }
       };
 
       const pkg = packages[tokensPackage];
