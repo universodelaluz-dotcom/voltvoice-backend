@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import https from 'https';
-import gTTS from 'google-tts-api';
+import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
 
 const router = Router();
 
 /**
- * POST /api/tts/say - Google TTS (Sistema funcional copiado)
- * Usa google-tts-api que SI FUNCIONA
+ * POST /api/tts/say - Google TTS
+ * Usa URL directa de Google Translate TTS
  */
 router.post('/say', async (req, res) => {
   try {
@@ -33,10 +33,7 @@ router.post('/say', async (req, res) => {
     const langCode = voiceToLangMap[voice] || 'es-MX'; // default a español
 
     // Obtener URL de Google TTS con el idioma correcto
-    const url = gTTS.getAudioUrl(text, {
-      lang: langCode,
-      slow: false,
-    });
+    const url = buildGoogleTtsUrl(text, langCode);
 
     // Descargar audio
     const audioBuffer = await downloadAudio(url);

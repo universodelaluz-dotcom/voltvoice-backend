@@ -1,9 +1,9 @@
-import gTTS from 'google-tts-api';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { config } from '../config.js';
+import { buildGoogleTtsUrl } from '../src/utils/googleTtsUrl.js';
 
 const log = (msg, ...args) => console.log(`[TTS]`, msg, ...args);
 
@@ -20,10 +20,7 @@ export const synthesizeText = async (text) => {
   try {
     log(`Sintetizando: "${text.substring(0, 50)}..."`);
 
-    const url = gTTS.getAudioUrl(text, {
-      lang: config.GOOGLE_TTS_LANG,
-      slow: false,
-    });
+    const url = buildGoogleTtsUrl(text, config.GOOGLE_TTS_LANG);
 
     // Validar que la URL sea válida
     if (!url || !url.startsWith('http')) {

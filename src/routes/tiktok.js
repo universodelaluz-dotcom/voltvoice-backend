@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import https from 'https';
-import gTTS from 'google-tts-api';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
+import { requireAdmin } from '../../middleware/auth.js';
+import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
 
 const router = Router();
 
@@ -90,7 +91,7 @@ router.get('/status/:username', (req, res) => {
   }
 });
 
-router.get('/debug/:username', (req, res) => {
+router.get('/debug/:username', requireAdmin, (req, res) => {
   const username = normalizeUsername(req.params.username);
 
   if (!username) {
@@ -205,7 +206,7 @@ router.post('/message', async (req, res) => {
       // Google TTS gratuito
       const lang = freeVoices[selectedVoiceId];
       console.log(`[TikTok] Sintetizando con Google TTS - lang: ${lang}`);
-      const url = gTTS.getAudioUrl(processedText, { lang, slow: false });
+      const url = buildGoogleTtsUrl(processedText, lang);
       const audioBuffer = await new Promise((resolve, reject) => {
         https.get(url, (response) => {
           const chunks = [];

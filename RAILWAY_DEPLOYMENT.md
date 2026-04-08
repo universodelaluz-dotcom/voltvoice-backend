@@ -42,8 +42,8 @@ FRONTEND_URL=https://landing-page-zeta-two-23.vercel.app
 BACKEND_URL=https://voltvoice-backend.railway.app
 
 # Mercado Pago
-MERCADO_PAGO_ACCESS_TOKEN=APP_USR-321299952980044-100609-a87787449103b2cec28b568309afc698-174576838
-MERCADO_PAGO_PUBLIC_KEY=APP_USR-df93f1dd-8db5-4269-bf98-87c37c13bf06
+MERCADO_PAGO_ACCESS_TOKEN=APP_USR-your_access_token_here
+MERCADO_PAGO_PUBLIC_KEY=APP_USR-your_public_key_here
 
 # ElevenLabs
 ELEVENLABS_API_KEY=tu_api_key_aqui

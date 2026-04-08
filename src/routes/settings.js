@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { verifyToken } from '../../middleware/auth.js';
+import { verifyToken, requireAdmin } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
@@ -54,7 +54,7 @@ const mapLanguageCodeToInworld = (languageCode) => {
 
 /**
  * Traducir texto al inglés para Inworld
- * Usa google-translate-free con fallback al texto original
+ * En producción devolvemos el texto original para evitar dependencia insegura.
  */
 const translateToEnglish = async (text, language = 'es') => {
   if (!text || text.trim().length === 0) return text;
@@ -65,18 +65,8 @@ const translateToEnglish = async (text, language = 'es') => {
       return text;
     }
 
-    console.log(`[Translate] Intentando traducir de ${language} a inglés: "${text.substring(0, 50)}..."`);
-
-    // Intenta importar dinámicamente
-    const { translate } = await import('google-translate-free');
-    const result = await translate({
-      text: text,
-      source: language.split('-')[0], // es, pt, fr, etc
-      target: 'en'
-    });
-
-    console.log(`[Translate] ✓ Traducido: "${result}"`);
-    return result;
+    console.log(`[Translate] Traducción externa deshabilitada, usando texto original para idioma: ${language}`);
+    return text;
   } catch (error) {
     console.warn(`[Translate] No se pudo traducir, usando texto original: ${error.message}`);
     // Si falla la traducción, retornar el texto original
@@ -620,9 +610,9 @@ router.get('/voices/:id/play', verifyToken, async (req, res) => {
 });
 
 /**
- * POST /api/settings/plan/update-by-email - Actualizar plan por email (DEBUG - sin auth)
+ * POST /api/settings/plan/update-by-email - Actualizar plan por email (solo admin)
  */
-router.post('/plan/update-by-email', async (req, res) => {
+router.post('/plan/update-by-email', requireAdmin, async (req, res) => {
   const { email, newPlan } = req.body;
 
   if (!email || !newPlan) {
