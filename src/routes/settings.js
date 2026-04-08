@@ -140,10 +140,10 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
+    const voiceLimits = { free: 1, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
-    const maxVoices = voiceLimits[userPlan] || 0;
+    const maxVoices = voiceLimits[userPlan] ?? 1;
 
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
@@ -275,29 +275,27 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   }
 
   // Límite de voces clonadas según plan del usuario
-  const voiceLimits = { free: 0, creator: 2, pro: 4, premium: 6, elite: 10, admin: 999, on_demand: 999 };
+  // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
+  const PLAN_NAMES = { free: 'Start', start: 'Start', creator: 'Creator', pro: 'Pro', premium: 'Pro', elite: 'Elite', admin: 'Admin' };
+  const voiceLimits = { free: 1, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
   try {
     const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
     const userRole = userResult.rows[0]?.role || 'user';
 
-    // Admin sin límite
-    if (userRole === 'admin') {
-      console.log(`[Clone] Admin clonando sin límite`);
-    } else {
-      const maxVoices = voiceLimits[userPlan] ?? 0;
+    if (userRole !== 'admin') {
+      const maxVoices = voiceLimits[userPlan] ?? 1;
+      const planLabel = PLAN_NAMES[userPlan] || userPlan;
 
-      if (maxVoices === 0) {
-        return res.status(403).json({ error: 'Tu plan Free no incluye clonación de voces. Mejora tu plan para desbloquear esta función.' });
-      }
-
-      // Contar solo voces clonadas (no las predeterminadas del sistema)
+      // Contar solo voces clonadas activas
       const countResult = await pool.query(
         `SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1 AND provider = 'inworld-cloned'`,
         [req.user.userId]
       );
       if (parseInt(countResult.rows[0].total) >= maxVoices) {
-        return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces clonadas. Elimina una o mejora tu plan.` });
+        return res.status(400).json({
+          error: `Tu plan ${planLabel} permite máximo ${maxVoices} ${maxVoices === 1 ? 'voz clonada' : 'voces clonadas'} activas. Elimina una para crear otra.`
+        });
       }
     }
   } catch (err) {
