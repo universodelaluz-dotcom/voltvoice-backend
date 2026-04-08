@@ -140,10 +140,10 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const voiceLimits = { free: 1, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
+    const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
-    const maxVoices = voiceLimits[userPlan] ?? 1;
+    const maxVoices = voiceLimits[userPlan] ?? 0;
 
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
@@ -276,8 +276,8 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 
   // Límite de voces clonadas según plan del usuario
   // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
-  const PLAN_NAMES = { free: 'Start', start: 'Start', creator: 'Creator', pro: 'Pro', premium: 'Pro', elite: 'Elite', admin: 'Admin' };
-  const voiceLimits = { free: 1, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
+  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', pro: 'Pro', premium: 'Pro', elite: 'Elite', admin: 'Admin' };
+  const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
   try {
     const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = userResult.rows[0]?.plan || 'free';
