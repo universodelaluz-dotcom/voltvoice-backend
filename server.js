@@ -22,7 +22,6 @@ import banRoutes from './src/routes/bans.js';
 import nickRoutes from './src/routes/nicks.js';
 import botRoutes from './src/routes/bot.js';
 import adminRoutes from './src/routes/admin.js';
-import couponRoutes from './src/routes/coupons.js';
 import opsRoutes from './src/routes/ops.js';
 
 // WebSocket
@@ -386,8 +385,6 @@ try {
   console.log('[STARTUP] ✓ Bot routes loaded');
   app.use('/api/admin', adminRoutes);
   console.log('[STARTUP] ✓ Admin routes loaded');
-  app.use('/api/coupons', couponRoutes);
-  console.log('[STARTUP] ✓ Coupon routes loaded');
   app.use('/api/ops', opsRoutes);
   console.log('[STARTUP] ✓ Ops routes loaded');
 } catch (err) {
