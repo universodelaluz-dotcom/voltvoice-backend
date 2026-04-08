@@ -20,6 +20,7 @@ import banRoutes from './src/routes/bans.js';
 import nickRoutes from './src/routes/nicks.js';
 import botRoutes from './src/routes/bot.js';
 import adminRoutes from './src/routes/admin.js';
+import couponRoutes from './src/routes/coupons.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -90,6 +91,17 @@ import pool from './src/db.js';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$;
+      -- Auth hardening columns for email verification flow
+      DO $$ BEGIN
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user';
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      ALTER TABLE users ALTER COLUMN email_verified SET DEFAULT FALSE;
+      UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL;
       -- User settings (config por usuario)
       CREATE TABLE IF NOT EXISTS user_settings (
         id SERIAL PRIMARY KEY,
@@ -109,6 +121,51 @@ import pool from './src/db.js';
       );
       CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
       CREATE INDEX IF NOT EXISTS idx_user_voices_user ON user_voices(user_id);
+      -- Pending email verifications (register + verify-email flow)
+      CREATE TABLE IF NOT EXISTS email_verifications (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) NOT NULL,
+        code VARCHAR(10) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        attempts INT DEFAULT 0,
+        max_attempts INT DEFAULT 5,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      -- Ensure auth-required columns exist even if table was created by an older schema
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS code VARCHAR(10);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS attempts INT DEFAULT 0;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS max_attempts INT DEFAULT 5;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE email_verifications ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      ALTER TABLE email_verifications ALTER COLUMN attempts SET DEFAULT 0;
+      ALTER TABLE email_verifications ALTER COLUMN max_attempts SET DEFAULT 5;
+      ALTER TABLE email_verifications ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+      CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
+      CREATE INDEX IF NOT EXISTS idx_email_verifications_expires_at ON email_verifications(expires_at);
       CREATE TABLE IF NOT EXISTS token_logs (
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL REFERENCES users(id),
@@ -176,10 +233,90 @@ import pool from './src/db.js';
       CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_user_id ON bot_moderations_log(user_id);
       CREATE INDEX IF NOT EXISTS idx_bot_moderations_log_executed ON bot_moderations_log(executed_at);
       -- Admin role
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user';
       UPDATE users SET role = 'admin' WHERE email = 'alainsh@gmail.com';
       -- Last seen for online tracking
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;
+
+      -- ===== COUPON SYSTEM =====
+      CREATE TABLE IF NOT EXISTS coupons (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) UNIQUE NOT NULL,
+        internal_name VARCHAR(255) NOT NULL,
+        description TEXT,
+        status VARCHAR(20) DEFAULT 'draft',
+        discount_type VARCHAR(20) NOT NULL,
+        discount_value DECIMAL(10,2) NOT NULL,
+        max_discount DECIMAL(10,2),
+        min_purchase DECIMAL(10,2) DEFAULT 0,
+        max_uses_total INT,
+        max_uses_per_user INT DEFAULT 1,
+        uses_count INT DEFAULT 0,
+        start_date TIMESTAMP,
+        end_date TIMESTAMP,
+        applies_to VARCHAR(50) DEFAULT 'all',
+        applicable_products TEXT[] DEFAULT '{}',
+        eligible_user_type VARCHAR(50) DEFAULT 'all',
+        eligible_user_ids INT[] DEFAULT '{}',
+        first_purchase_only BOOLEAN DEFAULT FALSE,
+        once_per_email BOOLEAN DEFAULT FALSE,
+        once_per_phone BOOLEAN DEFAULT FALSE,
+        compatible_with_others BOOLEAN DEFAULT TRUE,
+        limit_per_ip INT,
+        limit_per_device INT,
+        limit_per_card INT,
+        campaign VARCHAR(255),
+        priority INT DEFAULT 0,
+        scheduled_activate_at TIMESTAMP,
+        scheduled_deactivate_at TIMESTAMP,
+        created_by INT REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code);
+      CREATE INDEX IF NOT EXISTS idx_coupons_status ON coupons(status);
+      CREATE INDEX IF NOT EXISTS idx_coupons_campaign ON coupons(campaign);
+
+      CREATE TABLE IF NOT EXISTS coupon_redemptions (
+        id SERIAL PRIMARY KEY,
+        coupon_id INT NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        transaction_id INT REFERENCES transactions(id),
+        discount_applied DECIMAL(10,2) NOT NULL,
+        original_amount DECIMAL(10,2) NOT NULL,
+        final_amount DECIMAL(10,2) NOT NULL,
+        status VARCHAR(20) DEFAULT 'applied',
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        redeemed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reverted_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_coupon ON coupon_redemptions(coupon_id);
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_user ON coupon_redemptions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_status ON coupon_redemptions(status);
+
+      CREATE TABLE IF NOT EXISTS coupon_audit_log (
+        id SERIAL PRIMARY KEY,
+        coupon_id INT NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+        action VARCHAR(50) NOT NULL,
+        changed_by INT REFERENCES users(id),
+        old_values JSONB,
+        new_values JSONB,
+        ip_address VARCHAR(45),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_coupon_audit_log_coupon ON coupon_audit_log(coupon_id);
+
+      CREATE TABLE IF NOT EXISTS coupon_failed_attempts (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id),
+        code_attempted VARCHAR(100),
+        reason VARCHAR(255),
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_coupon_failed_attempts_ip ON coupon_failed_attempts(ip_address);
+      CREATE INDEX IF NOT EXISTS idx_coupon_failed_attempts_user ON coupon_failed_attempts(user_id);
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
@@ -218,6 +355,8 @@ try {
   console.log('[STARTUP] ✓ Bot routes loaded');
   app.use('/api/admin', adminRoutes);
   console.log('[STARTUP] ✓ Admin routes loaded');
+  app.use('/api/coupons', couponRoutes);
+  console.log('[STARTUP] ✓ Coupon routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
