@@ -3,16 +3,24 @@
 import express from 'express';
 import mercadoPagoService from '../services/mercadoPagoService.js';
 import { verifyToken } from '../../middleware/auth.js';
+import { config } from '../../config.js';
+import monitoring from '../services/monitoring.js';
 
 const router = express.Router();
 
 // Middleware para verificar autenticación
 const authMiddleware = (req, res, next) => {
-  if (req.headers.authorization) {
+  const hasAuthHeader = Boolean(req.headers.authorization);
+  const hasAuthCookie = String(req.headers.cookie || '').includes(`${config.AUTH_COOKIE_NAME}=`);
+  if (hasAuthHeader || hasAuthCookie) {
     return verifyToken(req, res, () => {
       req.userId = req.user.userId;
       next();
     });
+  }
+
+  if (config.isProduction) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   const userId = req.headers['x-user-id'];
@@ -46,6 +54,12 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('[MERCADO_PAGO_ROUTE] Error:', error.message);
+    monitoring.recordPaymentFailure({
+      provider: 'mercado_pago',
+      action: 'create_preference',
+      errorMessage: error.message,
+      userId: req.userId,
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -69,6 +83,12 @@ router.post('/webhook', express.json(), async (req, res) => {
     }
   } catch (error) {
     console.error('Webhook error:', error);
+    monitoring.recordPaymentFailure({
+      provider: 'mercado_pago',
+      action: 'webhook',
+      errorMessage: error.message,
+      userId: null,
+    });
     res.status(400).json({ error: error.message });
   }
 });

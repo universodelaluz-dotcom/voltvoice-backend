@@ -2,6 +2,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const parseBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+};
+
 export const config = {
   // Server
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -16,6 +21,12 @@ export const config = {
   // Auth
   JWT_SECRET: process.env.JWT_SECRET,
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
+  AUTH_COOKIE_NAME: process.env.AUTH_COOKIE_NAME || 'vv_auth',
+  AUTH_COOKIE_DOMAIN: process.env.AUTH_COOKIE_DOMAIN || '',
+  AUTH_COOKIE_SAMESITE: process.env.AUTH_COOKIE_SAMESITE || (process.env.NODE_ENV === 'production' ? 'None' : 'Lax'),
+  AUTH_COOKIE_SECURE: parseBoolean(process.env.AUTH_COOKIE_SECURE, process.env.NODE_ENV === 'production'),
+  AUTH_INCLUDE_TOKEN_RESPONSE: parseBoolean(process.env.AUTH_INCLUDE_TOKEN_RESPONSE, true),
+  RECAPTCHA_REQUIRED_IN_PROD: parseBoolean(process.env.RECAPTCHA_REQUIRED_IN_PROD, true),
 
   // APIs
   YOUTUBE_API_KEYS: [
@@ -43,6 +54,15 @@ export const config = {
 
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  ALERT_WEBHOOK_URL: process.env.ALERT_WEBHOOK_URL || '',
+
+  // Security / Rate limiting
+  TRUST_PROXY: parseBoolean(process.env.TRUST_PROXY, true),
+  GLOBAL_RATE_LIMIT_WINDOW_MS: Number(process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  GLOBAL_RATE_LIMIT_MAX_REQUESTS: Number(process.env.GLOBAL_RATE_LIMIT_MAX_REQUESTS || 300),
+
+  // Operations
+  DB_BACKUP_RETENTION_DAYS: Number(process.env.DB_BACKUP_RETENTION_DAYS || 7),
 
   // Validation
   isProduction: process.env.NODE_ENV === 'production',

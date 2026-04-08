@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createServer } from 'http';
@@ -21,14 +23,17 @@ import nickRoutes from './src/routes/nicks.js';
 import botRoutes from './src/routes/bot.js';
 import adminRoutes from './src/routes/admin.js';
 import couponRoutes from './src/routes/coupons.js';
+import opsRoutes from './src/routes/ops.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
+import monitoring from './src/services/monitoring.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
+if (config.TRUST_PROXY) app.set('trust proxy', 1);
 
 // ===== MIDDLEWARE =====
 // CORS configuration - allow frontend and any Vercel preview deployments
@@ -50,6 +55,22 @@ app.use(cors({
   credentials: true,
 }));
 
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+const globalLimiter = rateLimit({
+  windowMs: config.GLOBAL_RATE_LIMIT_WINDOW_MS,
+  max: config.GLOBAL_RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    monitoring.recordRateLimit({ path: req.path, ip: req.ip });
+    return res.status(429).json({ error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' });
+  },
+});
+app.use(globalLimiter);
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(join(__dirname, '../frontend/public')));
@@ -68,6 +89,16 @@ app.options('*', cors({
 
 // Logging
 app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt;
+    monitoring.recordRequest({
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs,
+    });
+  });
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
@@ -357,6 +388,8 @@ try {
   console.log('[STARTUP] ✓ Admin routes loaded');
   app.use('/api/coupons', couponRoutes);
   console.log('[STARTUP] ✓ Coupon routes loaded');
+  app.use('/api/ops', opsRoutes);
+  console.log('[STARTUP] ✓ Ops routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
@@ -372,13 +405,21 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
+  const snapshot = monitoring.getSnapshot();
   res.json({
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     version: 'REST-API-v1',
     mercadoPagoConfigured: !!config.MERCADO_PAGO_ACCESS_TOKEN,
-    paypalConfigured: !!config.PAYPAL_CLIENT_ID
+    paypalConfigured: !!config.PAYPAL_CLIENT_ID,
+    monitoring: {
+      avgLatencyMs: snapshot.avgLatencyMs,
+      p95LatencyMs: snapshot.p95LatencyMs,
+      errors5xx: snapshot.errors5xx,
+      rateLimited: snapshot.rateLimited,
+      paymentFailures: snapshot.paymentFailures,
+    },
   });
 });
 

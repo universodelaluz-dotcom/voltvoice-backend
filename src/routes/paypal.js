@@ -3,15 +3,22 @@ import express from 'express';
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypalService.js';
 import { config } from '../config.js';
 import { verifyToken } from '../../middleware/auth.js';
+import monitoring from '../services/monitoring.js';
 
 const router = express.Router();
 
 const authMiddleware = (req, res, next) => {
-  if (req.headers.authorization) {
+  const hasAuthHeader = Boolean(req.headers.authorization);
+  const hasAuthCookie = String(req.headers.cookie || '').includes(`${config.AUTH_COOKIE_NAME}=`);
+  if (hasAuthHeader || hasAuthCookie) {
     return verifyToken(req, res, () => {
       req.userId = req.user.userId;
       next();
     });
+  }
+
+  if (config.isProduction) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   const userId = req.headers['x-user-id'];
@@ -38,6 +45,12 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
+    monitoring.recordPaymentFailure({
+      provider: 'paypal',
+      action: 'create_order',
+      errorMessage: error.message,
+      userId: req.userId,
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -52,6 +65,12 @@ router.post('/capture-order', authMiddleware, async (req, res) => {
     res.json({ success: true, result });
   } catch (error) {
     console.error('[PAYPAL] Error capturing order:', error.message);
+    monitoring.recordPaymentFailure({
+      provider: 'paypal',
+      action: 'capture_order',
+      errorMessage: error.message,
+      userId: req.userId,
+    });
     res.status(500).json({ error: error.message });
   }
 });

@@ -7,12 +7,46 @@ import pool from '../db.js';
 import { generateToken, verifyToken } from '../../middleware/auth.js';
 import { sendVerificationEmail, sendWelcomeEmail } from '../services/mail.js';
 import { isTemporaryEmail, validateEmailFormat, sanitizeEmail } from '../services/email-validator.js';
+import { config } from '../../config.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const router = Router();
+const isRecaptchaRequired = config.isProduction && config.RECAPTCHA_REQUIRED_IN_PROD;
+
+const buildAuthCookie = (token) => {
+  const parts = [
+    `${config.AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    `SameSite=${config.AUTH_COOKIE_SAMESITE}`,
+  ];
+  if (config.AUTH_COOKIE_SECURE) parts.push('Secure');
+  if (config.AUTH_COOKIE_DOMAIN) parts.push(`Domain=${config.AUTH_COOKIE_DOMAIN}`);
+  parts.push(`Max-Age=${7 * 24 * 60 * 60}`);
+  return parts.join('; ');
+};
+
+const clearAuthCookie = () => {
+  const parts = [
+    `${config.AUTH_COOKIE_NAME}=`,
+    'Path=/',
+    'HttpOnly',
+    `SameSite=${config.AUTH_COOKIE_SAMESITE}`,
+    'Max-Age=0',
+  ];
+  if (config.AUTH_COOKIE_SECURE) parts.push('Secure');
+  if (config.AUTH_COOKIE_DOMAIN) parts.push(`Domain=${config.AUTH_COOKIE_DOMAIN}`);
+  return parts.join('; ');
+};
+
+const attachAuthToResponse = (res, token, payload) => {
+  res.setHeader('Set-Cookie', buildAuthCookie(token));
+  if (config.AUTH_INCLUDE_TOKEN_RESPONSE) return { ...payload, token };
+  return payload;
+};
 
 // ===== RATE LIMITING EN MEMORIA =====
 const loginAttempts = new Map();
@@ -67,7 +101,11 @@ function generateVerificationCode() {
 
 async function verifyRecaptcha(token) {
   if (!RECAPTCHA_SECRET) {
-    console.warn('[Auth] RECAPTCHA_SECRET no configurado - saltando validación');
+    if (isRecaptchaRequired) {
+      console.error('[Auth] RECAPTCHA_SECRET no configurado en produccion');
+      return false;
+    }
+    console.warn('[Auth] RECAPTCHA_SECRET no configurado - saltando validacion');
     return true;
   }
 
@@ -89,7 +127,6 @@ async function verifyRecaptcha(token) {
     return false;
   }
 }
-
 /**
  * POST /api/auth/register - Enviar código de verificación
  * Ahora NO crea usuario, solo envía código
@@ -143,8 +180,11 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'La contraseña debe tener letras y números' });
   }
 
-  // Validar reCAPTCHA
-  if (recaptchaToken) {
+  // Validar reCAPTCHA (obligatorio en producción)
+  if (isRecaptchaRequired && !recaptchaToken) {
+    return res.status(400).json({ error: 'CAPTCHA requerido en producción' });
+  }
+  if (recaptchaToken || isRecaptchaRequired) {
     const captchaValid = await verifyRecaptcha(recaptchaToken);
     if (!captchaValid) {
       console.warn(`[Auth] reCAPTCHA fallido para IP ${ip}`);
@@ -263,16 +303,15 @@ router.post('/verify-email', async (req, res) => {
 
     console.log(`[Auth] Usuario registrado exitosamente: ${user.email} (ID: ${user.id})`);
 
-    return res.status(201).json({
+    return res.status(201).json(attachAuthToResponse(res, token, {
       success: true,
-      token,
       user: {
         id: user.id,
         email: user.email,
         plan: user.plan,
         tokens: user.tokens,
       }
-    });
+    }));
   } catch (error) {
     console.error('[Auth] Error verificando email:', error.message);
     return res.status(500).json({ error: 'Error verificando email' });
@@ -392,9 +431,8 @@ router.post('/login', async (req, res) => {
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
 
-    return res.status(200).json({
+    return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -402,7 +440,7 @@ router.post('/login', async (req, res) => {
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
       }
-    });
+    }));
   } catch (error) {
     console.error('[Auth] Error en login:', error.message);
     return res.status(500).json({ error: 'Error iniciando sesión' });
@@ -460,9 +498,8 @@ router.post('/google', async (req, res) => {
 
     const token = generateToken(user.id);
 
-    return res.status(200).json({
+    return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -472,7 +509,7 @@ router.post('/google', async (req, res) => {
         name,
         picture,
       }
-    });
+    }));
   } catch (error) {
     console.error('[Auth] Error Google login:', error.message);
     return res.status(401).json({ error: 'Token de Google inválido' });
@@ -524,4 +561,11 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
+router.post('/logout', (req, res) => {
+  res.setHeader('Set-Cookie', clearAuthCookie());
+  return res.status(200).json({ success: true, message: 'SesiÃ³n cerrada' });
+});
+
 export default router;
+
+

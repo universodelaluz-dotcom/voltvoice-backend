@@ -2,11 +2,33 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import pool from '../src/db.js';
 
+const parseCookieHeader = (cookieHeader = '') => {
+  if (!cookieHeader || typeof cookieHeader !== 'string') return {};
+  return cookieHeader.split(';').reduce((acc, pair) => {
+    const index = pair.indexOf('=');
+    if (index < 0) return acc;
+    const key = pair.slice(0, index).trim();
+    const value = pair.slice(index + 1).trim();
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(value);
+    return acc;
+  }, {});
+};
+
+const getTokenFromRequest = (req) => {
+  const authHeader = req.headers.authorization || '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (bearerToken) return bearerToken;
+
+  const cookies = parseCookieHeader(req.headers.cookie || '');
+  return cookies[config.AUTH_COOKIE_NAME] || '';
+};
+
 /**
  * Middleware para verificar JWT
  */
 export const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = getTokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
@@ -25,7 +47,7 @@ export const verifyToken = (req, res, next) => {
  * Middleware para verificar que el usuario es admin
  */
 export const requireAdmin = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = getTokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
