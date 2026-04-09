@@ -91,31 +91,30 @@ router.get('/users', requireAdmin, async (req, res) => {
     const planFilter = req.query.plan || '';
     const offset = (page - 1) * limit;
 
-    const conditions = [];
     const params = [];
     let paramIdx = 1;
 
+    // Construir WHERE conditions como string templates
+    let whereConditions = [];
+
     if (search) {
-      conditions.push(`u.email ILIKE $${paramIdx++}`);
+      whereConditions.push(`u.email ILIKE $${paramIdx++}`);
       params.push(`%${search}%`);
     }
     if (planFilter && planFilter !== 'all') {
-      conditions.push(`u.normalized_plan = $${paramIdx++}`);
+      // Usar CASE directamente en la condición WHERE
+      whereConditions.push(`(${NORMALIZED_PLAN_SQL}) = $${paramIdx++}`);
       params.push(planFilter);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const query = `
-      WITH users_norm AS (
-        SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
-               ${NORMALIZED_PLAN_SQL.replaceAll('u.', '')} AS normalized_plan
-        FROM users u
-      )
-      SELECT u.id, u.email, u.plan, u.normalized_plan, u.tokens, u.role, u.created_at, u.last_seen,
+      SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
+             ${NORMALIZED_PLAN_SQL} AS normalized_plan,
              COALESCE(tl.total_tokens_used, 0) AS total_tokens_used,
              COALESCE(tx.total_tokens_purchased, 0) AS total_tokens_purchased
-      FROM users_norm u
+      FROM users u
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(tokens_used), 0) AS total_tokens_used
         FROM token_logs
@@ -132,13 +131,10 @@ router.get('/users', requireAdmin, async (req, res) => {
     params.push(limit, offset);
 
     const countQuery = `
-      WITH users_norm AS (
-        SELECT u.id, ${NORMALIZED_PLAN_SQL.replaceAll('u.', '')} AS normalized_plan
-        FROM users u
-      )
-      SELECT COUNT(*) FROM users_norm u ${whereClause}
+      SELECT COUNT(*) FROM users u
+      ${whereClause}
     `;
-    const countParams = conditions.length > 0 ? params.slice(0, conditions.length) : [];
+    const countParams = params.slice(0, whereConditions.length);
 
     const [users, total] = await Promise.all([
       pool.query(query, params),
