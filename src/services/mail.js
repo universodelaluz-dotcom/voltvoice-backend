@@ -49,3 +49,26 @@ export async function sendWelcomeEmail(email) {
     return false;
   }
 }
+
+export async function sendPasswordResetEmail(email, code) {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Recuperar contraseña - VoltVoice',
+      html: `
+        <h2>Recuperación de contraseña</h2>
+        <p>Recibimos una solicitud para restablecer tu contraseña.</p>
+        <p>Usa este código para continuar:</p>
+        <h1 style="color: #06b6d4; font-size: 32px; letter-spacing: 2px;">${code}</h1>
+        <p>Este código expira en 15 minutos.</p>
+        <p><small>Si no solicitaste esto, ignora este correo.</small></p>
+      `
+    });
+    console.log(`[Mail] Email de recuperación enviado a: ${email}`);
+    return true;
+  } catch (error) {
+    console.error(`[Mail] Error enviando recuperación a ${email}:`, error.message);
+    return false;
+  }
+}

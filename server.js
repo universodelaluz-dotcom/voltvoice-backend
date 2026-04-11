@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createServer } from 'http';
@@ -33,6 +34,19 @@ const __dirname = dirname(__filename);
 
 const app = express();
 if (config.TRUST_PROXY) app.set('trust proxy', 1);
+
+const resolveAuthUserId = (req) => {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.slice('Bearer '.length).trim();
+    const decoded = jwt.verify(token, config.JWT_SECRET);
+    const userId = Number(decoded?.userId || decoded?.id);
+    return Number.isFinite(userId) && userId > 0 ? userId : null;
+  } catch {
+    return null;
+  }
+};
 
 // ===== MIDDLEWARE =====
 // CORS configuration - allow frontend and any Vercel preview deployments
@@ -89,6 +103,15 @@ app.options('*', cors({
 // Logging
 app.use((req, res, next) => {
   const startedAt = Date.now();
+  const authUserId = resolveAuthUserId(req);
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && body.error) {
+      res.locals.responseError = String(body.error).slice(0, 500);
+    }
+    return originalJson(body);
+  };
+
   res.on('finish', () => {
     const durationMs = Date.now() - startedAt;
     monitoring.recordRequest({
@@ -97,6 +120,25 @@ app.use((req, res, next) => {
       statusCode: res.statusCode,
       durationMs,
     });
+
+    if (req.path.startsWith('/api/')) {
+      const errorMessage = res.locals.responseError || (res.statusCode >= 500 ? 'internal_server_error' : null);
+      pool.query(
+        `INSERT INTO api_request_logs
+         (user_id, method, path, status_code, duration_ms, ip_address, user_agent, error_message, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+        [
+          authUserId,
+          req.method,
+          req.path,
+          res.statusCode,
+          durationMs,
+          (req.headers['x-forwarded-for'] || req.ip || '').toString().slice(0, 80),
+          String(req.headers['user-agent'] || '').slice(0, 500),
+          errorMessage ? String(errorMessage).slice(0, 500) : null
+        ]
+      ).catch(() => {});
+    }
   });
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
@@ -203,6 +245,36 @@ import pool from './src/db.js';
       ALTER TABLE email_verifications ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
       CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
       CREATE INDEX IF NOT EXISTS idx_email_verifications_expires_at ON email_verifications(expires_at);
+
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        code_hash VARCHAR(64) NOT NULL,
+        attempts INT DEFAULT 0,
+        max_attempts INT DEFAULT 5,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        request_ip VARCHAR(80),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_expires_at ON password_resets(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_used_at ON password_resets(used_at);
+      CREATE TABLE IF NOT EXISTS local_tts_usage_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        duration_ms INT NOT NULL,
+        voice_id VARCHAR(120),
+        text_chars INT DEFAULT 0,
+        source VARCHAR(40) DEFAULT 'api_tts_say',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_local_tts_usage_events_user_created
+        ON local_tts_usage_events(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_local_tts_usage_events_created
+        ON local_tts_usage_events(created_at DESC);
       CREATE TABLE IF NOT EXISTS token_logs (
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL REFERENCES users(id),
@@ -446,6 +518,24 @@ import pool from './src/db.js';
       INSERT INTO audio_cache_runtime_stats (id)
       VALUES (1)
       ON CONFLICT (id) DO NOTHING;
+
+      -- API request logs (diagnostico real para soporte)
+      CREATE TABLE IF NOT EXISTS api_request_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        method VARCHAR(12) NOT NULL,
+        path VARCHAR(255) NOT NULL,
+        status_code INT NOT NULL,
+        duration_ms INT DEFAULT 0,
+        ip_address VARCHAR(80),
+        user_agent VARCHAR(500),
+        error_message VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_api_request_logs_created ON api_request_logs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_api_request_logs_user ON api_request_logs(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_api_request_logs_path ON api_request_logs(path, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_api_request_logs_status ON api_request_logs(status_code, created_at DESC);
 
       -- ===== COUPON SYSTEM =====
       CREATE TABLE IF NOT EXISTS coupons (

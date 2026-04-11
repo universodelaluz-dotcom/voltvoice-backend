@@ -5,7 +5,7 @@ import axios from 'axios';
 import { OAuth2Client } from 'google-auth-library';
 import pool from '../db.js';
 import { generateToken, verifyToken } from '../../middleware/auth.js';
-import { sendVerificationEmail, sendWelcomeEmail } from '../services/mail.js';
+import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../services/mail.js';
 import { isTemporaryEmail, validateEmailFormat, sanitizeEmail } from '../services/email-validator.js';
 import { config } from '../../config.js';
 
@@ -51,6 +51,7 @@ const attachAuthToResponse = (res, token, payload) => {
 // ===== RATE LIMITING EN MEMORIA =====
 const loginAttempts = new Map();
 const registerAttempts = new Map();
+const forgotPasswordAttempts = new Map();
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -61,6 +62,10 @@ const REGISTER_WINDOW_MS = 60 * 60 * 1000;
 
 const VERIFICATION_CODE_LENGTH = 6;
 const VERIFICATION_EXPIRY_MS = 15 * 60 * 1000; // 15 minutos
+const RESET_CODE_LENGTH = 6;
+const RESET_EXPIRY_MS = 15 * 60 * 1000; // 15 minutos
+const FORGOT_MAX_ATTEMPTS = 5;
+const FORGOT_WINDOW_MS = 60 * 60 * 1000;
 
 // Limpiar intentos viejos cada 10 minutos
 setInterval(() => {
@@ -75,12 +80,18 @@ setInterval(() => {
       registerAttempts.delete(ip);
     }
   }
+  for (const [ip, data] of forgotPasswordAttempts) {
+    if (now - data.firstAttempt > FORGOT_WINDOW_MS) {
+      forgotPasswordAttempts.delete(ip);
+    }
+  }
 }, 10 * 60 * 1000);
 
 // Limpiar email_verifications expiradas cada 5 minutos
 setInterval(async () => {
   try {
     await pool.query('DELETE FROM email_verifications WHERE expires_at < CURRENT_TIMESTAMP');
+    await pool.query('DELETE FROM password_resets WHERE expires_at < CURRENT_TIMESTAMP OR used_at IS NOT NULL');
   } catch (error) {
     console.error('[Auth] Error limpiando verificaciones expiradas:', error.message);
   }
@@ -97,6 +108,14 @@ function sanitize(str) {
 
 function generateVerificationCode() {
   return Math.random().toString().substring(2, 2 + VERIFICATION_CODE_LENGTH);
+}
+
+function generateResetCode() {
+  return Math.random().toString().substring(2, 2 + RESET_CODE_LENGTH);
+}
+
+function hashResetCode(email, code) {
+  return crypto.createHash('sha256').update(`${String(email || '').toLowerCase()}|${String(code || '')}`).digest('hex');
 }
 
 async function verifyRecaptcha(token) {
@@ -362,6 +381,174 @@ router.post('/resend-code', async (req, res) => {
   } catch (error) {
     console.error('[Auth] Error reenviando código:', error.message);
     return res.status(500).json({ error: 'Error reenviando código' });
+  }
+});
+
+/**
+ * POST /api/auth/forgot-password - Solicitar codigo de recuperacion por email
+ */
+router.post('/forgot-password', async (req, res) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const rawEmail = req.body.email;
+  const genericResponse = {
+    success: true,
+    message: 'Si el email existe, enviamos un código de recuperación.'
+  };
+
+  if (!rawEmail) {
+    return res.status(200).json(genericResponse);
+  }
+
+  const email = sanitizeEmail(rawEmail);
+  if (!validateEmailFormat(email)) {
+    return res.status(200).json(genericResponse);
+  }
+
+  const attempt = forgotPasswordAttempts.get(ip);
+  if (attempt && now - attempt.firstAttempt < FORGOT_WINDOW_MS && attempt.count >= FORGOT_MAX_ATTEMPTS) {
+    return res.status(200).json(genericResponse);
+  }
+  if (attempt && now - attempt.firstAttempt >= FORGOT_WINDOW_MS) {
+    forgotPasswordAttempts.delete(ip);
+  }
+
+  try {
+    if (forgotPasswordAttempts.has(ip) && now - forgotPasswordAttempts.get(ip).firstAttempt < FORGOT_WINDOW_MS) {
+      forgotPasswordAttempts.get(ip).count += 1;
+    } else {
+      forgotPasswordAttempts.set(ip, { count: 1, firstAttempt: now });
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, email_verified FROM users WHERE email = $1 LIMIT 1',
+      [email]
+    );
+    const user = userResult.rows[0];
+    if (!user || !user.email_verified) {
+      return res.status(200).json(genericResponse);
+    }
+
+    await pool.query(
+      `UPDATE password_resets
+       SET used_at = NOW()
+       WHERE email = $1 AND used_at IS NULL`,
+      [email]
+    );
+
+    const code = generateResetCode();
+    const codeHash = hashResetCode(email, code);
+    const expiresAt = new Date(now + RESET_EXPIRY_MS);
+
+    await pool.query(
+      `INSERT INTO password_resets
+       (user_id, email, code_hash, attempts, max_attempts, expires_at, request_ip)
+       VALUES ($1, $2, $3, 0, 5, $4, $5)`,
+      [user.id, email, codeHash, expiresAt, String(ip).slice(0, 80)]
+    );
+
+    const sent = await sendPasswordResetEmail(email, code);
+    if (!sent) {
+      console.log(`[Auth] Código de recuperación para ${email}: ${code}`);
+    }
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    console.error('[Auth] Error forgot-password:', error.message);
+    return res.status(200).json(genericResponse);
+  }
+});
+
+/**
+ * POST /api/auth/reset-password - Confirmar codigo y actualizar contraseña
+ */
+router.post('/reset-password', async (req, res) => {
+  const rawEmail = req.body.email;
+  const rawCode = req.body.code;
+  const newPassword = req.body.newPassword;
+
+  if (!rawEmail || !rawCode || !newPassword) {
+    return res.status(400).json({ error: 'Email, código y nueva contraseña son requeridos' });
+  }
+
+  const email = sanitizeEmail(rawEmail);
+  const code = String(rawCode || '').trim();
+
+  if (!validateEmailFormat(email)) {
+    return res.status(400).json({ error: 'Solicitud inválida' });
+  }
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'Código inválido' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  }
+  if (newPassword.length > 128) {
+    return res.status(400).json({ error: 'Contraseña demasiado larga' });
+  }
+  if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    return res.status(400).json({ error: 'La contraseña debe tener letras y números' });
+  }
+
+  try {
+    const resetResult = await pool.query(
+      `SELECT id, user_id, attempts, max_attempts, expires_at
+       FROM password_resets
+       WHERE email = $1
+         AND used_at IS NULL
+         AND expires_at > CURRENT_TIMESTAMP
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [email]
+    );
+
+    if (resetResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Código expirado o no encontrado' });
+    }
+
+    const reset = resetResult.rows[0];
+    const codeHash = hashResetCode(email, code);
+    const validResult = await pool.query(
+      `SELECT id
+       FROM password_resets
+       WHERE id = $1 AND code_hash = $2`,
+      [reset.id, codeHash]
+    );
+
+    if (validResult.rows.length === 0) {
+      await pool.query(
+        `UPDATE password_resets
+         SET attempts = attempts + 1
+         WHERE id = $1`,
+        [reset.id]
+      );
+      if (Number(reset.attempts || 0) + 1 >= Number(reset.max_attempts || 5)) {
+        await pool.query('UPDATE password_resets SET used_at = NOW() WHERE id = $1', [reset.id]);
+      }
+      return res.status(401).json({ error: 'Código incorrecto' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           updated_at = CURRENT_TIMESTAMP,
+           last_password_reset_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [passwordHash, reset.user_id]
+    );
+
+    await pool.query(
+      `UPDATE password_resets
+       SET used_at = NOW()
+       WHERE id = $1 OR user_id = $2`,
+      [reset.id, reset.user_id]
+    );
+
+    return res.status(200).json({ success: true, message: 'Contraseña actualizada correctamente' });
+  } catch (error) {
+    console.error('[Auth] Error reset-password:', error.message);
+    return res.status(500).json({ error: 'Error restableciendo contraseña' });
   }
 });
 

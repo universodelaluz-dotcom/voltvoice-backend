@@ -11,6 +11,8 @@ const normalizePlan = (value = 'free') => String(value || 'free').trim().toLower
 const ALLOWED_PLANS = new Set(['free', 'start', 'creator', 'pro', 'admin']);
 const ALLOWED_BROADCAST_KIND = new Set(['global_message', 'in_app_notification', 'maintenance_alert']);
 const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived']);
+const ESTIMATED_COST_PER_1K_TOKENS_USD = Number(process.env.ADMIN_ESTIMATED_COST_PER_1K_TOKENS_USD || 0.004);
+const ESTIMATED_FIXED_MONTHLY_COST_USD = Number(process.env.ADMIN_ESTIMATED_FIXED_MONTHLY_COST_USD || 0);
 
 const parseLimit = (raw, fallback = 25, max = 200) => {
   const parsed = Number.parseInt(raw, 10);
@@ -23,6 +25,7 @@ const parseIntRange = (raw, fallback, min, max) => {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
 };
+const csvEscape = (value = '') => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const logAdminAction = async ({ actorId, targetUserId = null, action, details = {} }) => {
   try {
@@ -66,21 +69,42 @@ router.get('/stats', requireAdmin, async (req, res) => {
     const [
       totalUsers,
       usersToday,
+      usersThisMonth,
+      usersThisYear,
       onlineUsers,
       totalTokensUsed,
       tokensUsedToday,
+      tokensUsedMonth,
+      tokensUsedYear,
       totalTransactions,
+      transactionsMonth,
+      transactionsYear,
+      revenueTotal,
+      revenueMonth,
+      revenueYear,
       suspendedUsers,
       planBreakdown,
+      usersMonthly,
+      tokensMonthly,
+      revenueMonthly,
       recentActivity,
       topUsers,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM users'),
       pool.query("SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE"),
+      pool.query("SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('month', NOW())"),
+      pool.query("SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('year', NOW())"),
       pool.query("SELECT COUNT(*) FROM users WHERE last_seen >= NOW() - INTERVAL '5 minutes'"),
       pool.query('SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs'),
       pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= CURRENT_DATE"),
+      pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= date_trunc('month', NOW())"),
+      pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= date_trunc('year', NOW())"),
       pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed'"),
+      pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())"),
+      pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('year', NOW())"),
+      pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed'"),
+      pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())"),
+      pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('year', NOW())"),
       pool.query("SELECT COUNT(*) FROM users WHERE is_suspended = TRUE"),
       pool.query(`
         SELECT plan, COUNT(*) as count,
@@ -88,6 +112,31 @@ router.get('/stats', requireAdmin, async (req, res) => {
         FROM users
         GROUP BY plan
         ORDER BY count DESC
+      `),
+      pool.query(`
+        SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
+               COUNT(*)::int AS users
+        FROM users
+        WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '11 months'
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `),
+      pool.query(`
+        SELECT to_char(date_trunc('month', timestamp), 'YYYY-MM') AS month_key,
+               COALESCE(SUM(tokens_used), 0)::bigint AS tokens
+        FROM token_logs
+        WHERE timestamp >= date_trunc('month', NOW()) - INTERVAL '11 months'
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `),
+      pool.query(`
+        SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
+               COALESCE(SUM(amount_usd), 0)::numeric(14,2) AS revenue
+        FROM transactions
+        WHERE status = 'completed'
+          AND created_at >= date_trunc('month', NOW()) - INTERVAL '11 months'
+        GROUP BY 1
+        ORDER BY 1 ASC
       `),
       pool.query(`
         SELECT tl.action, tl.tokens_used, tl.characters_count, tl.voice_name, tl.timestamp, u.email
@@ -108,17 +157,70 @@ router.get('/stats', requireAdmin, async (req, res) => {
       `),
     ]);
 
+    const monthMap = new Map();
+    const ensureMonth = (monthKey) => {
+      if (!monthMap.has(monthKey)) {
+        monthMap.set(monthKey, { monthKey, users: 0, tokens: 0, revenueUsd: 0 });
+      }
+      return monthMap.get(monthKey);
+    };
+    for (let i = 11; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      ensureMonth(monthKey);
+    }
+    for (const row of usersMonthly.rows) {
+      ensureMonth(String(row.month_key)).users = Number(row.users || 0);
+    }
+    for (const row of tokensMonthly.rows) {
+      ensureMonth(String(row.month_key)).tokens = Number(row.tokens || 0);
+    }
+    for (const row of revenueMonthly.rows) {
+      ensureMonth(String(row.month_key)).revenueUsd = Number(row.revenue || 0);
+    }
+    const monthlyOverview = Array.from(monthMap.values());
+
+    const totalRevenueUsd = Number(revenueTotal.rows[0].total || 0);
+    const revenueMonthUsd = Number(revenueMonth.rows[0].total || 0);
+    const revenueYearUsd = Number(revenueYear.rows[0].total || 0);
+    const totalTokens = parseInt(totalTokensUsed.rows[0].total, 10) || 0;
+    const monthTokens = parseInt(tokensUsedMonth.rows[0].total, 10) || 0;
+    const yearTokens = parseInt(tokensUsedYear.rows[0].total, 10) || 0;
+    const estCostTotalUsd = Number(((totalTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD).toFixed(2));
+    const estCostMonthUsd = Number(((monthTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD + ESTIMATED_FIXED_MONTHLY_COST_USD).toFixed(2));
+    const estCostYearUsd = Number(((yearTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD + (ESTIMATED_FIXED_MONTHLY_COST_USD * 12)).toFixed(2));
+    const marginMonthUsd = Number((revenueMonthUsd - estCostMonthUsd).toFixed(2));
+    const marginYearUsd = Number((revenueYearUsd - estCostYearUsd).toFixed(2));
+
     return res.json({
       success: true,
       stats: {
         totalUsers: parseInt(totalUsers.rows[0].count, 10),
         usersToday: parseInt(usersToday.rows[0].count, 10),
+        usersThisMonth: parseInt(usersThisMonth.rows[0].count, 10),
+        usersThisYear: parseInt(usersThisYear.rows[0].count, 10),
         onlineUsers: parseInt(onlineUsers.rows[0].count, 10),
-        suspendedUsers: parseInt(suspendedUsers.rows[0].count, 10),
-        totalTokensUsed: parseInt(totalTokensUsed.rows[0].total, 10),
+        suspendedUsers: parseInt(suspendedUsers.rows[0].count, 10),        
+        totalTokensUsed: totalTokens,
         tokensUsedToday: parseInt(tokensUsedToday.rows[0].total, 10),
+        tokensUsedMonth: monthTokens,
+        tokensUsedYear: yearTokens,
         totalTransactions: parseInt(totalTransactions.rows[0].count, 10),
+        transactionsMonth: parseInt(transactionsMonth.rows[0].count, 10),
+        transactionsYear: parseInt(transactionsYear.rows[0].count, 10),
+        revenueTotalUsd: totalRevenueUsd,
+        revenueMonthUsd,
+        revenueYearUsd,
+        estimatedCostTotalUsd: estCostTotalUsd,
+        estimatedCostMonthUsd: estCostMonthUsd,
+        estimatedCostYearUsd: estCostYearUsd,
+        estimatedMarginMonthUsd: marginMonthUsd,
+        estimatedMarginYearUsd: marginYearUsd,
+        estimatedCostPer1kTokensUsd: ESTIMATED_COST_PER_1K_TOKENS_USD,
+        estimatedFixedMonthlyCostUsd: ESTIMATED_FIXED_MONTHLY_COST_USD,
         planBreakdown: planBreakdown.rows,
+        monthlyOverview,
         recentActivity: recentActivity.rows,
         topUsers: topUsers.rows,
       }
@@ -194,6 +296,51 @@ router.get('/users', requireAdmin, async (req, res) => {
       stack: err.stack
     });
     return res.status(500).json({ error: 'Error obteniendo usuarios' });
+  }
+});
+
+/**
+ * GET /api/admin/users/export-emails - Exportar correos en CSV
+ */
+router.get('/users/export-emails', requireAdmin, async (req, res) => {
+  try {
+    const plan = String(req.query.plan || 'all').toLowerCase();
+    const where = plan !== 'all' ? 'WHERE plan = $1' : '';
+    const params = plan !== 'all' ? [plan] : [];
+
+    const rows = await pool.query(
+      `SELECT id, email, plan, role, created_at
+       FROM users
+       ${where}
+       ORDER BY created_at DESC`,
+      params
+    );
+
+    const lines = ['id,email,plan,role,created_at'];
+    for (const row of rows.rows) {
+      lines.push([
+        row.id,
+        csvEscape(row.email),
+        csvEscape(row.plan),
+        csvEscape(row.role),
+        csvEscape(row.created_at ? new Date(row.created_at).toISOString() : '')
+      ].join(','));
+    }
+    const csv = `${lines.join('\n')}\n`;
+    const filename = `voltvoice-users-${plan}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'export_user_emails_csv',
+      details: { plan, exported: rows.rowCount }
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(csv);
+  } catch (err) {
+    console.error('[Admin] Error export emails:', err.message);
+    return res.status(500).json({ error: 'Error exportando correos' });
   }
 });
 
@@ -359,6 +506,126 @@ router.post('/users/:id/add-tokens', requireAdmin, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/users/:id/voices - Listar voces clonadas/personalizadas del usuario
+ */
+router.get('/users/:id/voices', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT id, user_id, voice_name, voice_id, provider, created_at
+       FROM user_voices
+       WHERE user_id::text = $1::text
+       ORDER BY created_at DESC`,
+      [id]
+    );
+
+    return res.json({ success: true, voices: result.rows });
+  } catch (err) {
+    console.error('[Admin] Error loading user voices:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo voces del usuario' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id/voices/:voiceRecordId - Eliminar voz de usuario
+ */
+router.delete('/users/:id/voices/:voiceRecordId', requireAdmin, async (req, res) => {
+  try {
+    const { id, voiceRecordId } = req.params;
+
+    const deleted = await pool.query(
+      `DELETE FROM user_voices
+       WHERE user_id::text = $1::text
+         AND id::text = $2::text
+       RETURNING id, user_id, voice_name, voice_id, provider`,
+      [id, voiceRecordId]
+    );
+
+    if (deleted.rows.length === 0) {
+      return res.status(404).json({ error: 'Voz no encontrada' });
+    }
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      targetUserId: id,
+      action: 'delete_user_voice',
+      details: deleted.rows[0]
+    });
+
+    return res.json({ success: true, deleted: deleted.rows[0] });
+  } catch (err) {
+    console.error('[Admin] Error deleting user voice:', err.message);
+    return res.status(500).json({ error: 'Error eliminando voz del usuario' });
+  }
+});
+
+/**
+ * GET /api/admin/logs/requests - Buscar logs reales de API (soporte)
+ */
+router.get('/logs/requests', requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.query.userId || '').trim();
+    const email = String(req.query.email || '').trim();
+    const pathLike = String(req.query.path || '').trim();
+    const statusMin = Number.parseInt(req.query.statusMin, 10);
+    const statusMax = Number.parseInt(req.query.statusMax, 10);
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(String(req.query.to)) : null;
+    const limit = parseLimit(req.query.limit, 200, 1000);
+
+    const where = [];
+    const params = [];
+    let idx = 1;
+
+    if (userId) {
+      where.push(`l.user_id::text = $${idx++}::text`);
+      params.push(userId);
+    }
+    if (email) {
+      where.push(`u.email ILIKE $${idx++}`);
+      params.push(`%${email}%`);
+    }
+    if (pathLike) {
+      where.push(`l.path ILIKE $${idx++}`);
+      params.push(`%${pathLike}%`);
+    }
+    if (Number.isFinite(statusMin)) {
+      where.push(`l.status_code >= $${idx++}`);
+      params.push(statusMin);
+    }
+    if (Number.isFinite(statusMax)) {
+      where.push(`l.status_code <= $${idx++}`);
+      params.push(statusMax);
+    }
+    if (from && !Number.isNaN(from.getTime())) {
+      where.push(`l.created_at >= $${idx++}`);
+      params.push(from.toISOString());
+    }
+    if (to && !Number.isNaN(to.getTime())) {
+      where.push(`l.created_at <= $${idx++}`);
+      params.push(to.toISOString());
+    }
+
+    params.push(limit);
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const result = await pool.query(
+      `SELECT l.id, l.user_id, u.email AS user_email, l.method, l.path, l.status_code, l.duration_ms, l.ip_address, l.error_message, l.created_at
+       FROM api_request_logs l
+       LEFT JOIN users u ON l.user_id = u.id
+       ${whereClause}
+       ORDER BY l.created_at DESC
+       LIMIT $${idx}`,
+      params
+    );
+
+    return res.json({ success: true, logs: result.rows });
+  } catch (err) {
+    console.error('[Admin] Error request logs:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo logs de API' });
+  }
+});
+
+/**
  * POST /api/admin/users/:id/suspend - Suspender usuario
  */
 router.post('/users/:id/suspend', requireAdmin, async (req, res) => {
@@ -488,7 +755,7 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
     const { id } = req.params;
     const limit = parseLimit(req.query.limit, 100, 500);
 
-    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ] = await Promise.all([
+    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
       pool.query(
         `SELECT id, email, plan, tokens, role, created_at, last_seen, is_suspended, suspended_until, suspension_reason
          FROM users WHERE id::text = $1::text`,
@@ -519,6 +786,22 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
          ORDER BY aal.created_at DESC
          LIMIT $2`,
         [id, limit]
+      ),
+      pool.query(
+        `SELECT method, path, status_code, duration_ms, ip_address, error_message, created_at
+         FROM api_request_logs
+         WHERE user_id::text = $1::text
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit]
+      ),
+      pool.query(
+        `SELECT id, voice_name, voice_id, provider, created_at
+         FROM user_voices
+         WHERE user_id::text = $1::text
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit]
       )
     ]);
 
@@ -531,6 +814,8 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
         tokenLogs: tokenLogsQ.rows,
         transactions: transactionsQ.rows,
         adminActions: adminActionsQ.rows,
+        requestLogs: requestLogsQ.rows,
+        voices: voicesQ.rows,
       }
     });
   } catch (err) {
