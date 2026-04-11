@@ -90,11 +90,11 @@ router.get('/stats', verifyToken, async (req, res) => {
     const voicesClonesUsed = parseInt(voicesRes.rows[0].count);
 
     // Límites de voces según plan
-    const planLimits = { free: 0, basic: 2, pro: 4, premium: 8 };
+    const planLimits = { free: 0, start: 1, creator: 2, pro: 5, admin: 999 };
     const voiceCloneLimit = planLimits[user.plan] || 4;
 
     // Límites de tokens según plan
-    const tokenLimits = { free: 100, basic: 1000, pro: 5000, premium: 10000 };
+    const tokenLimits = { free: 1000, start: 1000, creator: 5000, pro: 10000, admin: 999999999 };
     const tokenLimit = tokenLimits[user.plan] || 1000;
 
     // === CURRENT MONTH STATS ===
@@ -106,6 +106,7 @@ router.get('/stats', verifyToken, async (req, res) => {
         COUNT(DISTINCT voice_name) as unique_voices
       FROM token_logs
       WHERE user_id = $1
+      AND COALESCE(characters_count, 0) > 0
       AND EXTRACT(YEAR FROM timestamp) = EXTRACT(YEAR FROM NOW())
       AND EXTRACT(MONTH FROM timestamp) = EXTRACT(MONTH FROM NOW())`,
       [userId]
@@ -127,7 +128,8 @@ router.get('/stats', verifyToken, async (req, res) => {
         COALESCE(SUM(characters_count), 0) as total_characters,
         MAX(voice_name) as most_used_voice
       FROM token_logs
-      WHERE user_id = $1`,
+      WHERE user_id = $1
+      AND COALESCE(characters_count, 0) > 0`,
       [userId]
     );
     const allTime = allTimeRes.rows[0];
@@ -137,6 +139,7 @@ router.get('/stats', verifyToken, async (req, res) => {
       `SELECT voice_name, COUNT(*) as count, SUM(tokens_used) as tokens_used
        FROM token_logs
        WHERE user_id = $1
+       AND COALESCE(characters_count, 0) > 0
        GROUP BY voice_name
        ORDER BY count DESC
        LIMIT 50`,
@@ -150,7 +153,9 @@ router.get('/stats', verifyToken, async (req, res) => {
         COUNT(*) as messages,
         COALESCE(SUM(tokens_used), 0) as tokens_used
        FROM token_logs
-       WHERE user_id = $1 AND timestamp > NOW() - INTERVAL '30 days'
+       WHERE user_id = $1
+       AND COALESCE(characters_count, 0) > 0
+       AND timestamp > NOW() - INTERVAL '30 days'
        GROUP BY DATE(timestamp)
        ORDER BY DATE DESC`,
       [userId]
@@ -174,6 +179,7 @@ router.get('/stats', verifyToken, async (req, res) => {
       `SELECT COUNT(*) as count, COALESCE(SUM(tokens_used), 0) as tokens
        FROM token_logs
        WHERE user_id = $1
+       AND COALESCE(characters_count, 0) > 0
        AND EXTRACT(YEAR FROM timestamp) = EXTRACT(YEAR FROM NOW() - INTERVAL '1 month')
        AND EXTRACT(MONTH FROM timestamp) = EXTRACT(MONTH FROM NOW() - INTERVAL '1 month')`,
       [userId]

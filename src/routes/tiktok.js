@@ -1,13 +1,37 @@
 import { Router } from 'express';
 import https from 'https';
+import jwt from 'jsonwebtoken';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
 import { requireAdmin } from '../../middleware/auth.js';
 import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
+import tokenService from '../services/tokenService.js';
+import pool from '../db.js';
+import { config } from '../config.js';
 
 const router = Router();
 
 const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '');
+
+async function resolveOptionalAuthUser(req) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return { userId: null, isAdmin: false };
+  }
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, config.JWT_SECRET);
+    const userId = decoded?.userId;
+    if (!userId) return { userId: null, isAdmin: false };
+
+    const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const isAdmin = userRow.rows[0]?.role === 'admin';
+    return { userId, isAdmin };
+  } catch {
+    return { userId: null, isAdmin: false };
+  }
+}
 
 const isNotLiveError = (message = '') => {
   const raw = String(message || '').trim();
@@ -199,12 +223,31 @@ router.post('/message', async (req, res) => {
     const freeVoices = { 'es-ES': 'es-MX', 'en-US': 'en-US' };
     const selectedVoiceId = voiceId || 'es-ES';
     const isGoogleVoice = freeVoices.hasOwnProperty(selectedVoiceId);
+    const { userId, isAdmin } = await resolveOptionalAuthUser(req);
+
+    let fallbackToLocal = false;
+    let fallbackReason = null;
+    let tokensNeeded = 0;
 
     let synthesisResult;
 
-    if (isGoogleVoice) {
+    if (!isGoogleVoice) {
+      if (!userId) {
+        fallbackToLocal = true;
+        fallbackReason = 'missing_auth';
+      } else if (!isAdmin) {
+        tokensNeeded = tokenService.calculateTokensCost(String(processedText).length);
+        const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
+        if (!hasEnough) {
+          fallbackToLocal = true;
+          fallbackReason = 'token_insufficient';
+        }
+      }
+    }
+
+    if (isGoogleVoice || fallbackToLocal) {
       // Google TTS gratuito
-      const lang = freeVoices[selectedVoiceId];
+      const lang = isGoogleVoice ? freeVoices[selectedVoiceId] : 'es-MX';
       console.log(`[TikTok] Sintetizando con Google TTS - lang: ${lang}`);
       const url = buildGoogleTtsUrl(processedText, lang);
       const audioBuffer = await new Promise((resolve, reject) => {
@@ -219,6 +262,16 @@ router.post('/message', async (req, res) => {
       // Inworld premium TTS
       console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
       synthesisResult = await inworldTtsService.synthesize(processedText, selectedVoiceId);
+
+      if (userId && !isAdmin && tokensNeeded > 0) {
+        await tokenService.deductTokens(
+          userId,
+          tokensNeeded,
+          String(processedText).length,
+          selectedVoiceId,
+          'tiktok_live'
+        );
+      }
     }
 
     // Convertir Buffer a base64 data URL para el frontend
@@ -232,12 +285,33 @@ router.post('/message', async (req, res) => {
       audioDataUrl = null;
     }
 
+    // Registrar uso de lectura de chat incluso cuando no consume tokens
+    // (voces locales directas o fallback por falta de tokens).
+    if (userId && (isGoogleVoice || fallbackToLocal)) {
+      await pool.query(
+        `INSERT INTO token_logs (user_id, action, tokens_used, characters_count, voice_name)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          userId,
+          fallbackToLocal ? 'tiktok_local_fallback' : 'tiktok_local',
+          0,
+          String(processedText).length,
+          isGoogleVoice ? selectedVoiceId : 'es-ES'
+        ]
+      ).catch((logErr) => {
+        console.warn('[TikTok] Warning logging local usage:', logErr.message);
+      });
+    }
+
     return res.status(200).json({
       success: true,
       audio: audioDataUrl,
       contentType: synthesisResult.contentType,
       text: processedText,
-      user: messageUsername || 'Usuario'
+      user: messageUsername || 'Usuario',
+      fallback: fallbackToLocal,
+      fallbackReason,
+      tokensUsed: (!fallbackToLocal && !isGoogleVoice) ? tokensNeeded : 0
     });
   } catch (error) {
     console.error('[TikTok] Error procesando mensaje:', error);
