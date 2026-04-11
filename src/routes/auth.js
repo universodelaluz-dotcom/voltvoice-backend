@@ -400,7 +400,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT id, email, password_hash, plan, tokens, role, email_verified FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, plan, tokens, role, email_verified, is_suspended, suspended_until FROM users WHERE email = $1',
       [email]
     );
 
@@ -415,6 +415,11 @@ router.post('/login', async (req, res) => {
     // Verificar que el email esté verificado
     if (!user.email_verified) {
       return res.status(403).json({ error: 'Por favor verifica tu email primero' });
+    }
+    const blockedByFlag = user.is_suspended === true;
+    const blockedByTime = user.suspended_until && new Date(user.suspended_until).getTime() > Date.now();
+    if (blockedByFlag || blockedByTime) {
+      return res.status(403).json({ error: 'Cuenta suspendida temporalmente' });
     }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -476,7 +481,7 @@ router.post('/google', async (req, res) => {
     console.log(`[Auth] Google login para: ${email}`);
 
     let result = await pool.query(
-      'SELECT id, email, plan, tokens, role FROM users WHERE email = $1',
+      'SELECT id, email, plan, tokens, role, is_suspended, suspended_until FROM users WHERE email = $1',
       [email]
     );
 
@@ -484,6 +489,11 @@ router.post('/google', async (req, res) => {
 
     if (result.rows.length > 0) {
       user = result.rows[0];
+      const blockedByFlag = user.is_suspended === true;
+      const blockedByTime = user.suspended_until && new Date(user.suspended_until).getTime() > Date.now();
+      if (blockedByFlag || blockedByTime) {
+        return res.status(403).json({ error: 'Cuenta suspendida temporalmente' });
+      }
       console.log(`[Auth] Google login exitoso (existente): ${email} (ID: ${user.id})`);
     } else {
       const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
@@ -568,5 +578,6 @@ router.post('/logout', (req, res) => {
 });
 
 export default router;
+
 
 

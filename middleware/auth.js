@@ -27,7 +27,7 @@ const getTokenFromRequest = (req) => {
 /**
  * Middleware para verificar JWT
  */
-export const verifyToken = (req, res, next) => {
+export const verifyToken = async (req, res, next) => {
   const token = getTokenFromRequest(req);
 
   if (!token) {
@@ -37,6 +37,19 @@ export const verifyToken = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.JWT_SECRET);
     req.user = decoded;
+    const result = await pool.query(
+      `SELECT is_suspended, suspended_until
+       FROM users
+       WHERE id::text = $1::text`,
+      [decoded.userId]
+    );
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid token' });
+    const user = result.rows[0];
+    const blockedByFlag = user.is_suspended === true;
+    const blockedByTime = user.suspended_until && new Date(user.suspended_until).getTime() > Date.now();
+    if (blockedByFlag || blockedByTime) {
+      return res.status(403).json({ error: 'Cuenta suspendida temporalmente' });
+    }
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -57,9 +70,20 @@ export const requireAdmin = async (req, res, next) => {
     const decoded = jwt.verify(token, config.JWT_SECRET);
     req.user = decoded;
 
-    const result = await pool.query('SELECT role FROM users WHERE id = $1', [decoded.userId]);
+    const result = await pool.query(
+      `SELECT role, is_suspended, suspended_until
+       FROM users
+       WHERE id::text = $1::text`,
+      [decoded.userId]
+    );
     if (result.rows.length === 0 || result.rows[0].role !== 'admin') {
       return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    const user = result.rows[0];
+    const blockedByFlag = user.is_suspended === true;
+    const blockedByTime = user.suspended_until && new Date(user.suspended_until).getTime() > Date.now();
+    if (blockedByFlag || blockedByTime) {
+      return res.status(403).json({ error: 'Admin suspendido' });
     }
 
     next();

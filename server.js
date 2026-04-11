@@ -307,6 +307,44 @@ import pool from './src/db.js';
       UPDATE users SET role = 'admin' WHERE email = 'alainsh@gmail.com';
       -- Last seen for online tracking
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;
+      -- User suspension / security controls for admin
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_password_reset_at TIMESTAMP;
+      CREATE INDEX IF NOT EXISTS idx_users_suspended ON users(is_suspended);
+
+      -- Admin audit log
+      CREATE TABLE IF NOT EXISTS admin_audit_logs (
+        id SERIAL PRIMARY KEY,
+        actor_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        target_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(100) NOT NULL,
+        details JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target ON admin_audit_logs(target_user_id);
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_action ON admin_audit_logs(action);
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs(created_at DESC);
+
+      -- Global broadcasts / in-app notifications / maintenance alerts
+      CREATE TABLE IF NOT EXISTS admin_broadcasts (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(40) NOT NULL, -- global_message | in_app_notification | maintenance_alert
+        title VARCHAR(140) NOT NULL,
+        message TEXT NOT NULL,
+        audience_plan VARCHAR(40) DEFAULT 'all',
+        priority VARCHAR(20) DEFAULT 'normal',
+        status VARCHAR(20) DEFAULT 'active', -- draft | active | paused | archived
+        starts_at TIMESTAMP,
+        ends_at TIMESTAMP,
+        created_by INT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_admin_broadcasts_status ON admin_broadcasts(status);
+      CREATE INDEX IF NOT EXISTS idx_admin_broadcasts_kind ON admin_broadcasts(kind);
 
       -- ===== COUPON SYSTEM =====
       CREATE TABLE IF NOT EXISTS coupons (
