@@ -132,6 +132,11 @@ import pool from './src/db.js';
       END $$;
       ALTER TABLE users ALTER COLUMN email_verified SET DEFAULT FALSE;
       UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL;
+      -- Ensure plan column is VARCHAR (fix for legacy dbs that created it as INTEGER)
+      DO $$ BEGIN
+        ALTER TABLE users ALTER COLUMN plan TYPE VARCHAR(50) USING plan::TEXT;
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
       -- User settings (config por usuario)
       CREATE TABLE IF NOT EXISTS user_settings (
         id SERIAL PRIMARY KEY,
