@@ -36,7 +36,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
       pool.query(`
         SELECT tl.action, tl.tokens_used, tl.characters_count, tl.voice_name, tl.timestamp, u.email
         FROM token_logs tl
-        JOIN users u ON tl.user_id = u.id
+        JOIN users u ON tl.user_id::text = u.id::text
         ORDER BY tl.timestamp DESC LIMIT 20
       `),
       pool.query(`
@@ -46,7 +46,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(tokens_used), 0) AS total_used
           FROM token_logs
-          WHERE user_id = u.id
+          WHERE user_id::text = u.id::text
         ) tl ON true
         ORDER BY total_used DESC LIMIT 10
       `),
@@ -112,12 +112,12 @@ router.get('/users', requireAdmin, async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(tokens_used), 0) AS total_tokens_used
         FROM token_logs
-        WHERE user_id = u.id
+        WHERE user_id::text = u.id::text
       ) tl ON true
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(tokens_purchased), 0) AS total_tokens_purchased
         FROM transactions
-        WHERE user_id = u.id AND status = 'completed'
+        WHERE user_id::text = u.id::text AND status = 'completed'
       ) tx ON true
       ${whereClause}
       ORDER BY u.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}
