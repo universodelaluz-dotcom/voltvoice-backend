@@ -488,8 +488,8 @@ router.post('/google', async (req, res) => {
     } else {
       const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
       result = await pool.query(
-        'INSERT INTO users (email, password_hash, plan, tokens, email_verified, role, last_seen) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, email, plan, tokens, role',
-        [email, randomHash, 'free', 100, true, 'user', new Date()]
+        'INSERT INTO users (email, password_hash, plan, tokens, email_verified, role, last_seen) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING id, email, plan, tokens, role',
+        [email, randomHash, 'free', 100, true, 'user']
       );
       user = result.rows[0];
       console.log(`[Auth] Nuevo usuario creado via Google: ${email} (ID: ${user.id})`);
