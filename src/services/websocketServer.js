@@ -1,10 +1,12 @@
-import WebSocket, { WebSocketServer } from 'ws';
+﻿import WebSocket, { WebSocketServer } from 'ws';
 import tiktokLiveService from './tiktokLiveService.js';
 
 class WebSocketServerManager {
   constructor() {
     this.wss = null;
     this.clients = new Map(); // username -> Set of WebSocket clients
+    this.clientMeta = new WeakMap(); // ws -> { username, callback }
+    this.heartbeatInterval = null;
   }
 
   /**
@@ -12,11 +14,38 @@ class WebSocketServerManager {
    */
   initialize(server) {
     this.wss = new WebSocketServer({ server, path: '/api/tiktok/ws' });
+    this._startHeartbeat();
 
-    this.wss.on('connection', (ws, req) => {
+    this.wss.on('connection', (ws) => {
       console.log('[WebSocket] Nuevo cliente conectado');
 
-      let clientUsername = null;
+      ws.isAlive = true;
+      this.clientMeta.set(ws, { username: null, callback: null });
+
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
+
+      const cleanupSubscription = () => {
+        const meta = this.clientMeta.get(ws) || {};
+        const username = meta.username;
+
+        if (username) {
+          const clients = this.clients.get(username);
+          if (clients) {
+            clients.delete(ws);
+            if (clients.size === 0) {
+              this.clients.delete(username);
+            }
+          }
+
+          if (meta.callback) {
+            tiktokLiveService.unregisterClientCallback(username, meta.callback);
+          }
+        }
+
+        this.clientMeta.set(ws, { username: null, callback: null });
+      };
 
       // Manejar mensajes del cliente
       ws.on('message', async (data) => {
@@ -24,20 +53,25 @@ class WebSocketServerManager {
           const message = JSON.parse(data.toString());
 
           if (message.type === 'subscribe') {
-            // Cliente se suscribe a un stream
-            const { username } = message;
-            clientUsername = username;
+            const username = String(message.username || '').trim().replace(/^@+/, '');
+            if (!username) {
+              ws.send(JSON.stringify({ type: 'error', message: 'username required' }));
+              return;
+            }
 
+            cleanupSubscription();
             console.log(`[WebSocket] Cliente suscrito a @${username}`);
 
-            // Registrar callback para este cliente
             const callback = (msg) => {
-              ws.send(
-                JSON.stringify({
-                  type: 'message',
-                  data: msg
-                })
-              );
+              if (ws.readyState !== WebSocket.OPEN) {
+                cleanupSubscription();
+                return;
+              }
+
+              ws.send(JSON.stringify({
+                type: 'message',
+                data: msg
+              }));
             };
 
             if (!this.clients.has(username)) {
@@ -46,64 +80,84 @@ class WebSocketServerManager {
 
             this.clients.get(username).add(ws);
             tiktokLiveService.registerClientCallback(username, callback);
+            this.clientMeta.set(ws, { username, callback });
 
-            // Enviar confirmación
-            ws.send(
-              JSON.stringify({
-                type: 'subscribed',
-                username: username,
-                timestamp: new Date().toISOString()
-              })
-            );
+            ws.send(JSON.stringify({
+              type: 'subscribed',
+              username,
+              timestamp: new Date().toISOString()
+            }));
           } else if (message.type === 'unsubscribe') {
-            // Cliente se desuscribe
-            if (clientUsername) {
-              const clients = this.clients.get(clientUsername);
-              if (clients) {
-                clients.delete(ws);
-              }
-            }
+            cleanupSubscription();
           } else if (message.type === 'status') {
-            // Solicitar estado del stream
-            const status = tiktokLiveService.getStreamStatus(clientUsername);
-            ws.send(
-              JSON.stringify({
-                type: 'status',
-                data: status
-              })
-            );
+            const username = this.clientMeta.get(ws)?.username;
+            const status = tiktokLiveService.getStreamStatus(username);
+            ws.send(JSON.stringify({
+              type: 'status',
+              data: status
+            }));
           } else if (message.type === 'ping') {
-            // Keep-alive
-            ws.send(JSON.stringify({ type: 'pong' }));
+            ws.isAlive = true;
+            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
           }
         } catch (err) {
           console.error('[WebSocket] Error procesando mensaje:', err);
-          ws.send(
-            JSON.stringify({
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
               type: 'error',
               message: err.message
-            })
-          );
+            }));
+          }
         }
       });
 
       ws.on('close', () => {
         console.log('[WebSocket] Cliente desconectado');
-        if (clientUsername) {
-          const clients = this.clients.get(clientUsername);
-          if (clients) {
-            clients.delete(ws);
-          }
-        }
+        cleanupSubscription();
       });
 
       ws.on('error', (error) => {
         console.error('[WebSocket] Error en cliente:', error);
+        cleanupSubscription();
       });
+    });
+
+    this.wss.on('close', () => {
+      this._stopHeartbeat();
     });
 
     console.log('[WebSocket] Servidor inicializado en /api/tiktok/ws');
     return this.wss;
+  }
+
+  _startHeartbeat() {
+    this._stopHeartbeat();
+
+    // Ping-level heartbeat to keep long-running sessions alive behind proxies.
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.wss) return;
+
+      this.wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          ws.terminate();
+          return;
+        }
+
+        ws.isAlive = false;
+        try {
+          ws.ping();
+        } catch (error) {
+          ws.terminate();
+        }
+      });
+    }, 30000);
+  }
+
+  _stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
   }
 
   /**
@@ -126,7 +180,7 @@ class WebSocketServerManager {
   }
 
   /**
-   * Obtener número de clientes conectados a un stream
+   * Obtener numero de clientes conectados a un stream
    */
   getClientCount(username) {
     const clients = this.clients.get(username);
@@ -134,7 +188,7 @@ class WebSocketServerManager {
   }
 
   /**
-   * Obtener estadísticas del servidor
+   * Obtener estadisticas del servidor
    */
   getStats() {
     let totalClients = 0;

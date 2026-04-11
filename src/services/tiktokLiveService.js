@@ -507,6 +507,11 @@ class TikTokLiveService {
 
       tiktokConnection.on('disconnect', () => {
         console.log(`[TikTok] Desconectado de @${normalizedUsername}`);
+        this.emitMessageToClients(normalizedUsername, {
+          type: 'stream_disconnected',
+          username: normalizedUsername,
+          timestamp: Date.now()
+        });
         this.disconnectStream(normalizedUsername);
       });
 
