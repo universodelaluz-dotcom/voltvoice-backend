@@ -427,7 +427,7 @@ router.post('/login', async (req, res) => {
     loginAttempts.delete(ip);
     const token = generateToken(user.id);
 
-    await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+    await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
 
