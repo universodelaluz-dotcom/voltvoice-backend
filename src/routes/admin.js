@@ -41,10 +41,13 @@ router.get('/stats', requireAdmin, async (req, res) => {
       `),
       pool.query(`
         SELECT u.id, u.email, u.plan, u.tokens, u.created_at,
-               COALESCE(SUM(tl.tokens_used), 0) AS total_used
+               COALESCE(tl.total_used, 0) AS total_used
         FROM users u
-        LEFT JOIN token_logs tl ON tl.user_id = u.id
-        GROUP BY u.id, u.email, u.plan, u.tokens, u.created_at
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(tokens_used), 0) AS total_used
+          FROM token_logs
+          WHERE user_id = u.id
+        ) tl ON true
         ORDER BY total_used DESC LIMIT 10
       `),
     ]);
