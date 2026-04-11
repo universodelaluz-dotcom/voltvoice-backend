@@ -67,7 +67,13 @@ router.get('/stats', requireAdmin, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[Admin] Error stats:', err.message);
+    console.error('[Admin] Error stats:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint,
+      stack: err.stack
+    });
     return res.status(500).json({ error: 'Error obteniendo stats' });
   }
 });
@@ -134,7 +140,13 @@ router.get('/users', requireAdmin, async (req, res) => {
       pages: Math.ceil(parseInt(total.rows[0].count) / limit)
     });
   } catch (err) {
-    console.error('[Admin] Error users:', err.message);
+    console.error('[Admin] Error users:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint,
+      stack: err.stack
+    });
     return res.status(500).json({ error: 'Error obteniendo usuarios' });
   }
 });

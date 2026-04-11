@@ -212,6 +212,27 @@ import pool from './src/db.js';
         voice_name VARCHAR(255),
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      -- Ensure legacy token_logs columns exist
+      DO $$ BEGIN
+        ALTER TABLE token_logs ADD COLUMN IF NOT EXISTS action VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE token_logs ADD COLUMN IF NOT EXISTS tokens_used INT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE token_logs ADD COLUMN IF NOT EXISTS characters_count INT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE token_logs ADD COLUMN IF NOT EXISTS voice_name VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE token_logs ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
       CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL REFERENCES users(id),
@@ -221,6 +242,19 @@ import pool from './src/db.js';
         status VARCHAR(50) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      -- Ensure legacy transactions columns exist
+      DO $$ BEGIN
+        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tokens_purchased INT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
+      DO $$ BEGIN
+        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$;
       -- Banned users (para persistir bans entre streams)
       CREATE TABLE IF NOT EXISTS banned_users (
         id SERIAL PRIMARY KEY,
