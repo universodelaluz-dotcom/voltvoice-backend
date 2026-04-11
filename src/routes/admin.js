@@ -749,20 +749,44 @@ router.put('/audio-cache/settings', requireAdmin, async (req, res) => {
       maxCacheableChars: parseIntRange(payload.maxCacheableChars, 120, 20, 500),
       personalTtlSeconds: parseIntRange(payload.personalTtlSeconds, 86400, 60, 30 * 24 * 3600),
       globalTtlSeconds: parseIntRange(payload.globalTtlSeconds, 604800, 300, 90 * 24 * 3600),
+      personalFreeTtlSeconds: parseIntRange(payload.personalFreeTtlSeconds, 172800, 60, 30 * 24 * 3600),
+      personalPaidTtlSeconds: parseIntRange(payload.personalPaidTtlSeconds, 604800, 300, 90 * 24 * 3600),
+      personalFreeMaxEntries: parseIntRange(payload.personalFreeMaxEntries, 200, 10, 5000),
+      personalPaidMaxEntries: parseIntRange(payload.personalPaidMaxEntries, 1000, 10, 50000),
+      globalMaxEntries: parseIntRange(payload.globalMaxEntries, 1500, 100, 50000),
+      globalInactiveDays: parseIntRange(payload.globalInactiveDays, 30, 1, 365),
+      globalLowUsageThreshold: parseIntRange(payload.globalLowUsageThreshold, 8, 0, 100000),
+      subscriptionGraceDays: parseIntRange(payload.subscriptionGraceDays, 15, 1, 180),
+      purgePersonalizationAfterGrace: payload.purgePersonalizationAfterGrace === true,
       hotCacheMaxEntries: parseIntRange(payload.hotCacheMaxEntries, 1500, 100, 50000),
-      globalRepeatThreshold: parseIntRange(payload.globalRepeatThreshold, 3, 2, 100),
+      globalRepeatThreshold: parseIntRange(payload.globalRepeatThreshold, 4, 2, 100),
       lookupTimeoutMs: parseIntRange(payload.lookupTimeoutMs, 35, 5, 250),
     };
 
     await pool.query(
       `INSERT INTO audio_cache_settings
-       (id, enabled, max_cacheable_chars, personal_ttl_seconds, global_ttl_seconds, hot_cache_max_entries, global_repeat_threshold, lookup_timeout_ms, updated_at)
-       VALUES (1, $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       (
+        id, enabled, max_cacheable_chars, personal_ttl_seconds, global_ttl_seconds,
+        personal_free_ttl_seconds, personal_paid_ttl_seconds, personal_free_max_entries, personal_paid_max_entries,
+        global_max_entries, global_inactive_days, global_low_usage_threshold,
+        subscription_grace_days, purge_personalization_after_grace,
+        hot_cache_max_entries, global_repeat_threshold, lookup_timeout_ms, updated_at
+       )
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE
        SET enabled = EXCLUDED.enabled,
            max_cacheable_chars = EXCLUDED.max_cacheable_chars,
            personal_ttl_seconds = EXCLUDED.personal_ttl_seconds,
            global_ttl_seconds = EXCLUDED.global_ttl_seconds,
+           personal_free_ttl_seconds = EXCLUDED.personal_free_ttl_seconds,
+           personal_paid_ttl_seconds = EXCLUDED.personal_paid_ttl_seconds,
+           personal_free_max_entries = EXCLUDED.personal_free_max_entries,
+           personal_paid_max_entries = EXCLUDED.personal_paid_max_entries,
+           global_max_entries = EXCLUDED.global_max_entries,
+           global_inactive_days = EXCLUDED.global_inactive_days,
+           global_low_usage_threshold = EXCLUDED.global_low_usage_threshold,
+           subscription_grace_days = EXCLUDED.subscription_grace_days,
+           purge_personalization_after_grace = EXCLUDED.purge_personalization_after_grace,
            hot_cache_max_entries = EXCLUDED.hot_cache_max_entries,
            global_repeat_threshold = EXCLUDED.global_repeat_threshold,
            lookup_timeout_ms = EXCLUDED.lookup_timeout_ms,
@@ -772,6 +796,15 @@ router.put('/audio-cache/settings', requireAdmin, async (req, res) => {
         updates.maxCacheableChars,
         updates.personalTtlSeconds,
         updates.globalTtlSeconds,
+        updates.personalFreeTtlSeconds,
+        updates.personalPaidTtlSeconds,
+        updates.personalFreeMaxEntries,
+        updates.personalPaidMaxEntries,
+        updates.globalMaxEntries,
+        updates.globalInactiveDays,
+        updates.globalLowUsageThreshold,
+        updates.subscriptionGraceDays,
+        updates.purgePersonalizationAfterGrace,
         updates.hotCacheMaxEntries,
         updates.globalRepeatThreshold,
         updates.lookupTimeoutMs,

@@ -353,14 +353,45 @@ import pool from './src/db.js';
         max_cacheable_chars INT DEFAULT 120,
         personal_ttl_seconds INT DEFAULT 86400,
         global_ttl_seconds INT DEFAULT 604800,
+        personal_free_ttl_seconds INT DEFAULT 172800,
+        personal_paid_ttl_seconds INT DEFAULT 604800,
+        personal_free_max_entries INT DEFAULT 200,
+        personal_paid_max_entries INT DEFAULT 1000,
+        global_max_entries INT DEFAULT 1500,
+        global_inactive_days INT DEFAULT 30,
+        global_low_usage_threshold INT DEFAULT 8,
+        subscription_grace_days INT DEFAULT 15,
+        purge_personalization_after_grace BOOLEAN DEFAULT FALSE,
         hot_cache_max_entries INT DEFAULT 1500,
-        global_repeat_threshold INT DEFAULT 3,
+        global_repeat_threshold INT DEFAULT 4,
         lookup_timeout_ms INT DEFAULT 35,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS personal_free_ttl_seconds INT DEFAULT 172800;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS personal_paid_ttl_seconds INT DEFAULT 604800;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS personal_free_max_entries INT DEFAULT 200;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS personal_paid_max_entries INT DEFAULT 1000;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS global_max_entries INT DEFAULT 1500;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS global_inactive_days INT DEFAULT 30;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS global_low_usage_threshold INT DEFAULT 8;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS subscription_grace_days INT DEFAULT 15;
+      ALTER TABLE audio_cache_settings ADD COLUMN IF NOT EXISTS purge_personalization_after_grace BOOLEAN DEFAULT FALSE;
       INSERT INTO audio_cache_settings (id)
       VALUES (1)
       ON CONFLICT (id) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS audio_cache_user_state (
+        user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        last_plan VARCHAR(50) DEFAULT 'free',
+        last_paid_at TIMESTAMP,
+        grace_until TIMESTAMP,
+        grace_expired_at TIMESTAMP,
+        last_reset_at TIMESTAMP,
+        last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_user_state_grace ON audio_cache_user_state(grace_until);
 
       CREATE TABLE IF NOT EXISTS audio_cache_entries (
         id BIGSERIAL PRIMARY KEY,
