@@ -132,14 +132,12 @@ import pool from './src/db.js';
       END $$;
       ALTER TABLE users ALTER COLUMN email_verified SET DEFAULT FALSE;
       UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL;
-      -- Ensure plan column is VARCHAR (fix for legacy dbs that created it as INTEGER)
+      -- Ensure plan is always valid VARCHAR (reset corrupted/integer values to 'free')
+      UPDATE users SET plan = 'free' WHERE plan IS NULL OR plan = '' OR plan ~ '^[0-9]+$';
       DO $$ BEGIN
-        ALTER TABLE users ALTER COLUMN plan TYPE VARCHAR(50) USING COALESCE(plan::TEXT, 'free');
+        ALTER TABLE users ALTER COLUMN plan TYPE VARCHAR(50);
         ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'free';
-      EXCEPTION WHEN others THEN
-        -- If conversion fails, drop and recreate the column
-        ALTER TABLE users DROP COLUMN IF EXISTS plan;
-        ALTER TABLE users ADD COLUMN plan VARCHAR(50) DEFAULT 'free';
+      EXCEPTION WHEN others THEN NULL;
       END $$;
       -- User settings (config por usuario)
       CREATE TABLE IF NOT EXISTS user_settings (
