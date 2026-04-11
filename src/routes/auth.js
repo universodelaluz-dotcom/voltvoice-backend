@@ -484,19 +484,20 @@ router.post('/google', async (req, res) => {
 
     if (result.rows.length > 0) {
       user = result.rows[0];
-      await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
       console.log(`[Auth] Google login exitoso (existente): ${email} (ID: ${user.id})`);
     } else {
       const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
       result = await pool.query(
-        'INSERT INTO users (email, password_hash, plan, tokens, email_verified) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, plan, tokens',
-        [email, randomHash, 'free', 100, true]
+        'INSERT INTO users (email, password_hash, plan, tokens, email_verified, role, last_seen) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, email, plan, tokens, role',
+        [email, randomHash, 'free', 100, true, 'user', new Date()]
       );
       user = result.rows[0];
       console.log(`[Auth] Nuevo usuario creado via Google: ${email} (ID: ${user.id})`);
     }
 
     const token = generateToken(user.id);
+    // Update last_seen for all Google logins
+    await pool.query('UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
 
     return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
