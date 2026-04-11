@@ -97,11 +97,20 @@ router.get('/users', requireAdmin, async (req, res) => {
 
     const query = `
       SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
-             COALESCE(SUM(tl.tokens_used), 0) AS total_tokens_used
+             COALESCE(tl.total_tokens_used, 0) AS total_tokens_used,
+             COALESCE(tx.total_tokens_purchased, 0) AS total_tokens_purchased
       FROM users u
-      LEFT JOIN token_logs tl ON tl.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(tokens_used), 0) AS total_tokens_used
+        FROM token_logs
+        WHERE user_id = u.id
+      ) tl ON true
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(tokens_purchased), 0) AS total_tokens_purchased
+        FROM transactions
+        WHERE user_id = u.id AND status = 'completed'
+      ) tx ON true
       ${whereClause}
-      GROUP BY u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen
       ORDER BY u.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `;
     params.push(limit, offset);
