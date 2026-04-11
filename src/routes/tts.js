@@ -1,24 +1,81 @@
 import { Router } from 'express';
 import https from 'https';
+import jwt from 'jsonwebtoken';
 import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
+import { config } from '../config.js';
+import audioCacheService from '../services/audioCacheService.js';
 
 const router = Router();
 
+function resolveOptionalUserId(req) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, config.JWT_SECRET);
+    return decoded?.userId || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * POST /api/tts/say - Google TTS
- * Usa URL directa de Google Translate TTS
  */
 router.post('/say', async (req, res) => {
   try {
-    const { text, rate = 160, voice } = req.body;
+    const {
+      text,
+      rate = 160,
+      voice,
+      speed,
+      pitch,
+      emotion,
+      modelVersion
+    } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'text required' });
     }
 
-    console.log(`[TTS] Google TTS: "${text.substring(0, 50)}..." (voice: ${voice || 'es-MX'})`);
+    const resolvedVoice = voice || 'es-MX';
+    const userId = resolveOptionalUserId(req);
 
-    // Mapear voiceId a código de idioma de Google
+    const cacheContext = await audioCacheService.prepareContext({
+      provider: 'local',
+      userId,
+      voiceId: resolvedVoice,
+      text,
+      modelVersion: modelVersion || 'google-translate-tts-v1',
+      params: { rate, speed, pitch, emotion }
+    });
+
+    const cacheHit = await audioCacheService.lookup(cacheContext);
+    if (cacheHit.hit) {
+      const base64Audio = cacheHit.audioBuffer.toString('base64');
+      const wordCount = Math.max(1, String(text).length / 5);
+      const duration = Math.round((wordCount / 150) * 60000 + 300);
+      return res.status(200).json({
+        success: true,
+        audio: `data:${cacheHit.contentType};base64,${base64Audio}`,
+        audioSize: cacheHit.audioBuffer.length,
+        duration,
+        text,
+        rate,
+        tokensUsed: 0,
+        cache: {
+          hit: true,
+          source: cacheHit.source,
+          scope: cacheContext.scope,
+          key: cacheContext.cacheKey
+        }
+      });
+    }
+
+    audioCacheService.trackMetric({ rendered_requests: 1 });
+
+    console.log(`[TTS] Google TTS: "${String(text).substring(0, 50)}..." (voice: ${resolvedVoice})`);
+
     const voiceToLangMap = {
       'en-US': 'en',
       'es-ES': 'es',
@@ -30,28 +87,30 @@ router.post('/say', async (req, res) => {
       'pt-BR': 'pt-br',
     };
 
-    const langCode = voiceToLangMap[voice] || 'es-MX'; // default a español
-
-    // Obtener URL de Google TTS con el idioma correcto
+    const langCode = voiceToLangMap[resolvedVoice] || 'es-MX';
     const url = buildGoogleTtsUrl(text, langCode);
 
-    // Descargar audio
     const audioBuffer = await downloadAudio(url);
     const base64Audio = audioBuffer.toString('base64');
+    audioCacheService.storeAfterRender(cacheContext, audioBuffer, 'audio/mpeg').catch(() => {});
 
-    // Estimar duración
-    const wordCount = Math.max(1, text.length / 5);
+    const wordCount = Math.max(1, String(text).length / 5);
     const duration = Math.round((wordCount / 150) * 60000 + 300);
-
-    console.log(`[TTS] ✅ Audio: ${audioBuffer.length} bytes, duración: ${duration}ms`);
 
     return res.status(200).json({
       success: true,
       audio: `data:audio/mpeg;base64,${base64Audio}`,
       audioSize: audioBuffer.length,
-      duration: duration,
-      text: text,
-      rate: rate
+      duration,
+      text,
+      rate,
+      tokensUsed: 0,
+      cache: {
+        hit: false,
+        scope: cacheContext.scope,
+        key: cacheContext.cacheKey,
+        cacheable: cacheContext.enabled
+      }
     });
 
   } catch (error) {

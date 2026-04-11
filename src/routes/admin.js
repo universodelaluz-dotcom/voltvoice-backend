@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import pool from '../db.js';
 import { requireAdmin } from '../../middleware/auth.js';
+import audioCacheService from '../services/audioCacheService.js';
 
 const router = Router();
 
@@ -15,6 +16,12 @@ const parseLimit = (raw, fallback = 25, max = 200) => {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(parsed, max);
+};
+
+const parseIntRange = (raw, fallback, min, max) => {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
 };
 
 const logAdminAction = async ({ actorId, targetUserId = null, action, details = {} }) => {
@@ -715,6 +722,282 @@ router.put('/broadcasts/:id/status', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error update broadcast:', err.message);
     return res.status(500).json({ error: 'Error actualizando comunicado' });
+  }
+});
+
+/**
+ * GET /api/admin/audio-cache/settings - Obtener configuracion del cache de audio
+ */
+router.get('/audio-cache/settings', requireAdmin, async (req, res) => {
+  try {
+    const settings = await audioCacheService.getSettings(true);
+    return res.json({ success: true, settings });
+  } catch (err) {
+    console.error('[Admin] Error audio-cache/settings:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo configuracion de cache' });
+  }
+});
+
+/**
+ * PUT /api/admin/audio-cache/settings - Actualizar configuracion de cache de audio
+ */
+router.put('/audio-cache/settings', requireAdmin, async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const updates = {
+      enabled: payload.enabled !== undefined ? Boolean(payload.enabled) : true,
+      maxCacheableChars: parseIntRange(payload.maxCacheableChars, 120, 20, 500),
+      personalTtlSeconds: parseIntRange(payload.personalTtlSeconds, 86400, 60, 30 * 24 * 3600),
+      globalTtlSeconds: parseIntRange(payload.globalTtlSeconds, 604800, 300, 90 * 24 * 3600),
+      hotCacheMaxEntries: parseIntRange(payload.hotCacheMaxEntries, 1500, 100, 50000),
+      globalRepeatThreshold: parseIntRange(payload.globalRepeatThreshold, 3, 2, 100),
+      lookupTimeoutMs: parseIntRange(payload.lookupTimeoutMs, 35, 5, 250),
+    };
+
+    await pool.query(
+      `INSERT INTO audio_cache_settings
+       (id, enabled, max_cacheable_chars, personal_ttl_seconds, global_ttl_seconds, hot_cache_max_entries, global_repeat_threshold, lookup_timeout_ms, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE
+       SET enabled = EXCLUDED.enabled,
+           max_cacheable_chars = EXCLUDED.max_cacheable_chars,
+           personal_ttl_seconds = EXCLUDED.personal_ttl_seconds,
+           global_ttl_seconds = EXCLUDED.global_ttl_seconds,
+           hot_cache_max_entries = EXCLUDED.hot_cache_max_entries,
+           global_repeat_threshold = EXCLUDED.global_repeat_threshold,
+           lookup_timeout_ms = EXCLUDED.lookup_timeout_ms,
+           updated_at = CURRENT_TIMESTAMP`,
+      [
+        updates.enabled,
+        updates.maxCacheableChars,
+        updates.personalTtlSeconds,
+        updates.globalTtlSeconds,
+        updates.hotCacheMaxEntries,
+        updates.globalRepeatThreshold,
+        updates.lookupTimeoutMs,
+      ]
+    );
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'update_audio_cache_settings',
+      details: updates
+    });
+
+    const settings = await audioCacheService.getSettings(true);
+    return res.json({ success: true, settings });
+  } catch (err) {
+    console.error('[Admin] Error updating audio cache settings:', err.message);
+    return res.status(500).json({ error: 'Error actualizando configuracion de cache' });
+  }
+});
+
+/**
+ * GET /api/admin/audio-cache/stats - Estadisticas del cache
+ */
+router.get('/audio-cache/stats', requireAdmin, async (req, res) => {
+  try {
+    const [scopeRows, topRows, phraseRows, runtimeRows] = await Promise.all([
+      pool.query(`
+        SELECT scope,
+               COUNT(*)::int AS entries,
+               COALESCE(SUM(char_count), 0)::bigint AS total_chars,
+               COALESCE(SUM(hits), 0)::bigint AS total_hits
+        FROM audio_cache_entries
+        WHERE expires_at IS NULL OR expires_at > NOW()
+        GROUP BY scope
+      `),
+      pool.query(`
+        SELECT cache_key, scope, voice_id, char_count, hits, last_hit_at
+        FROM audio_cache_entries
+        WHERE expires_at IS NULL OR expires_at > NOW()
+        ORDER BY hits DESC, last_hit_at DESC
+        LIMIT 20
+      `),
+      pool.query(`
+        SELECT phrase_key, voice_id, seen_count, last_seen_at
+        FROM audio_cache_phrase_stats
+        ORDER BY seen_count DESC, last_seen_at DESC
+        LIMIT 20
+      `),
+      pool.query(`
+        SELECT total_requests, cacheable_requests, bypassed_requests, hot_hits, persistent_hits,
+               misses, rendered_requests, saved_render_count, tokens_saved_estimate, chars_served_from_cache, updated_at
+        FROM audio_cache_runtime_stats
+        WHERE id = 1
+      `),
+    ]);
+
+    const byScope = { personal: { entries: 0, totalChars: 0, totalHits: 0 }, global: { entries: 0, totalChars: 0, totalHits: 0 } };
+    for (const row of scopeRows.rows) {
+      byScope[row.scope] = {
+        entries: Number(row.entries || 0),
+        totalChars: Number(row.total_chars || 0),
+        totalHits: Number(row.total_hits || 0),
+      };
+    }
+
+    const runtime = runtimeRows.rows[0] || {
+      total_requests: 0,
+      cacheable_requests: 0,
+      bypassed_requests: 0,
+      hot_hits: 0,
+      persistent_hits: 0,
+      misses: 0,
+      rendered_requests: 0,
+      saved_render_count: 0,
+      tokens_saved_estimate: 0,
+      chars_served_from_cache: 0,
+      updated_at: null
+    };
+    const totalHits = Number(runtime.hot_hits || 0) + Number(runtime.persistent_hits || 0);
+    const totalRequests = Number(runtime.total_requests || 0);
+    const hitRate = totalRequests > 0 ? Number(((totalHits / totalRequests) * 100).toFixed(2)) : 0;
+
+    return res.json({
+      success: true,
+      stats: {
+        byScope,
+        hotCacheEntries: audioCacheService.hotCache.size,
+        runtime: {
+          ...runtime,
+          total_requests: totalRequests,
+          hit_rate_percent: hitRate,
+          total_hits: totalHits
+        },
+        topEntries: topRows.rows,
+        topPhrases: phraseRows.rows,
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] Error audio-cache/stats:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo estadisticas de cache' });
+  }
+});
+
+/**
+ * GET /api/admin/audio-cache/entries - Listar entradas del cache
+ */
+router.get('/audio-cache/entries', requireAdmin, async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'all').toLowerCase();
+    const userId = String(req.query.userId || '').trim();
+    const limit = parseLimit(req.query.limit, 100, 500);
+
+    const conditions = ['(e.expires_at IS NULL OR e.expires_at > NOW())'];
+    const params = [];
+    let idx = 1;
+
+    if (scope === 'personal' || scope === 'global') {
+      conditions.push(`e.scope = $${idx++}`);
+      params.push(scope);
+    }
+    if (userId) {
+      conditions.push(`e.user_id::text = $${idx++}::text`);
+      params.push(userId);
+    }
+
+    params.push(limit);
+    const result = await pool.query(
+      `SELECT e.cache_key, e.scope, e.user_id, u.email AS user_email, e.voice_id, e.char_count, e.hits, e.last_hit_at, e.expires_at, e.created_at
+       FROM audio_cache_entries e
+       LEFT JOIN users u ON e.user_id = u.id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY e.last_hit_at DESC, e.created_at DESC
+       LIMIT $${idx}`,
+      params
+    );
+
+    return res.json({ success: true, entries: result.rows });
+  } catch (err) {
+    console.error('[Admin] Error audio-cache/entries:', err.message);
+    return res.status(500).json({ error: 'Error listando entradas de cache' });
+  }
+});
+
+/**
+ * DELETE /api/admin/audio-cache/entries/:cacheKey - Eliminar entrada especifica
+ */
+router.delete('/audio-cache/entries/:cacheKey', requireAdmin, async (req, res) => {
+  try {
+    const cacheKey = String(req.params.cacheKey || '').trim();
+    if (!cacheKey) return res.status(400).json({ error: 'cacheKey requerido' });
+
+    const deleted = await pool.query(
+      'DELETE FROM audio_cache_entries WHERE cache_key = $1 RETURNING cache_key, scope, user_id, voice_id',
+      [cacheKey]
+    );
+
+    if (deleted.rows.length === 0) {
+      return res.status(404).json({ error: 'Entrada no encontrada' });
+    }
+
+    audioCacheService.hotCache.delete(cacheKey);
+    await logAdminAction({
+      actorId: req.user.userId,
+      targetUserId: deleted.rows[0].user_id || null,
+      action: 'delete_audio_cache_entry',
+      details: { cacheKey, scope: deleted.rows[0].scope, voiceId: deleted.rows[0].voice_id }
+    });
+
+    return res.json({ success: true, deleted: deleted.rows[0] });
+  } catch (err) {
+    console.error('[Admin] Error deleting audio cache entry:', err.message);
+    return res.status(500).json({ error: 'Error eliminando entrada de cache' });
+  }
+});
+
+/**
+ * POST /api/admin/audio-cache/purge - Purga de cache por scope/expirado
+ */
+router.post('/audio-cache/purge', requireAdmin, async (req, res) => {
+  try {
+    const scope = String(req.body.scope || 'all').toLowerCase();
+    const expiredOnly = Boolean(req.body.expiredOnly);
+
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (scope === 'personal' || scope === 'global') {
+      conditions.push(`scope = $${idx++}`);
+      params.push(scope);
+    }
+    if (expiredOnly) {
+      conditions.push('expires_at IS NOT NULL AND expires_at <= NOW()');
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const deleted = await pool.query(
+      `DELETE FROM audio_cache_entries
+       ${whereClause}
+       RETURNING cache_key`,
+      params
+    );
+
+    if (!scope || scope === 'all' || !expiredOnly) {
+      audioCacheService.clearHotCache();
+    } else {
+      for (const row of deleted.rows) {
+        audioCacheService.hotCache.delete(row.cache_key);
+      }
+    }
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'purge_audio_cache',
+      details: { scope, expiredOnly, deleted: deleted.rowCount }
+    });
+
+    return res.json({
+      success: true,
+      deleted: deleted.rowCount,
+      scope,
+      expiredOnly
+    });
+  } catch (err) {
+    console.error('[Admin] Error purging audio cache:', err.message);
+    return res.status(500).json({ error: 'Error purgando cache' });
   }
 });
 

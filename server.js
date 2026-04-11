@@ -346,6 +346,76 @@ import pool from './src/db.js';
       CREATE INDEX IF NOT EXISTS idx_admin_broadcasts_status ON admin_broadcasts(status);
       CREATE INDEX IF NOT EXISTS idx_admin_broadcasts_kind ON admin_broadcasts(kind);
 
+      -- ===== AUDIO CACHE (hybrid: personal + global) =====
+      CREATE TABLE IF NOT EXISTS audio_cache_settings (
+        id INT PRIMARY KEY,
+        enabled BOOLEAN DEFAULT TRUE,
+        max_cacheable_chars INT DEFAULT 120,
+        personal_ttl_seconds INT DEFAULT 86400,
+        global_ttl_seconds INT DEFAULT 604800,
+        hot_cache_max_entries INT DEFAULT 1500,
+        global_repeat_threshold INT DEFAULT 3,
+        lookup_timeout_ms INT DEFAULT 35,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO audio_cache_settings (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS audio_cache_entries (
+        id BIGSERIAL PRIMARY KEY,
+        cache_key VARCHAR(120) UNIQUE NOT NULL,
+        scope VARCHAR(20) NOT NULL CHECK (scope IN ('personal', 'global')),
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        voice_id VARCHAR(255) NOT NULL,
+        text_normalized TEXT NOT NULL,
+        params_hash VARCHAR(64) NOT NULL,
+        model_version VARCHAR(120) DEFAULT '',
+        content_type VARCHAR(80) NOT NULL DEFAULT 'audio/mpeg',
+        audio_data BYTEA NOT NULL,
+        char_count INT DEFAULT 0,
+        hits BIGINT DEFAULT 0,
+        last_hit_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_entries_scope_expires ON audio_cache_entries(scope, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_entries_user ON audio_cache_entries(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_entries_voice ON audio_cache_entries(voice_id);
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_entries_last_hit ON audio_cache_entries(last_hit_at DESC);
+
+      CREATE TABLE IF NOT EXISTS audio_cache_phrase_stats (
+        id BIGSERIAL PRIMARY KEY,
+        phrase_key VARCHAR(120) UNIQUE NOT NULL,
+        voice_id VARCHAR(255) NOT NULL,
+        text_normalized TEXT NOT NULL,
+        params_hash VARCHAR(64) NOT NULL,
+        model_version VARCHAR(120) DEFAULT '',
+        seen_count INT DEFAULT 1,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_phrase_stats_seen ON audio_cache_phrase_stats(seen_count DESC, last_seen_at DESC);
+
+      CREATE TABLE IF NOT EXISTS audio_cache_runtime_stats (
+        id INT PRIMARY KEY,
+        total_requests BIGINT DEFAULT 0,
+        cacheable_requests BIGINT DEFAULT 0,
+        bypassed_requests BIGINT DEFAULT 0,
+        hot_hits BIGINT DEFAULT 0,
+        persistent_hits BIGINT DEFAULT 0,
+        misses BIGINT DEFAULT 0,
+        rendered_requests BIGINT DEFAULT 0,
+        saved_render_count BIGINT DEFAULT 0,
+        tokens_saved_estimate BIGINT DEFAULT 0,
+        chars_served_from_cache BIGINT DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO audio_cache_runtime_stats (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+
       -- ===== COUPON SYSTEM =====
       CREATE TABLE IF NOT EXISTS coupons (
         id SERIAL PRIMARY KEY,
