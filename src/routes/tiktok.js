@@ -245,9 +245,9 @@ router.post('/message', async (req, res) => {
       }
     }
 
-    if (isGoogleVoice || fallbackToLocal) {
+    if (isGoogleVoice) {
       // Google TTS gratuito
-      const lang = isGoogleVoice ? freeVoices[selectedVoiceId] : 'es-MX';
+      const lang = freeVoices[selectedVoiceId];
       console.log(`[TikTok] Sintetizando con Google TTS - lang: ${lang}`);
       const url = buildGoogleTtsUrl(processedText, lang);
       const audioBuffer = await new Promise((resolve, reject) => {
@@ -258,6 +258,10 @@ router.post('/message', async (req, res) => {
         }).on('error', reject);
       });
       synthesisResult = { audio: audioBuffer, contentType: 'audio/mpeg' };
+    } else if (fallbackToLocal) {
+      // Cuando faltan tokens o auth para premium/clonada, el fallback debe ser voz local real del navegador.
+      // No renderizamos Google TTS para evitar confusión de voz y mantener coherencia con "voz local".
+      synthesisResult = { audio: null, contentType: null, useLocalVoice: true, fallbackVoiceId: 'es-ES' };
     } else {
       // Inworld premium TTS
       console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
@@ -311,6 +315,8 @@ router.post('/message', async (req, res) => {
       user: messageUsername || 'Usuario',
       fallback: fallbackToLocal,
       fallbackReason,
+      useLocalVoice: fallbackToLocal,
+      fallbackVoiceId: fallbackToLocal ? 'es-ES' : null,
       tokensUsed: (!fallbackToLocal && !isGoogleVoice) ? tokensNeeded : 0
     });
   } catch (error) {

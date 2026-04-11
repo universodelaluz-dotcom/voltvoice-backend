@@ -164,27 +164,6 @@ router.post('/tts', async (req, res) => {
       }
     });
 
-    const cacheHit = await audioCacheService.lookup(cacheContext);
-    if (cacheHit.hit) {
-      const base64Audio = cacheHit.audioBuffer.toString('base64');
-      return res.status(200).json({
-        success: true,
-        audio: `data:${cacheHit.contentType};base64,${base64Audio}`,
-        audioSize: cacheHit.audioBuffer.length,
-        voiceId,
-        characters: String(text).length,
-        tokensUsed: 0,
-        cache: {
-          hit: true,
-          source: cacheHit.source,
-          scope: cacheContext.scope,
-          key: cacheContext.cacheKey,
-        }
-      });
-    }
-
-    audioCacheService.trackMetric({ rendered_requests: 1 });
-
     const tokensNeeded = userId && !isAdmin
       ? tokenService.calculateTokensCost(String(text).length)
       : 0;
@@ -198,6 +177,39 @@ router.post('/tts', async (req, res) => {
         });
       }
     }
+
+    const cacheHit = await audioCacheService.lookup(cacheContext);
+    if (cacheHit.hit) {
+      let remainingTokens = undefined;
+      if (userId && !isAdmin && tokensNeeded > 0) {
+        const deduction = await tokenService.deductTokens(
+          userId,
+          tokensNeeded,
+          String(text).length,
+          mappedVoice,
+          'ptt_speech_cache'
+        );
+        remainingTokens = deduction.remainingTokens;
+      }
+      const base64Audio = cacheHit.audioBuffer.toString('base64');
+      return res.status(200).json({
+        success: true,
+        audio: `data:${cacheHit.contentType};base64,${base64Audio}`,
+        audioSize: cacheHit.audioBuffer.length,
+        voiceId,
+        characters: String(text).length,
+        tokensUsed: userId && !isAdmin ? tokensNeeded : 0,
+        ...(Number.isFinite(remainingTokens) ? { remainingTokens } : {}),
+        cache: {
+          hit: true,
+          source: cacheHit.source,
+          scope: cacheContext.scope,
+          key: cacheContext.cacheKey,
+        }
+      });
+    }
+
+    audioCacheService.trackMetric({ rendered_requests: 1 });
 
     let audioBuffer;
     try {
