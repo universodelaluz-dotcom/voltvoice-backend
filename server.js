@@ -28,6 +28,7 @@ import opsRoutes from './src/routes/ops.js';
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
 import monitoring from './src/services/monitoring.js';
+import inactiveUserCleanupService from './src/services/inactiveUserCleanupService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -709,6 +710,7 @@ const server = createServer(app);
 
 // Inicializar WebSocket
 websocketServer.initialize(server);
+inactiveUserCleanupService.startInactiveUserCleanupJob();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`

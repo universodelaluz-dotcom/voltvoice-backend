@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import https from 'https';
 import jwt from 'jsonwebtoken';
 import tiktokLiveService from '../services/tiktokLiveService.js';
@@ -6,6 +6,7 @@ import inworldTtsService from '../services/inworldTtsService.js';
 import { requireAdmin } from '../../middleware/auth.js';
 import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
 import tokenService from '../services/tokenService.js';
+import audioCacheService from '../services/audioCacheService.js';
 import pool from '../db.js';
 import { config } from '../config.js';
 
@@ -51,30 +52,30 @@ const isNotLiveError = (message = '') => {
 };
 
 /**
- * Normalizar Unicode para evitar homóglifos y caracteres de evasión
- * Detecta intentos de evasión usando caracteres especiales (griegos, cirílicos, CJK, etc.)
+ * Normalizar Unicode para evitar homÃ³glifos y caracteres de evasiÃ³n
+ * Detecta intentos de evasiÃ³n usando caracteres especiales (griegos, cirÃ­licos, CJK, etc.)
  */
 const normalizeUnicode = (text) => {
   // Contar caracteres sospechosos antes de normalizar
-  // Griegos, Cirílicos, Hiragana, Katakana, Kanji
+  // Griegos, CirÃ­licos, Hiragana, Katakana, Kanji
   const suspiciousChars = text.match(/[\u0370-\u03FF\u0400-\u04FF\u3040-\u309F\u4E00-\u9FFF\u2000-\u206F\u2070-\u209F]/g) || []
   const suspiciousRatio = suspiciousChars.length / text.length
 
-  // Si más del 30% son caracteres no-latinos sospechosos, marcar como riesgoso
+  // Si mÃ¡s del 30% son caracteres no-latinos sospechosos, marcar como riesgoso
   if (suspiciousRatio > 0.3) {
     return { text, suspicious: true, reason: 'Muchos caracteres especiales detectados', ratio: suspiciousRatio }
   }
 
   // Normalizar Unicode NFKD (descomponer caracteres)
   const normalized = text.normalize('NFKD')
-    // Remover diacríticos
+    // Remover diacrÃ­ticos
     .replace(/[\u0300-\u036f]/g, '')
-    // Reemplazar caracteres cirilicos/griegos/CJK comunes
-    .replace(/[а-яЁё]/g, 'a')   // Cirílico
-    .replace(/[α-ω]/g, 'a')     // Griego
-    .replace(/[ぁ-ん]/g, 'a')    // Hiragana
-    .replace(/[ァ-ン]/g, 'a')    // Katakana
-    .replace(/[一-龯]/g, 'a')    // Kanji
+    // Reemplazar caracteres cirílicos/griegos/CJK comunes
+    .replace(/[\u0400-\u04FF]/g, 'a')   // Cirílico
+    .replace(/[\u0370-\u03FF]/g, 'a')   // Griego
+    .replace(/[\u3040-\u309F]/g, 'a')   // Hiragana
+    .replace(/[\u30A0-\u30FF]/g, 'a')   // Katakana
+    .replace(/[\u4E00-\u9FFF]/g, 'a')   // Kanji
 
   const changed = normalized.toLowerCase() !== text.toLowerCase()
 
@@ -93,7 +94,7 @@ router.use((req, res, next) => {
 });
 
 /**
- * GET /api/tiktok/status/:username - Verificar estado de conexión
+ * GET /api/tiktok/status/:username - Verificar estado de conexiÃ³n
  */
 router.get('/status/:username', (req, res) => {
   const username = normalizeUsername(req.params.username);
@@ -151,7 +152,7 @@ router.post('/connect', async (req, res) => {
   }
 
   try {
-    // Verificar si ya está conectado
+    // Verificar si ya estÃ¡ conectado
     const existing = tiktokLiveService.getStreamStatus(username);
     if (existing) {
       return res.status(200).json({
@@ -165,7 +166,7 @@ router.post('/connect', async (req, res) => {
     // Conectar a TikTok LIVE
     const stream = await tiktokLiveService.connectToStream(username, (message) => {
       console.log(`[TikTok] Mensaje recibido: @${message.username}: ${message.text}`);
-      // El WebSocket transmitirá automáticamente via registerClientCallback
+      // El WebSocket transmitirÃ¡ automÃ¡ticamente via registerClientCallback
     });
 
     return res.status(200).json({
@@ -197,19 +198,19 @@ router.post('/message', async (req, res) => {
   }
 
   try {
-    // Normalizar Unicode y detectar intentos de evasión
+    // Normalizar Unicode y detectar intentos de evasiÃ³n
     let processedText = messageText;
     const unicodeCheck = normalizeUnicode(messageText);
 
     if (unicodeCheck.suspicious) {
-      console.warn(`[TikTok] ⚠️ ALERTA: Mensaje sospechoso detectado`);
+      console.warn(`[TikTok] âš ï¸ ALERTA: Mensaje sospechoso detectado`);
       console.warn(`[TikTok] Usuario: ${messageUsername}, Ratio: ${(unicodeCheck.ratio * 100).toFixed(1)}%`);
       console.warn(`[TikTok] Original: "${messageText.substring(0, 100)}..."`);
-      console.warn(`[TikTok] Razón: ${unicodeCheck.reason}`);
+      console.warn(`[TikTok] RazÃ³n: ${unicodeCheck.reason}`);
       // Usar el texto normalizado
       processedText = unicodeCheck.text;
     } else if (unicodeCheck.text !== messageText) {
-      // Si hay normalización pero no es sospechoso, usar el texto normalizado
+      // Si hay normalizaciÃ³n pero no es sospechoso, usar el texto normalizado
       processedText = unicodeCheck.text;
     }
 
@@ -228,8 +229,7 @@ router.post('/message', async (req, res) => {
     let fallbackToLocal = false;
     let fallbackReason = null;
     let tokensNeeded = 0;
-
-    let synthesisResult;
+    let cacheContext = null;
 
     if (!isGoogleVoice) {
       if (!userId) {
@@ -245,7 +245,56 @@ router.post('/message', async (req, res) => {
       }
     }
 
+    if (!fallbackToLocal) {
+      cacheContext = await audioCacheService.prepareContext({
+        provider: isGoogleVoice ? 'local' : 'inworld',
+        userId,
+        voiceId: selectedVoiceId,
+        text: processedText,
+        modelVersion: isGoogleVoice
+          ? 'google-translate-tts-v1'
+          : (process.env.INWORLD_MODEL || 'inworld-tts-1.5-max'),
+        params: { source: 'tiktok_live', requestedVoiceId: selectedVoiceId }
+      });
+
+      const cacheHit = await audioCacheService.lookup(cacheContext);
+      if (cacheHit.hit) {
+        if (!isGoogleVoice && userId && !isAdmin && tokensNeeded > 0) {
+          await tokenService.deductTokens(
+            userId,
+            tokensNeeded,
+            String(processedText).length,
+            selectedVoiceId,
+            'tiktok_live_cache'
+          );
+        }
+
+        const base64Audio = cacheHit.audioBuffer.toString('base64');
+        return res.status(200).json({
+          success: true,
+          audio: `data:${cacheHit.contentType || 'audio/mpeg'};base64,${base64Audio}`,
+          contentType: cacheHit.contentType || 'audio/mpeg',
+          text: processedText,
+          user: messageUsername || 'Usuario',
+          fallback: false,
+          fallbackReason: null,
+          useLocalVoice: false,
+          fallbackVoiceId: null,
+          tokensUsed: (!isGoogleVoice && userId && !isAdmin) ? tokensNeeded : 0,
+          cache: {
+            hit: true,
+            source: cacheHit.source,
+            scope: cacheContext.scope,
+            key: cacheContext.cacheKey
+          }
+        });
+      }
+    }
+
+    let synthesisResult;
+
     if (isGoogleVoice) {
+      audioCacheService.trackMetric({ rendered_requests: 1 });
       // Google TTS gratuito
       const lang = freeVoices[selectedVoiceId];
       console.log(`[TikTok] Sintetizando con Google TTS - lang: ${lang}`);
@@ -263,6 +312,7 @@ router.post('/message', async (req, res) => {
       // No renderizamos Google TTS para evitar confusión de voz y mantener coherencia con "voz local".
       synthesisResult = { audio: null, contentType: null, useLocalVoice: true, fallbackVoiceId: 'es-ES' };
     } else {
+      audioCacheService.trackMetric({ rendered_requests: 1 });
       // Inworld premium TTS
       console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
       synthesisResult = await inworldTtsService.synthesize(processedText, selectedVoiceId);
@@ -276,6 +326,10 @@ router.post('/message', async (req, res) => {
           'tiktok_live'
         );
       }
+    }
+
+    if (!fallbackToLocal && cacheContext && Buffer.isBuffer(synthesisResult?.audio)) {
+      audioCacheService.storeAfterRender(cacheContext, synthesisResult.audio, synthesisResult.contentType || 'audio/mpeg').catch(() => {});
     }
 
     // Convertir Buffer a base64 data URL para el frontend
@@ -317,9 +371,14 @@ router.post('/message', async (req, res) => {
       fallbackReason,
       useLocalVoice: fallbackToLocal,
       fallbackVoiceId: fallbackToLocal ? 'es-ES' : null,
-      tokensUsed: (!fallbackToLocal && !isGoogleVoice) ? tokensNeeded : 0
-    });
-  } catch (error) {
+      tokensUsed: (!fallbackToLocal && !isGoogleVoice) ? tokensNeeded : 0,
+      cache: {
+        hit: false,
+        scope: cacheContext?.scope || null,
+        key: cacheContext?.cacheKey || null,
+        cacheable: cacheContext?.enabled || false
+      }
+    });  } catch (error) {
     console.error('[TikTok] Error procesando mensaje:', error);
     return res.status(500).json({
       error: error.message || 'Error procesando mensaje',
@@ -375,7 +434,7 @@ router.post('/disconnect', async (req, res) => {
 });
 
 /**
- * GET /api/tiktok/stats - Estadísticas del servidor
+ * GET /api/tiktok/stats - EstadÃ­sticas del servidor
  */
 router.get('/stats', (req, res) => {
   const streams = tiktokLiveService.getActiveStreams();
@@ -423,3 +482,4 @@ router.get('/test-inworld', async (req, res) => {
 });
 
 export default router;
+
