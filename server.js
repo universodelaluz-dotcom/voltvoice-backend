@@ -36,11 +36,33 @@ const __dirname = dirname(__filename);
 const app = express();
 if (config.TRUST_PROXY) app.set('trust proxy', 1);
 
+const parseCookieHeader = (cookieHeader = '') => {
+  if (!cookieHeader || typeof cookieHeader !== 'string') return {};
+  return cookieHeader.split(';').reduce((acc, pair) => {
+    const index = pair.indexOf('=');
+    if (index < 0) return acc;
+    const key = pair.slice(0, index).trim();
+    const value = pair.slice(index + 1).trim();
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(value);
+    return acc;
+  }, {});
+};
+
 const resolveAuthUserId = (req) => {
+  const directUserId = Number(req?.user?.userId || req?.user?.id);
+  if (Number.isFinite(directUserId) && directUserId > 0) return directUserId;
+
   const authHeader = req.headers.authorization || '';
-  if (!authHeader.startsWith('Bearer ')) return null;
+  const bearerToken = authHeader.startsWith('Bearer ')
+    ? authHeader.slice('Bearer '.length).trim()
+    : '';
+
+  const cookieToken = parseCookieHeader(req.headers.cookie || '')[config.AUTH_COOKIE_NAME] || '';
+  const token = bearerToken || cookieToken;
+  if (!token) return null;
+
   try {
-    const token = authHeader.slice('Bearer '.length).trim();
     const decoded = jwt.verify(token, config.JWT_SECRET);
     const userId = Number(decoded?.userId || decoded?.id);
     return Number.isFinite(userId) && userId > 0 ? userId : null;
@@ -104,7 +126,6 @@ app.options('*', cors({
 // Logging
 app.use((req, res, next) => {
   const startedAt = Date.now();
-  const authUserId = resolveAuthUserId(req);
   const originalJson = res.json.bind(res);
   res.json = (body) => {
     if (body && typeof body === 'object' && body.error) {
@@ -123,6 +144,7 @@ app.use((req, res, next) => {
     });
 
     if (req.path.startsWith('/api/')) {
+      const authUserId = resolveAuthUserId(req);
       const errorMessage = res.locals.responseError || (res.statusCode >= 500 ? 'internal_server_error' : null);
       pool.query(
         `INSERT INTO api_request_logs
@@ -131,7 +153,7 @@ app.use((req, res, next) => {
         [
           authUserId,
           req.method,
-          req.path,
+          String(req.originalUrl || req.path || '').slice(0, 500),
           res.statusCode,
           durationMs,
           (req.headers['x-forwarded-for'] || req.ip || '').toString().slice(0, 80),

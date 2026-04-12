@@ -758,7 +758,7 @@ router.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
 router.get('/users/:id/activity', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = parseLimit(req.query.limit, 500, 5000);
+    const limit = parseLimit(req.query.limit, 2000, 20000);
     const hours = parseHours(req.query.hours, 48);
 
     const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
@@ -842,7 +842,7 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
 router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = parseLimit(req.query.limit, 5000, 20000);
+    const limit = parseLimit(req.query.limit, 5000, 50000);
     const hours = parseHours(req.query.hours, 48);
     const format = String(req.query.format || 'json').toLowerCase();
 
