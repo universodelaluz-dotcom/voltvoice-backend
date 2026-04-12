@@ -3,11 +3,13 @@ import { verifyToken } from '../../middleware/auth.js';
 import NickService from '../services/nickService.js';
 
 const router = express.Router();
+const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null;
+const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '').toLowerCase();
 
 // GET /api/nicks - Obtener todos los nick overrides del usuario
 router.get('/nicks', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = resolveRequestUserId(req);
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -24,14 +26,15 @@ router.get('/nicks', verifyToken, async (req, res) => {
 // POST /api/nicks - Crear o actualizar nick override
 router.post('/nicks', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = resolveRequestUserId(req);
     const { username, newNickname } = req.body;
+    const normalizedUsername = normalizeUsername(username);
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!username || !username.trim()) {
+    if (!normalizedUsername) {
       return res.status(400).json({ error: 'Username is required' });
     }
 
@@ -39,7 +42,7 @@ router.post('/nicks', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'New nickname is required' });
     }
 
-    const override = await NickService.setNickOverride(userId, username.trim(), newNickname.trim());
+    const override = await NickService.setNickOverride(userId, normalizedUsername, newNickname.trim());
     res.json(override);
   } catch (err) {
     console.error('[NicksRoute] POST /nicks error:', err.message);
@@ -50,18 +53,19 @@ router.post('/nicks', verifyToken, async (req, res) => {
 // DELETE /api/nicks/:username - Remover nick override
 router.delete('/nicks/:username', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = resolveRequestUserId(req);
     const { username } = req.params;
+    const normalizedUsername = normalizeUsername(username);
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!username || !username.trim()) {
+    if (!normalizedUsername) {
       return res.status(400).json({ error: 'Username is required' });
     }
 
-    const result = await NickService.removeNickOverride(userId, username.trim());
+    const result = await NickService.removeNickOverride(userId, normalizedUsername);
 
     if (!result) {
       return res.status(404).json({ error: 'Nick override not found' });

@@ -25,6 +25,11 @@ const parseIntRange = (raw, fallback, min, max) => {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
 };
+const parseHours = (raw, fallback = 48, max = 24 * 14) => {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+};
 const csvEscape = (value = '') => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const logAdminAction = async ({ actorId, targetUserId = null, action, details = {} }) => {
@@ -753,7 +758,8 @@ router.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
 router.get('/users/:id/activity', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = parseLimit(req.query.limit, 100, 500);
+    const limit = parseLimit(req.query.limit, 500, 5000);
+    const hours = parseHours(req.query.hours, 48);
 
     const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
       pool.query(
@@ -765,17 +771,19 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
         `SELECT action, tokens_used, characters_count, voice_name, timestamp
          FROM token_logs
          WHERE user_id::text = $1::text
+           AND timestamp >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY timestamp DESC
          LIMIT $2`,
-        [id, limit]
+        [id, limit, hours]
       ),
       pool.query(
         `SELECT id, tokens_purchased, amount_usd, status, created_at, stripe_payment_id
          FROM transactions
          WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY created_at DESC
          LIMIT $2`,
-        [id, limit]
+        [id, limit, hours]
       ),
       pool.query(
         `SELECT aal.action, aal.details, aal.created_at,
@@ -783,25 +791,28 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
          FROM admin_audit_logs aal
          LEFT JOIN users actor ON aal.actor_user_id::text = actor.id::text
          WHERE aal.target_user_id::text = $1::text
+           AND aal.created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY aal.created_at DESC
          LIMIT $2`,
-        [id, limit]
+        [id, limit, hours]
       ),
       pool.query(
         `SELECT method, path, status_code, duration_ms, ip_address, error_message, created_at
          FROM api_request_logs
          WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY created_at DESC
          LIMIT $2`,
-        [id, limit]
+        [id, limit, hours]
       ),
       pool.query(
         `SELECT id, voice_name, voice_id, provider, created_at
          FROM user_voices
          WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY created_at DESC
          LIMIT $2`,
-        [id, limit]
+        [id, limit, hours]
       )
     ]);
 
@@ -810,6 +821,7 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
     return res.json({
       success: true,
       user: userQ.rows[0],
+      filters: { limit, hours },
       activity: {
         tokenLogs: tokenLogsQ.rows,
         transactions: transactionsQ.rows,
@@ -821,6 +833,154 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error user activity:', err.message);
     return res.status(500).json({ error: 'Error obteniendo actividad del usuario' });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id/activity/export - Exportar actividad/logs del usuario
+ */
+router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseLimit(req.query.limit, 5000, 20000);
+    const hours = parseHours(req.query.hours, 48);
+    const format = String(req.query.format || 'json').toLowerCase();
+
+    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
+      pool.query(
+        `SELECT id, email, plan, tokens, role, created_at, last_seen, is_suspended, suspended_until, suspension_reason
+         FROM users WHERE id::text = $1::text`,
+        [id]
+      ),
+      pool.query(
+        `SELECT action, tokens_used, characters_count, voice_name, timestamp
+         FROM token_logs
+         WHERE user_id::text = $1::text
+           AND timestamp >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY timestamp DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT id, tokens_purchased, amount_usd, status, created_at, stripe_payment_id
+         FROM transactions
+         WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT aal.action, aal.details, aal.created_at,
+                actor.email AS admin_email
+         FROM admin_audit_logs aal
+         LEFT JOIN users actor ON aal.actor_user_id::text = actor.id::text
+         WHERE aal.target_user_id::text = $1::text
+           AND aal.created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY aal.created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT method, path, status_code, duration_ms, ip_address, error_message, created_at
+         FROM api_request_logs
+         WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT id, voice_name, voice_id, provider, created_at
+         FROM user_voices
+         WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      )
+    ]);
+
+    if (userQ.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      filters: { hours, limit },
+      user: userQ.rows[0],
+      activity: {
+        tokenLogs: tokenLogsQ.rows,
+        transactions: transactionsQ.rows,
+        adminActions: adminActionsQ.rows,
+        requestLogs: requestLogsQ.rows,
+        voices: voicesQ.rows,
+      }
+    };
+
+    if (format === 'csv') {
+      const lines = [
+        'section,timestamp,field1,field2,field3,field4,field5',
+        ...tokenLogsQ.rows.map((row) => [
+          'token_logs',
+          row.timestamp || '',
+          row.action || '',
+          row.tokens_used ?? '',
+          row.characters_count ?? '',
+          row.voice_name || '',
+          ''
+        ].map(csvEscape).join(',')),
+        ...transactionsQ.rows.map((row) => [
+          'transactions',
+          row.created_at || '',
+          row.status || '',
+          row.tokens_purchased ?? '',
+          row.amount_usd ?? '',
+          row.stripe_payment_id || '',
+          row.id ?? ''
+        ].map(csvEscape).join(',')),
+        ...adminActionsQ.rows.map((row) => [
+          'admin_actions',
+          row.created_at || '',
+          row.action || '',
+          row.admin_email || '',
+          JSON.stringify(row.details || {}),
+          '',
+          ''
+        ].map(csvEscape).join(',')),
+        ...requestLogsQ.rows.map((row) => [
+          'request_logs',
+          row.created_at || '',
+          row.method || '',
+          row.path || '',
+          row.status_code ?? '',
+          row.duration_ms ?? '',
+          row.error_message || ''
+        ].map(csvEscape).join(',')),
+        ...voicesQ.rows.map((row) => [
+          'voices',
+          row.created_at || '',
+          row.voice_name || '',
+          row.voice_id || '',
+          row.provider || '',
+          row.id ?? '',
+          ''
+        ].map(csvEscape).join(','))
+      ];
+
+      const safeEmail = String(userQ.rows[0].email || `user-${id}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="voltvoice-activity-${safeEmail}-${hours}h.csv"`);
+      return res.send(lines.join('\n'));
+    }
+
+    const safeEmail = String(userQ.rows[0].email || `user-${id}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="voltvoice-activity-${safeEmail}-${hours}h.json"`);
+    return res.send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    console.error('[Admin] Error exporting user activity:', err.message);
+    return res.status(500).json({ error: 'Error exportando actividad del usuario' });
   }
 });
 

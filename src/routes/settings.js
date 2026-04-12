@@ -5,6 +5,21 @@ import inworldTtsService from '../services/inworldTtsService.js';
 
 const router = Router();
 
+const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null;
+
+const normalizeStoredConfig = (rawConfig) => {
+  if (!rawConfig) return {};
+  if (typeof rawConfig === 'string') {
+    try {
+      const parsed = JSON.parse(rawConfig);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return (typeof rawConfig === 'object' && !Array.isArray(rawConfig)) ? rawConfig : {};
+};
+
 /**
  * Mapeo de idiomas a códigos válidos de Inworld
  */
@@ -94,16 +109,21 @@ const voiceTypeTranslations = {
  */
 router.get('/', verifyToken, async (req, res) => {
   try {
+    const userId = resolveRequestUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Usuario no autenticado' });
+    }
+
     const result = await pool.query(
       'SELECT config FROM user_settings WHERE user_id = $1',
-      [req.user.userId]
+      [userId]
     );
 
     if (result.rows.length === 0) {
       return res.json({ success: true, config: {} });
     }
 
-    return res.json({ success: true, config: result.rows[0].config });
+    return res.json({ success: true, config: normalizeStoredConfig(result.rows[0].config) });
   } catch (error) {
     console.error('[Settings] Error cargando:', error.message);
     return res.status(500).json({ error: 'Error cargando configuración' });
@@ -115,20 +135,34 @@ router.get('/', verifyToken, async (req, res) => {
  */
 router.post('/', verifyToken, async (req, res) => {
   const { config } = req.body;
+  const userId = resolveRequestUserId(req);
 
-  if (!config || typeof config !== 'object') {
+  if (!userId) {
+    return res.status(401).json({ error: 'Usuario no autenticado' });
+  }
+
+  let parsedConfig = config;
+  if (typeof parsedConfig === 'string') {
+    try {
+      parsedConfig = JSON.parse(parsedConfig);
+    } catch {
+      parsedConfig = null;
+    }
+  }
+
+  if (!parsedConfig || typeof parsedConfig !== 'object' || Array.isArray(parsedConfig)) {
     return res.status(400).json({ error: 'Config inválido' });
   }
 
   try {
     await pool.query(
       `INSERT INTO user_settings (user_id, config, updated_at)
-       VALUES ($1, $2, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) DO UPDATE SET config = $2, updated_at = CURRENT_TIMESTAMP`,
-      [req.user.userId, JSON.stringify(config)]
+       VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+       ON CONFLICT (user_id) DO UPDATE SET config = $2::jsonb, updated_at = CURRENT_TIMESTAMP`,
+      [userId, JSON.stringify(parsedConfig)]
     );
 
-    return res.json({ success: true });
+    return res.json({ success: true, config: parsedConfig });
   } catch (error) {
     console.error('[Settings] Error guardando:', error.message);
     return res.status(500).json({ error: 'Error guardando configuración' });
