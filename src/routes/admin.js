@@ -68,9 +68,18 @@ const buildUserWhere = (search, planFilter, includeSuspended = 'all') => {
 
 /**
  * GET /api/admin/stats - Dashboard principal
+ * Query params: year (optional, defaults to current year)
  */
 router.get('/stats', requireAdmin, async (req, res) => {
   try {
+    const currentYear = new Date().getFullYear();
+    const selectedYear = parseInt(req.query.year, 10) || currentYear;
+    const isCurrentYear = selectedYear === currentYear;
+
+    // Date range for the selected year
+    const yearStart = `${selectedYear}-01-01`;
+    const yearEnd   = `${selectedYear + 1}-01-01`;
+
     const [
       totalUsers,
       usersToday,
@@ -98,18 +107,22 @@ router.get('/stats', requireAdmin, async (req, res) => {
       pool.query('SELECT COUNT(*) FROM users'),
       pool.query("SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE"),
       pool.query("SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('month', NOW())"),
-      pool.query("SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('year', NOW())"),
+      // Year-specific user count
+      pool.query('SELECT COUNT(*) FROM users WHERE created_at >= $1 AND created_at < $2', [yearStart, yearEnd]),
       pool.query("SELECT COUNT(*) FROM users WHERE last_seen >= NOW() - INTERVAL '5 minutes'"),
       pool.query('SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs'),
       pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= CURRENT_DATE"),
       pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= date_trunc('month', NOW())"),
-      pool.query("SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= date_trunc('year', NOW())"),
+      // Year-specific token usage
+      pool.query('SELECT COALESCE(SUM(tokens_used), 0) AS total FROM token_logs WHERE timestamp >= $1 AND timestamp < $2', [yearStart, yearEnd]),
       pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed'"),
       pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())"),
-      pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('year', NOW())"),
+      // Year-specific transactions
+      pool.query("SELECT COUNT(*) FROM transactions WHERE status = 'completed' AND created_at >= $1 AND created_at < $2", [yearStart, yearEnd]),
       pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed'"),
       pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())"),
-      pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed' AND created_at >= date_trunc('year', NOW())"),
+      // Year-specific revenue
+      pool.query("SELECT COALESCE(SUM(amount_usd), 0) AS total FROM transactions WHERE status = 'completed' AND created_at >= $1 AND created_at < $2", [yearStart, yearEnd]),
       pool.query("SELECT COUNT(*) FROM users WHERE is_suspended = TRUE"),
       pool.query(`
         SELECT plan, COUNT(*) as count,
@@ -118,31 +131,31 @@ router.get('/stats', requireAdmin, async (req, res) => {
         GROUP BY plan
         ORDER BY count DESC
       `),
-      pool.query(`
-        SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
-               COUNT(*)::int AS users
-        FROM users
-        WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '11 months'
-        GROUP BY 1
-        ORDER BY 1 ASC
-      `),
-      pool.query(`
-        SELECT to_char(date_trunc('month', timestamp), 'YYYY-MM') AS month_key,
-               COALESCE(SUM(tokens_used), 0)::bigint AS tokens
-        FROM token_logs
-        WHERE timestamp >= date_trunc('month', NOW()) - INTERVAL '11 months'
-        GROUP BY 1
-        ORDER BY 1 ASC
-      `),
-      pool.query(`
-        SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
-               COALESCE(SUM(amount_usd), 0)::numeric(14,2) AS revenue
-        FROM transactions
-        WHERE status = 'completed'
-          AND created_at >= date_trunc('month', NOW()) - INTERVAL '11 months'
-        GROUP BY 1
-        ORDER BY 1 ASC
-      `),
+      // Monthly overview for selected year (all 12 months)
+      pool.query(
+        `SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
+                COUNT(*)::int AS users
+         FROM users
+         WHERE created_at >= $1 AND created_at < $2
+         GROUP BY 1 ORDER BY 1 ASC`,
+        [yearStart, yearEnd]
+      ),
+      pool.query(
+        `SELECT to_char(date_trunc('month', timestamp), 'YYYY-MM') AS month_key,
+                COALESCE(SUM(tokens_used), 0)::bigint AS tokens
+         FROM token_logs
+         WHERE timestamp >= $1 AND timestamp < $2
+         GROUP BY 1 ORDER BY 1 ASC`,
+        [yearStart, yearEnd]
+      ),
+      pool.query(
+        `SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month_key,
+                COALESCE(SUM(amount_usd), 0)::numeric(14,2) AS revenue
+         FROM transactions
+         WHERE status = 'completed' AND created_at >= $1 AND created_at < $2
+         GROUP BY 1 ORDER BY 1 ASC`,
+        [yearStart, yearEnd]
+      ),
       pool.query(`
         SELECT tl.action, tl.tokens_used, tl.characters_count, tl.voice_name, tl.timestamp, u.email
         FROM token_logs tl
@@ -162,6 +175,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
       `),
     ]);
 
+    // Build all 12 months of the selected year
     const monthMap = new Map();
     const ensureMonth = (monthKey) => {
       if (!monthMap.has(monthKey)) {
@@ -169,10 +183,8 @@ router.get('/stats', requireAdmin, async (req, res) => {
       }
       return monthMap.get(monthKey);
     };
-    for (let i = 11; i >= 0; i -= 1) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    for (let m = 1; m <= 12; m++) {
+      const monthKey = `${selectedYear}-${String(m).padStart(2, '0')}`;
       ensureMonth(monthKey);
     }
     for (const row of usersMonthly.rows) {
@@ -188,25 +200,26 @@ router.get('/stats', requireAdmin, async (req, res) => {
 
     const totalRevenueUsd = Number(revenueTotal.rows[0].total || 0);
     const revenueMonthUsd = Number(revenueMonth.rows[0].total || 0);
-    const revenueYearUsd = Number(revenueYear.rows[0].total || 0);
-    const totalTokens = parseInt(totalTokensUsed.rows[0].total, 10) || 0;
-    const monthTokens = parseInt(tokensUsedMonth.rows[0].total, 10) || 0;
-    const yearTokens = parseInt(tokensUsedYear.rows[0].total, 10) || 0;
+    const revenueYearUsd  = Number(revenueYear.rows[0].total || 0);
+    const totalTokens  = parseInt(totalTokensUsed.rows[0].total, 10) || 0;
+    const monthTokens  = parseInt(tokensUsedMonth.rows[0].total, 10) || 0;
+    const yearTokens   = parseInt(tokensUsedYear.rows[0].total, 10) || 0;
     const estCostTotalUsd = Number(((totalTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD).toFixed(2));
     const estCostMonthUsd = Number(((monthTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD + ESTIMATED_FIXED_MONTHLY_COST_USD).toFixed(2));
-    const estCostYearUsd = Number(((yearTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD + (ESTIMATED_FIXED_MONTHLY_COST_USD * 12)).toFixed(2));
-    const marginMonthUsd = Number((revenueMonthUsd - estCostMonthUsd).toFixed(2));
-    const marginYearUsd = Number((revenueYearUsd - estCostYearUsd).toFixed(2));
+    const estCostYearUsd  = Number(((yearTokens / 1000) * ESTIMATED_COST_PER_1K_TOKENS_USD + (ESTIMATED_FIXED_MONTHLY_COST_USD * 12)).toFixed(2));
+    const marginMonthUsd  = Number((revenueMonthUsd - estCostMonthUsd).toFixed(2));
+    const marginYearUsd   = Number((revenueYearUsd - estCostYearUsd).toFixed(2));
 
     return res.json({
       success: true,
+      selectedYear,
       stats: {
         totalUsers: parseInt(totalUsers.rows[0].count, 10),
         usersToday: parseInt(usersToday.rows[0].count, 10),
         usersThisMonth: parseInt(usersThisMonth.rows[0].count, 10),
         usersThisYear: parseInt(usersThisYear.rows[0].count, 10),
         onlineUsers: parseInt(onlineUsers.rows[0].count, 10),
-        suspendedUsers: parseInt(suspendedUsers.rows[0].count, 10),        
+        suspendedUsers: parseInt(suspendedUsers.rows[0].count, 10),
         totalTokensUsed: totalTokens,
         tokensUsedToday: parseInt(tokensUsedToday.rows[0].total, 10),
         tokensUsedMonth: monthTokens,
