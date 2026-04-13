@@ -103,6 +103,8 @@ router.get('/stats', requireAdmin, async (req, res) => {
       revenueMonthly,
       recentActivity,
       topUsers,
+      hourlyStats,
+      weekdayStats,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM users'),
       pool.query("SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE"),
@@ -173,6 +175,26 @@ router.get('/stats', requireAdmin, async (req, res) => {
         ) tl ON true
         ORDER BY total_used DESC LIMIT 10
       `),
+      // Uso por hora del día (zona horaria Mexico)
+      pool.query(
+        `SELECT EXTRACT(HOUR FROM timestamp AT TIME ZONE 'America/Mexico_City')::int AS hour,
+                COALESCE(SUM(tokens_used), 0)::bigint AS tokens,
+                COUNT(*)::int AS messages
+         FROM token_logs
+         WHERE timestamp >= $1 AND timestamp < $2
+         GROUP BY 1 ORDER BY 1`,
+        [yearStart, yearEnd]
+      ),
+      // Uso por día de la semana (0=Dom, 1=Lun, ..., 6=Sáb)
+      pool.query(
+        `SELECT EXTRACT(DOW FROM timestamp AT TIME ZONE 'America/Mexico_City')::int AS dow,
+                COALESCE(SUM(tokens_used), 0)::bigint AS tokens,
+                COUNT(*)::int AS messages
+         FROM token_logs
+         WHERE timestamp >= $1 AND timestamp < $2
+         GROUP BY 1 ORDER BY 1`,
+        [yearStart, yearEnd]
+      ),
     ]);
 
     // Build all 12 months of the selected year
@@ -197,6 +219,16 @@ router.get('/stats', requireAdmin, async (req, res) => {
       ensureMonth(String(row.month_key)).revenueUsd = Number(row.revenue || 0);
     }
     const monthlyOverview = Array.from(monthMap.values());
+
+    // Build full 24-hour and 7-day arrays
+    const hourlyUsage = Array.from({ length: 24 }, (_, h) => {
+      const row = hourlyStats.rows.find(r => Number(r.hour) === h);
+      return { hour: h, tokens: Number(row?.tokens || 0), messages: Number(row?.messages || 0) };
+    });
+    const weekdayUsage = Array.from({ length: 7 }, (_, d) => {
+      const row = weekdayStats.rows.find(r => Number(r.dow) === d);
+      return { dow: d, tokens: Number(row?.tokens || 0), messages: Number(row?.messages || 0) };
+    });
 
     const totalRevenueUsd = Number(revenueTotal.rows[0].total || 0);
     const revenueMonthUsd = Number(revenueMonth.rows[0].total || 0);
@@ -239,6 +271,8 @@ router.get('/stats', requireAdmin, async (req, res) => {
         estimatedFixedMonthlyCostUsd: ESTIMATED_FIXED_MONTHLY_COST_USD,
         planBreakdown: planBreakdown.rows,
         monthlyOverview,
+        hourlyUsage,
+        weekdayUsage,
         recentActivity: recentActivity.rows,
         topUsers: topUsers.rows,
       }
