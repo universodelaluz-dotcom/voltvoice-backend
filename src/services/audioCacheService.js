@@ -533,7 +533,7 @@ class AudioCacheService {
 
     const increments = keys
       .filter((key) => Number.isFinite(Number(patch[key])) && Number(patch[key]) !== 0)
-      .map((key) => `${key} = ${key} + ${Math.trunc(Number(patch[key]))}`);
+      .map((key) => `${key} = audio_cache_runtime_stats.${key} + ${Math.trunc(Number(patch[key]))}`);
 
     if (!increments.length) return;
 
