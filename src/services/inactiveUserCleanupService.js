@@ -26,7 +26,7 @@ export async function runInactiveUserCleanupOnce() {
       `DELETE FROM audio_cache_entries e
        USING users u
        WHERE e.scope = 'personal'
-         AND e.user_id = u.id
+         AND e.user_id::text = u.id::text
          AND LOWER(COALESCE(u.plan, 'free')) = 'free'
          AND NOT EXISTS (
            SELECT 1 FROM transactions t
@@ -46,7 +46,7 @@ export async function runInactiveUserCleanupOnce() {
       `DELETE FROM audio_cache_entries e
        USING users u
        WHERE e.scope = 'personal'
-         AND e.user_id = u.id
+         AND e.user_id::text = u.id::text
          AND LOWER(COALESCE(u.plan, 'free')) = 'free'
          AND (
            EXISTS (
@@ -113,6 +113,7 @@ export async function runInactiveUserCleanupOnce() {
       ...lapsedPaidInactiveUsersResult.rows.map((row) => Number(row.id)),
     ].filter((id) => Number.isFinite(id));
     const uniqueUserIdsToDelete = [...new Set(userIdsToDelete)];
+    const uniqueUserIdsToDeleteText = uniqueUserIdsToDelete.map((id) => String(id));
 
     let deletedFreeUsers = 0;
     let deletedLapsedPaidUsers = 0;
@@ -121,7 +122,7 @@ export async function runInactiveUserCleanupOnce() {
       await pool.query('BEGIN');
       try {
         await pool.query('DELETE FROM token_logs WHERE user_id = ANY($1::int[])', [uniqueUserIdsToDelete]);
-        await pool.query('DELETE FROM audio_cache_entries WHERE scope = $1 AND user_id = ANY($2::int[])', ['personal', uniqueUserIdsToDelete]);
+        await pool.query('DELETE FROM audio_cache_entries WHERE scope = $1 AND user_id::text = ANY($2::text[])', ['personal', uniqueUserIdsToDeleteText]);
         await pool.query('DELETE FROM user_voices WHERE user_id = ANY($1::int[])', [uniqueUserIdsToDelete]);
         await pool.query('DELETE FROM user_settings WHERE user_id = ANY($1::int[])', [uniqueUserIdsToDelete]);
         await pool.query('UPDATE coupons SET created_by = NULL WHERE created_by = ANY($1::int[])', [uniqueUserIdsToDelete]);
