@@ -93,7 +93,16 @@ app.use(cors({
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+  // Disable default COOP from helmet and set an explicit policy below.
+  crossOriginOpenerPolicy: false,
 }));
+
+// Google Identity (popup) requires opener communication via postMessage.
+// A strict COOP (`same-origin`) can block this flow.
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 
 const globalLimiter = rateLimit({
   windowMs: config.GLOBAL_RATE_LIMIT_WINDOW_MS,
