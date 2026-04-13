@@ -30,12 +30,12 @@ export async function runInactiveUserCleanupOnce() {
          AND LOWER(COALESCE(u.plan, 'free')) = 'free'
          AND NOT EXISTS (
            SELECT 1 FROM transactions t
-           WHERE t.user_id = u.id
+           WHERE t.user_id::text = u.id::text
              AND LOWER(COALESCE(t.status, '')) = 'completed'
          )
          AND NOT EXISTS (
            SELECT 1 FROM audio_cache_user_state s
-           WHERE s.user_id = u.id
+           WHERE s.user_id::text = u.id::text
              AND s.last_paid_at IS NOT NULL
          )
          AND COALESCE(u.last_seen, u.created_at) < NOW() - ($1::int * INTERVAL '1 day')`,
@@ -51,12 +51,12 @@ export async function runInactiveUserCleanupOnce() {
          AND (
            EXISTS (
              SELECT 1 FROM transactions t
-             WHERE t.user_id = u.id
+             WHERE t.user_id::text = u.id::text
                AND LOWER(COALESCE(t.status, '')) = 'completed'
            )
            OR EXISTS (
              SELECT 1 FROM audio_cache_user_state s
-             WHERE s.user_id = u.id
+             WHERE s.user_id::text = u.id::text
                AND s.last_paid_at IS NOT NULL
            )
          )
@@ -71,12 +71,12 @@ export async function runInactiveUserCleanupOnce() {
          AND COALESCE(role, 'user') = 'user'
          AND NOT EXISTS (
            SELECT 1 FROM transactions t
-           WHERE t.user_id = users.id
+           WHERE t.user_id::text = users.id::text
              AND LOWER(COALESCE(t.status, '')) = 'completed'
          )
          AND NOT EXISTS (
            SELECT 1 FROM audio_cache_user_state s
-           WHERE s.user_id = users.id
+           WHERE s.user_id::text = users.id::text
              AND s.last_paid_at IS NOT NULL
          )
        AND COALESCE(last_seen, created_at) < NOW() - ($1::int * INTERVAL '1 day')
@@ -93,12 +93,12 @@ export async function runInactiveUserCleanupOnce() {
          AND (
            EXISTS (
              SELECT 1 FROM transactions t
-             WHERE t.user_id = users.id
+             WHERE t.user_id::text = users.id::text
                AND LOWER(COALESCE(t.status, '')) = 'completed'
            )
            OR EXISTS (
              SELECT 1 FROM audio_cache_user_state s
-             WHERE s.user_id = users.id
+             WHERE s.user_id::text = users.id::text
                AND s.last_paid_at IS NOT NULL
            )
          )
