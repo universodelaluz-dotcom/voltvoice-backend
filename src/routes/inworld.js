@@ -1,11 +1,51 @@
 import { Router } from 'express';
 import https from 'https';
 import jwt from 'jsonwebtoken';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
+import ffmpeg from 'fluent-ffmpeg';
 import { config } from '../config.js';
 import tokenService from '../services/tokenService.js';
 import { verifyToken } from '../../middleware/auth.js';
 import pool from '../db.js';
 import audioCacheService from '../services/audioCacheService.js';
+import inworldTtsService from '../services/inworldTtsService.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const STUDIO_PRO_DIR = path.join(__dirname, '../../tmp/studio-pro');
+const UPLOAD_DIR = path.join(STUDIO_PRO_DIR, 'uploads');
+
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// Multer configuration for file uploads (150MB max)
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (req, file, cb) => {
+      const fileId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const ext = path.extname(file.originalname);
+      cb(null, `${fileId}${ext}`);
+    }
+  }),
+  limits: { fileSize: 150 * 1024 * 1024 }, // 150MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav',
+      'video/mp4', 'video/x-msvideo', 'video/quicktime', 'video/x-matroska'
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Formato de archivo no soportado'));
+    }
+  }
+});
 
 const router = Router();
 
@@ -462,6 +502,230 @@ router.post('/test', async (req, res) => {
     return res.status(500).json({
       error: 'Test failed',
       message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/inworld/extract-audio - Upload file and get duration for Studio Pro
+ * Available for CREATOR and PRO plans only
+ * Returns fileId and duration (milliseconds)
+ */
+router.post('/extract-audio', verifyToken, upload.single('file'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Check plan
+    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
+    if (!['creator', 'pro'].includes(userPlan)) {
+      return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Archivo requerido' });
+    }
+
+    const filePath = req.file.path;
+    const fileId = path.basename(filePath, path.extname(filePath));
+
+    // Get duration using ffmpeg
+    let duration = 0;
+    try {
+      await new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(filePath, (err, metadata) => {
+          if (err) reject(err);
+          else {
+            duration = Math.floor((metadata.format.duration || 0) * 1000); // ms
+            resolve();
+          }
+        });
+      });
+    } catch (err) {
+      console.error('[Studio Pro] ffprobe error:', err.message);
+      fs.unlink(filePath, () => {});
+      return res.status(400).json({ error: 'No se pudo procesar el archivo' });
+    }
+
+    // Validate duration (max 10 minutes = 600000 ms)
+    if (duration > 600000) {
+      fs.unlink(filePath, () => {});
+      return res.status(400).json({ error: 'Archivo muy largo. Máximo 10 minutos.' });
+    }
+
+    if (duration < 5000) { // At least 5 seconds
+      fs.unlink(filePath, () => {});
+      return res.status(400).json({ error: 'Archivo muy corto. Mínimo 5 segundos.' });
+    }
+
+    // Create metadata file
+    const metadata = {
+      fileId,
+      userId,
+      filePath,
+      duration,
+      createdAt: Date.now(),
+      originalName: req.file.originalname
+    };
+
+    const metadataPath = path.join(STUDIO_PRO_DIR, `${fileId}.json`);
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata));
+
+    console.log(`[Studio Pro] Audio uploaded: fileId=${fileId} duration=${duration}ms user=${userId}`);
+
+    return res.status(200).json({
+      success: true,
+      fileId,
+      duration
+    });
+  } catch (error) {
+    console.error('[Studio Pro Extract] Error:', error.message);
+    if (req.file) {
+      fs.unlink(req.file.path, () => {});
+    }
+    return res.status(500).json({
+      error: 'Error procesando archivo',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/inworld/extract-clip - Extract audio segment and clone voice
+ * Available for CREATOR and PRO plans only
+ * Body: { fileId, startMs, endMs, voiceName, langCode }
+ */
+router.post('/extract-clip', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { fileId, startMs, endMs, voiceName, langCode = 'ES_ES' } = req.body;
+
+    // Validate required fields
+    if (!fileId || startMs === undefined || endMs === undefined || !voiceName) {
+      return res.status(400).json({ error: 'fileId, startMs, endMs, voiceName son requeridos' });
+    }
+
+    // Check plan
+    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
+    if (!['creator', 'pro'].includes(userPlan)) {
+      return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
+    }
+
+    // Load metadata
+    const metadataPath = path.join(STUDIO_PRO_DIR, `${fileId}.json`);
+    if (!fs.existsSync(metadataPath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+    if (metadata.userId !== userId) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
+    const inputFilePath = metadata.filePath;
+    if (!fs.existsSync(inputFilePath)) {
+      return res.status(404).json({ error: 'Archivo subido no encontrado' });
+    }
+
+    // Validate clip duration (should be 5-15 seconds but allow any, server validates, warn on UI)
+    const clipDuration = endMs - startMs;
+    if (clipDuration < 1000) { // At least 1 second
+      return res.status(400).json({ error: 'Duración mínima del clip: 1 segundo' });
+    }
+    if (clipDuration > 30000) { // Max 30 seconds for safety
+      return res.status(400).json({ error: 'Duración máxima del clip: 30 segundos' });
+    }
+
+    // Extract audio segment using ffmpeg
+    const outputDir = path.join(STUDIO_PRO_DIR, fileId);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const outputFilePath = path.join(outputDir, 'clip.wav');
+
+    try {
+      await new Promise((resolve, reject) => {
+        ffmpeg(inputFilePath)
+          .setStartTime(startMs / 1000)
+          .setDuration(clipDuration / 1000)
+          .audioCodec('pcm_s16le')
+          .audioFrequency(16000)
+          .audioChannels(1)
+          .format('wav')
+          .on('error', reject)
+          .on('end', resolve)
+          .save(outputFilePath);
+      });
+    } catch (err) {
+      console.error('[Studio Pro] ffmpeg extraction error:', err.message);
+      return res.status(500).json({ error: 'Error extrayendo audio', detail: err.message });
+    }
+
+    // Read extracted audio and call cloneVoice
+    let audioBuffer;
+    try {
+      audioBuffer = fs.readFileSync(outputFilePath);
+    } catch (err) {
+      console.error('[Studio Pro] Error reading extracted clip:', err.message);
+      return res.status(500).json({ error: 'Error leyendo clip extraído' });
+    }
+
+    // Call Inworld clone voice API
+    let cloneResult;
+    try {
+      cloneResult = await inworldTtsService.cloneVoice(voiceName, audioBuffer, '', langCode);
+    } catch (err) {
+      console.error('[Studio Pro] Clone voice error:', err.message);
+      return res.status(502).json({ error: 'Error clonando voz', detail: err.message });
+    }
+
+    // Store in user_voices table
+    const voiceId = cloneResult.voiceId;
+    const displayName = voiceName;
+
+    try {
+      await pool.query(
+        `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT DO NOTHING`,
+        [userId, displayName, voiceId, 'inworld-cloned']
+      );
+    } catch (err) {
+      console.error('[Studio Pro] Error saving voice to DB:', err.message);
+      // Continue anyway - voice is created in Inworld even if DB save fails
+    }
+
+    // Clean up temp files immediately on success
+    try {
+      fs.unlinkSync(outputFilePath);
+      fs.unlinkSync(inputFilePath);
+      fs.unlinkSync(metadataPath);
+      fs.rmdirSync(outputDir, { force: true });
+    } catch (err) {
+      console.warn('[Studio Pro] Cleanup error:', err.message);
+    }
+
+    console.log(`[Studio Pro] Voice cloned successfully: fileId=${fileId} voiceId=${voiceId} user=${userId}`);
+
+    return res.status(200).json({
+      success: true,
+      voiceId,
+      displayName,
+      provider: 'inworld-cloned'
+    });
+  } catch (error) {
+    console.error('[Studio Pro Extract Clip] Error:', error.message);
+    return res.status(500).json({
+      error: 'Error procesando clip',
+      detail: error.message
     });
   }
 });

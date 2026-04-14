@@ -1,5 +1,12 @@
 import pool from '../db.js';
 import { config } from '../../config.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const STUDIO_PRO_DIR = path.join(__dirname, '../../tmp/studio-pro');
 
 const toPositiveInt = (value, fallback) => {
   const n = Number(value);
@@ -156,9 +163,42 @@ export async function runInactiveUserCleanupOnce() {
     const purgedFree = Number(purgeFreeCacheResult.rowCount || 0);
     const purgedLapsedPaid = Number(purgeLapsedPaidCacheResult.rowCount || 0);
 
-    if (purgedFree > 0 || purgedLapsedPaid > 0 || deletedFreeUsers > 0 || deletedLapsedPaidUsers > 0) {
+    // Clean up Studio Pro temp files older than 3 minutes
+    let studioPurged = 0;
+    try {
+      if (fs.existsSync(STUDIO_PRO_DIR)) {
+        const files = fs.readdirSync(STUDIO_PRO_DIR);
+        const now = Date.now();
+        const threeMinutes = 3 * 60 * 1000;
+
+        for (const file of files) {
+          if (file === 'uploads' || file === '.gitkeep') continue;
+
+          const filePath = path.join(STUDIO_PRO_DIR, file);
+          const stats = fs.statSync(filePath);
+          const fileAge = now - stats.mtimeMs;
+
+          if (fileAge > threeMinutes) {
+            try {
+              if (stats.isDirectory()) {
+                fs.rmSync(filePath, { recursive: true, force: true });
+              } else {
+                fs.unlinkSync(filePath);
+              }
+              studioPurged++;
+            } catch (err) {
+              console.warn(`[InactiveCleanup] Failed to delete ${file}: ${err.message}`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[InactiveCleanup] Studio Pro cleanup error:', err.message);
+    }
+
+    if (purgedFree > 0 || purgedLapsedPaid > 0 || deletedFreeUsers > 0 || deletedLapsedPaidUsers > 0 || studioPurged > 0) {
       console.log(
-        `[InactiveCleanup] free_cache_purged=${purgedFree} lapsed_paid_cache_purged=${purgedLapsedPaid} deleted_free_users=${deletedFreeUsers} deleted_lapsed_paid_users=${deletedLapsedPaidUsers}`
+        `[InactiveCleanup] free_cache_purged=${purgedFree} lapsed_paid_cache_purged=${purgedLapsedPaid} deleted_free_users=${deletedFreeUsers} deleted_lapsed_paid_users=${deletedLapsedPaidUsers} studio_pro_purged=${studioPurged}`
       );
     }
   } catch (err) {
