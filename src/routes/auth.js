@@ -14,7 +14,9 @@ const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const router = Router();
-const isRecaptchaRequired = config.isProduction && config.RECAPTCHA_REQUIRED_IN_PROD;
+const isRecaptchaRequired = config.isProduction
+  ? config.RECAPTCHA_REQUIRED_IN_PROD
+  : config.RECAPTCHA_REQUIRED_IN_DEV;
 
 const buildAuthCookie = (token) => {
   const parts = [
@@ -119,9 +121,13 @@ function hashResetCode(email, code) {
 }
 
 async function verifyRecaptcha(token) {
+  if (!token) {
+    return false;
+  }
+
   if (!RECAPTCHA_SECRET) {
     if (isRecaptchaRequired) {
-      console.error('[Auth] RECAPTCHA_SECRET no configurado en produccion');
+      console.error('[Auth] RECAPTCHA_SECRET no configurado y CAPTCHA requerido');
       return false;
     }
     console.warn('[Auth] RECAPTCHA_SECRET no configurado - saltando validacion');
@@ -199,9 +205,9 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'La contraseña debe tener letras y números' });
   }
 
-  // Validar reCAPTCHA (obligatorio en producción)
+  // Validar reCAPTCHA (obligatorio según entorno/configuración)
   if (isRecaptchaRequired && !recaptchaToken) {
-    return res.status(400).json({ error: 'CAPTCHA requerido en producción' });
+    return res.status(400).json({ error: 'CAPTCHA requerido para crear cuenta' });
   }
   if (recaptchaToken || isRecaptchaRequired) {
     const captchaValid = await verifyRecaptcha(recaptchaToken);

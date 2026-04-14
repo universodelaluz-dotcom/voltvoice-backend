@@ -106,6 +106,16 @@ class MercadoPagoService {
     try {
       const paymentId = paymentData.data.id;
 
+      // Idempotencia: no procesar el mismo pago dos veces
+      const existing = await db.query(
+        'SELECT id FROM transactions WHERE stripe_payment_id = $1',
+        [String(paymentId)]
+      );
+      if (existing.rows.length > 0) {
+        console.log(`[MERCADO_PAGO] Pago ${paymentId} ya fue procesado, ignorando.`);
+        return { success: true, status: 'already_processed' };
+      }
+
       const response = await axios.get(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: {
           'Authorization': `Bearer ${this.token}`

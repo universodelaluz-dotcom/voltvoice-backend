@@ -1,10 +1,43 @@
 // Routes para pagos con Mercado Pago
 
+import crypto from 'crypto';
 import express from 'express';
 import mercadoPagoService from '../services/mercadoPagoService.js';
 import { verifyToken } from '../../middleware/auth.js';
 import { config } from '../../config.js';
 import monitoring from '../services/monitoring.js';
+
+function verifyMercadoPagoSignature(req) {
+  const secret = config.MERCADO_PAGO_WEBHOOK_SECRET;
+  if (!secret) return true; // omitir si aún no está configurado
+
+  const xSignature = req.headers['x-signature'];
+  const xRequestId = req.headers['x-request-id'];
+
+  if (!xSignature || !xRequestId) return false;
+
+  const parts = {};
+  xSignature.split(',').forEach(part => {
+    const [k, v] = part.trim().split('=');
+    if (k && v) parts[k] = v;
+  });
+
+  const ts = parts['ts'];
+  const v1 = parts['v1'];
+  if (!ts || !v1) return false;
+
+  const dataId = req.body?.data?.id;
+  if (!dataId) return false;
+
+  const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+  const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(v1, 'hex'));
+  } catch {
+    return false;
+  }
+}
 
 const router = express.Router();
 
@@ -67,7 +100,11 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
 // POST - Webhook de Mercado Pago (sin autenticación)
 router.post('/webhook', express.json(), async (req, res) => {
   try {
-    // Mercado Pago envía notificaciones en query params
+    if (!verifyMercadoPagoSignature(req)) {
+      console.warn('[MERCADO_PAGO] Webhook rechazado: firma inválida');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
     const { type, data } = req.body;
 
     if (type === 'payment') {

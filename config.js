@@ -27,6 +27,7 @@ export const config = {
   AUTH_COOKIE_SECURE: parseBoolean(process.env.AUTH_COOKIE_SECURE, process.env.NODE_ENV === 'production'),
   AUTH_INCLUDE_TOKEN_RESPONSE: parseBoolean(process.env.AUTH_INCLUDE_TOKEN_RESPONSE, true),
   RECAPTCHA_REQUIRED_IN_PROD: parseBoolean(process.env.RECAPTCHA_REQUIRED_IN_PROD, true),
+  RECAPTCHA_REQUIRED_IN_DEV: parseBoolean(process.env.RECAPTCHA_REQUIRED_IN_DEV, false),
 
   // APIs
   YOUTUBE_API_KEYS: [
@@ -43,6 +44,7 @@ export const config = {
 
   // Mercado Pago
   MERCADO_PAGO_ACCESS_TOKEN: process.env.MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_WEBHOOK_SECRET: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
 
   // PayPal
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,

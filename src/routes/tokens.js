@@ -2,7 +2,7 @@
 
 import express from 'express';
 import * as tokenService from '../services/tokenService.js';
-import { verifyToken } from '../../middleware/auth.js';
+import { verifyToken, requireAdmin } from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -59,8 +59,8 @@ router.post('/synthesize', verifyToken, async (req, res) => {
   }
 });
 
-// POST - Comprar tokens (integrado con Stripe después)
-router.post('/purchase', verifyToken, async (req, res) => {
+// POST - Comprar tokens (solo admin — la compra real va por /api/mercadopago/create-preference)
+router.post('/purchase', requireAdmin, async (req, res) => {
   try {
     const { tokensPurchase, stripePaymentId } = req.body;
 
