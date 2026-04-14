@@ -397,23 +397,19 @@ router.post('/forgot-password', async (req, res) => {
   const ip = getClientIp(req);
   const now = Date.now();
   const rawEmail = req.body.email;
-  const genericResponse = {
-    success: true,
-    message: 'Si el email existe, enviamos un código de recuperación.'
-  };
 
   if (!rawEmail) {
-    return res.status(200).json(genericResponse);
+    return res.status(400).json({ error: 'Ingresa tu email.' });
   }
 
   const email = sanitizeEmail(rawEmail);
   if (!validateEmailFormat(email)) {
-    return res.status(200).json(genericResponse);
+    return res.status(400).json({ error: 'El formato del email no es válido.' });
   }
 
   const attempt = forgotPasswordAttempts.get(ip);
   if (attempt && now - attempt.firstAttempt < FORGOT_WINDOW_MS && attempt.count >= FORGOT_MAX_ATTEMPTS) {
-    return res.status(200).json(genericResponse);
+    return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos.' });
   }
   if (attempt && now - attempt.firstAttempt >= FORGOT_WINDOW_MS) {
     forgotPasswordAttempts.delete(ip);
@@ -431,8 +427,11 @@ router.post('/forgot-password', async (req, res) => {
       [email]
     );
     const user = userResult.rows[0];
-    if (!user || !user.email_verified) {
-      return res.status(200).json(genericResponse);
+    if (!user) {
+      return res.status(404).json({ error: 'No existe ninguna cuenta registrada con ese correo.' });
+    }
+    if (!user.email_verified) {
+      return res.status(400).json({ error: 'Esa cuenta aún no ha verificado su email.' });
     }
 
     await pool.query(
@@ -456,12 +455,13 @@ router.post('/forgot-password', async (req, res) => {
     const sent = await sendPasswordResetEmail(email, code);
     if (!sent) {
       console.log(`[Auth] Código de recuperación para ${email}: ${code}`);
+      return res.status(500).json({ error: 'No se pudo enviar el email. Verifica que el correo sea correcto o contacta soporte.' });
     }
 
-    return res.status(200).json(genericResponse);
+    return res.status(200).json({ success: true, message: 'Código enviado. Revisa tu correo.' });
   } catch (error) {
     console.error('[Auth] Error forgot-password:', error.message);
-    return res.status(200).json(genericResponse);
+    return res.status(500).json({ error: 'Error interno. Intenta de nuevo.' });
   }
 });
 

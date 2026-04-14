@@ -13,9 +13,9 @@ export async function sendVerificationEmail(email, code) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Verifica tu email - VoltVoice',
+      subject: 'Verifica tu email - Stream Voicer',
       html: `
-        <h2>¡Bienvenido a VoltVoice!</h2>
+        <h2>¡Bienvenido a Stream Voicer!</h2>
         <p>Para completar tu registro, usa el siguiente código de verificación:</p>
         <h1 style="color: #06b6d4; font-size: 32px; letter-spacing: 2px;">${code}</h1>
         <p>Este código expira en 15 minutos.</p>
@@ -35,10 +35,10 @@ export async function sendWelcomeEmail(email) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: '¡Cuenta creada exitosamente - VoltVoice',
+      subject: '¡Cuenta creada exitosamente - Stream Voicer',
       html: `
         <h2>¡Cuenta activada!</h2>
-        <p>Tu cuenta en VoltVoice ha sido creada exitosamente.</p>
+        <p>Tu cuenta en Stream Voicer ha sido creada exitosamente.</p>
         <p>Puedes iniciar sesión ahora y comenzar a usar la plataforma.</p>
         <p>¡Que disfrutes!</p>
       `
@@ -55,7 +55,7 @@ export async function sendPasswordResetEmail(email, code) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Recuperar contraseña - VoltVoice',
+      subject: 'Recuperar contraseña - Stream Voicer',
       html: `
         <h2>Recuperación de contraseña</h2>
         <p>Recibimos una solicitud para restablecer tu contraseña.</p>
