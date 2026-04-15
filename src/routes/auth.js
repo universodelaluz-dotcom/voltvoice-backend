@@ -638,7 +638,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
+        plan: String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
       }
@@ -714,7 +714,7 @@ router.post('/google', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
+        plan: String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         name,
@@ -760,7 +760,7 @@ router.get('/me', verifyToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
+        plan: String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         created_at: user.created_at,
