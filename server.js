@@ -24,6 +24,7 @@ import nickRoutes from './src/routes/nicks.js';
 import botRoutes from './src/routes/bot.js';
 import adminRoutes from './src/routes/admin.js';
 import opsRoutes from './src/routes/ops.js';
+import supportRoutes from './src/routes/support.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -417,6 +418,7 @@ import pool from './src/db.js';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_password_reset_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);
       CREATE INDEX IF NOT EXISTS idx_users_suspended ON users(is_suspended);
 
       -- Admin audit log
@@ -689,6 +691,8 @@ try {
   console.log('[STARTUP] ✓ Admin routes loaded');
   app.use('/api/ops', opsRoutes);
   console.log('[STARTUP] ✓ Ops routes loaded');
+  app.use('/api/support', supportRoutes);
+  console.log('[STARTUP] ✓ Support routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
