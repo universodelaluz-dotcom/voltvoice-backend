@@ -169,11 +169,6 @@ router.get('/debug/flash-turbo', requireAdmin, async (req, res) => {
     const voiceId = '21m00Tcm4TlvDq8ikWAM'; // Rachel voice
     const testText = 'Hola mundo, esto es una prueba de Flash Turbo';
 
-    console.log('[DEBUG] ELEVENLABS_API_KEY from process.env:', apiKey.substring(0, 10) + '...');
-    console.log('[DEBUG] API Key length:', apiKey.length);
-    console.log('[DEBUG] API Key first 5 chars:', apiKey.substring(0, 5));
-    console.log('[DEBUG] API Key last 5 chars:', apiKey.substring(apiKey.length - 5));
-
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
@@ -204,11 +199,6 @@ router.get('/debug/flash-turbo', requireAdmin, async (req, res) => {
         audioSize: audioBuffer.byteLength,
         contentType: contentType,
         message: 'Flash/Turbo TTS working!',
-        apiKeyInfo: {
-          length: apiKey.length,
-          starts: apiKey.substring(0, 5),
-          ends: apiKey.substring(apiKey.length - 5)
-        },
         timestamp: new Date().toISOString()
       });
     } else {
@@ -220,25 +210,19 @@ router.get('/debug/flash-turbo', requireAdmin, async (req, res) => {
         statusText: response.statusText,
         contentType: contentType,
         response: text,
-        apiKeyInfo: {
-          length: apiKey.length,
-          starts: apiKey.substring(0, 5),
-          ends: apiKey.substring(apiKey.length - 5)
-        },
         timestamp: new Date().toISOString()
       });
     }
   } catch (error) {
     res.json({
       error: error.message,
-      stack: error.stack,
       timestamp: new Date().toISOString()
     });
   }
 });
 
 // ADMIN - Add tokens to user (for testing)
-router.post('/admin/add-tokens', async (req, res) => {
+router.post('/admin/add-tokens', requireAdmin, async (req, res) => {
   try {
     const { userId, tokens } = req.body;
 

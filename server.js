@@ -83,7 +83,7 @@ const allowedOrigins = [
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -419,6 +419,14 @@ import pool from './src/db.js';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_password_reset_at TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_billing_cycle VARCHAR(20) DEFAULT 'monthly';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_current_period_start TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_at_period_end BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancelled_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_plan_key VARCHAR(20);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_billing_cycle VARCHAR(20);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_effective_at TIMESTAMP;
       CREATE INDEX IF NOT EXISTS idx_users_suspended ON users(is_suspended);
 
       -- Admin audit log

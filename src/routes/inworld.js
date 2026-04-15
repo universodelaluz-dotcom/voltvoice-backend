@@ -630,6 +630,9 @@ router.post('/preview-clip', verifyToken, async (req, res) => {
     if (!fileId || startMs === undefined || endMs === undefined) {
       return res.status(400).json({ error: 'fileId, startMs, endMs requeridos' });
     }
+    if (!/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+      return res.status(400).json({ error: 'fileId inválido' });
+    }
 
     const clipDuration = endMs - startMs;
     if (clipDuration < 500) return res.status(400).json({ error: 'Clip muy corto' });
@@ -699,6 +702,9 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
     // Validate required fields
     if (!fileId || startMs === undefined || endMs === undefined || !voiceName) {
       return res.status(400).json({ error: 'fileId, startMs, endMs, voiceName son requeridos' });
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+      return res.status(400).json({ error: 'fileId inválido' });
     }
 
     // Check plan
