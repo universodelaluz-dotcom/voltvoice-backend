@@ -799,11 +799,11 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
       console.warn('[Studio Pro] Cleanup error:', err.message);
     }
 
-    console.log(`[Studio Pro] Voice cloned successfully: fileId=${fileId} voiceId=${voiceId} user=${userId}`);
+    console.log(`[Studio Pro] Voice cloned successfully: fileId=${fileId} voiceId=${finalVoiceId} user=${userId}`);
 
     return res.status(200).json({
       success: true,
-      voiceId,
+      voiceId: finalVoiceId,
       displayName,
       provider: 'inworld-cloned'
     });
