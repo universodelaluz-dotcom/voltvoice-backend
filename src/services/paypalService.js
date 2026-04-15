@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
+import db from '../db.js';
+import subscriptionService from './subscriptionService.js';
 
 const PAYPAL_API = config.PAYPAL_MODE === 'sandbox'
   ? 'https://api-m.sandbox.paypal.com'
@@ -57,6 +59,32 @@ export async function createPaypalOrder(userId, payload) {
   try {
     const accessToken = await getAccessToken();
     const billingCycle = String(payload.billingCycle || 'monthly').toLowerCase();
+    let quote = null;
+    let chargedPrice = item.price;
+
+    if (item.kind === 'plan') {
+      quote = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
+      if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
+        const scheduled = await subscriptionService.schedulePlanChange(Number(userId), item.planKey, billingCycle);
+        return {
+          action: quote.action,
+          requiresPayment: false,
+          message: 'Cambio de plan programado para el siguiente ciclo de facturación.',
+          subscription: scheduled.subscription,
+          quote
+        };
+      }
+      if (quote.action === 'already_on_plan') {
+        return {
+          action: quote.action,
+          requiresPayment: false,
+          message: 'Ya tienes este plan activo para el ciclo actual.',
+          quote
+        };
+      }
+      chargedPrice = quote.payableAmountUsd;
+    }
+
     const referenceId = item.kind === 'plan'
       ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
       : `user_${userId}_tokens_${payload.tokensPackage}`;
@@ -70,7 +98,7 @@ export async function createPaypalOrder(userId, payload) {
           description: `VoltVoice - ${item.description}`,
           amount: {
             currency_code: 'USD',
-            value: item.price.toFixed(2)
+            value: chargedPrice.toFixed(2)
           }
         }],
         application_context: {
@@ -91,7 +119,10 @@ export async function createPaypalOrder(userId, payload) {
     const approvalLink = res.data.links.find((link) => link.rel === 'approve');
     return {
       orderId: res.data.id,
-      approvalUrl: approvalLink?.href || null
+      approvalUrl: approvalLink?.href || null,
+      action: quote?.action || 'purchase',
+      requiresPayment: true,
+      quote
     };
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.response?.data || error.message);
@@ -112,7 +143,67 @@ export async function capturePaypalOrder(orderId) {
         }
       }
     );
-    return res.data;
+    const capture = res.data;
+    const purchaseUnit = capture?.purchase_units?.[0];
+    const referenceId = String(purchaseUnit?.reference_id || '');
+    const parts = referenceId.split('_');
+    const userId = Number(parts[1]);
+    const kind = parts[2];
+
+    if (!userId || !kind) {
+      throw new Error('Invalid PayPal reference_id');
+    }
+
+    const captureId = purchaseUnit?.payments?.captures?.[0]?.id || orderId;
+    const amountPaid = Number(purchaseUnit?.payments?.captures?.[0]?.amount?.value || purchaseUnit?.amount?.value || 0);
+
+    if (kind === 'plan') {
+      const item = getCheckoutItem({
+        itemType: 'plan',
+        planId: parts[3],
+        billingCycle: parts[4]
+      });
+      if (!item) throw new Error('Invalid plan reference');
+
+      const applied = await subscriptionService.applyPaidPlanChange({
+        userId,
+        planKey: item.planKey,
+        billingCycle: parts[4]
+      });
+
+      await db.query(
+        `INSERT INTO transactions (user_id, tokens_purchased, amount_usd, stripe_payment_id, status)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, item.tokens, amountPaid, captureId, 'completed']
+      );
+
+      return {
+        ...capture,
+        planApplied: applied.subscription,
+        quote: applied.quote
+      };
+    }
+
+    const tokens = parseInt(parts[3], 10);
+    const balance = await db.query(
+      `UPDATE users
+       SET tokens = tokens + $1
+       WHERE id = $2
+       RETURNING tokens`,
+      [tokens, userId]
+    );
+
+    await db.query(
+      `INSERT INTO transactions (user_id, tokens_purchased, amount_usd, stripe_payment_id, status)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, tokens, amountPaid, captureId, 'completed']
+    );
+
+    return {
+      ...capture,
+      tokensAdded: tokens,
+      newBalance: balance.rows[0]?.tokens || 0
+    };
   } catch (error) {
     console.error('[PAYPAL] Error capturing order:', error.response?.data || error.message);
     throw error;

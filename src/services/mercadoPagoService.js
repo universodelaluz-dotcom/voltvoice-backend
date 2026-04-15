@@ -1,6 +1,7 @@
 import axios from 'axios';
 import db from '../db.js';
 import { config } from '../config.js';
+import subscriptionService from './subscriptionService.js';
 
 const TOKEN_PACKAGES = {
   150000: { kind: 'tokens', price: 4.99, tokens: 150000, description: 'MINI BOOST - 150K caracteres' },
@@ -50,6 +51,37 @@ class MercadoPagoService {
       }
 
       const billingCycle = String(payload.billingCycle || 'monthly').toLowerCase();
+      let quotedPlan = null;
+      let chargedPrice = item.price;
+
+      if (item.kind === 'plan') {
+        quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
+
+        if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action)) {
+          const scheduled = await subscriptionService.schedulePlanChange(Number(userId), item.planKey, billingCycle);
+          return {
+            success: true,
+            action: quotedPlan.action,
+            requiresPayment: false,
+            message: 'Cambio de plan programado para el siguiente ciclo de facturación.',
+            subscription: scheduled.subscription,
+            quote: quotedPlan
+          };
+        }
+
+        if (quotedPlan.action === 'already_on_plan') {
+          return {
+            success: true,
+            action: quotedPlan.action,
+            requiresPayment: false,
+            message: 'Ya tienes este plan activo para el ciclo actual.',
+            quote: quotedPlan
+          };
+        }
+
+        chargedPrice = quotedPlan.payableAmountUsd;
+      }
+
       const externalReference = item.kind === 'plan'
         ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
         : `user_${userId}_tokens_${payload.tokensPackage}`;
@@ -65,7 +97,7 @@ class MercadoPagoService {
               ? `Compra del ${item.description}`
               : `Compra ${payload.tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
-            unit_price: item.price,
+            unit_price: chargedPrice,
             currency_id: 'USD'
           }
         ],
@@ -92,6 +124,9 @@ class MercadoPagoService {
 
       return {
         success: true,
+        action: quotedPlan?.action || 'purchase',
+        requiresPayment: true,
+        quote: quotedPlan,
         preferenceId: response.data.id,
         initPoint: response.data.init_point,
         sandboxInitPoint: response.data.sandbox_init_point
@@ -146,13 +181,11 @@ class MercadoPagoService {
           throw new Error('Invalid plan reference');
         }
 
-        const result = await db.query(
-          `UPDATE users
-           SET plan = $1, tokens = GREATEST(tokens, $2)
-           WHERE id = $3
-           RETURNING tokens, plan`,
-          [item.backendPlan, item.tokens, userId]
-        );
+        const applied = await subscriptionService.applyPaidPlanChange({
+          userId: Number(userId),
+          planKey: item.planKey,
+          billingCycle: parts[4]
+        });
 
         await db.query(
           `INSERT INTO transactions (user_id, tokens_purchased, amount_usd, stripe_payment_id, status)
@@ -163,9 +196,10 @@ class MercadoPagoService {
         return {
           success: true,
           userId,
-          plan: result.rows[0].plan,
-          newBalance: result.rows[0].tokens,
-          tokensAdded: item.tokens
+          plan: applied.subscription.backendPlan,
+          newBalance: applied.subscription.tokens,
+          tokensAdded: item.tokens,
+          quote: applied.quote
         };
       }
 

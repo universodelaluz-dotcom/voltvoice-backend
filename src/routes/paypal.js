@@ -42,7 +42,25 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     if (!tokensPackage && !planId) return res.status(400).json({ error: 'Missing checkout item' });
 
     const result = await createPaypalOrder(req.userId, { tokensPackage, planId, billingCycle, itemType });
-    res.json({ success: true, orderId: result.orderId, approvalUrl: result.approvalUrl });
+    if (result.requiresPayment === false) {
+      return res.json({
+        success: true,
+        requiresPayment: false,
+        action: result.action,
+        message: result.message,
+        subscription: result.subscription,
+        quote: result.quote
+      });
+    }
+
+    res.json({
+      success: true,
+      requiresPayment: true,
+      orderId: result.orderId,
+      approvalUrl: result.approvalUrl,
+      action: result.action,
+      quote: result.quote
+    });
   } catch (error) {
     console.error('[PAYPAL] Error creating order:', error.message);
     monitoring.recordPaymentFailure({

@@ -78,10 +78,24 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
       { tokensPackage, planId, billingCycle, itemType }
     );
 
-    res.json({
+    if (preference.requiresPayment === false) {
+      return res.json({
+        success: true,
+        requiresPayment: false,
+        action: preference.action,
+        message: preference.message,
+        subscription: preference.subscription,
+        quote: preference.quote
+      });
+    }
+
+    return res.json({
       success: true,
+      requiresPayment: true,
+      action: preference.action,
+      quote: preference.quote,
       preferenceId: preference.preferenceId,
-      // Usar init_point para producción, sandbox_init_point para testing
+      // Usar init_point para produccion, sandbox_init_point para testing
       checkoutUrl: preference.initPoint,
       sandboxUrl: preference.sandboxInitPoint
     });

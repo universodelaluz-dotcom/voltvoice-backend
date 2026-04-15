@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken, requireAdmin } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
+import subscriptionService from '../services/subscriptionService.js';
 
 const router = Router();
 
@@ -636,12 +637,14 @@ router.get('/plan', verifyToken, async (req, res) => {
     }
 
     const user = result.rows[0];
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
     return res.json({
       success: true,
       userId: user.id,
       email: user.email,
       currentPlan: user.plan || 'free',
-      tokens: user.tokens
+      tokens: user.tokens,
+      subscription
     });
   } catch (error) {
     console.error('[Plan] Error:', error.message);
@@ -680,6 +683,36 @@ router.post('/plan', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('[Plan] Error actualizando:', error.message);
     return res.status(500).json({ error: 'Error actualizando plan' });
+  }
+});
+
+/**
+ * GET /api/settings/subscription - Estado de suscripción del usuario
+ */
+router.get('/subscription', verifyToken, async (req, res) => {
+  try {
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
+    return res.json({ success: true, subscription });
+  } catch (error) {
+    console.error('[Subscription] Error leyendo estado:', error.message);
+    return res.status(500).json({ error: 'Error obteniendo suscripción' });
+  }
+});
+
+/**
+ * POST /api/settings/subscription/cancel - Cancelar al final del periodo
+ */
+router.post('/subscription/cancel', verifyToken, async (req, res) => {
+  try {
+    const subscription = await subscriptionService.cancelAtPeriodEnd(req.user.userId);
+    return res.json({
+      success: true,
+      message: 'Cancelación programada. El acceso se mantiene hasta el final del periodo actual.',
+      subscription
+    });
+  } catch (error) {
+    console.error('[Subscription] Error cancelando:', error.message);
+    return res.status(500).json({ error: 'No se pudo cancelar la suscripción' });
   }
 });
 
