@@ -516,12 +516,13 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
     const userId = req.user.userId;
 
     // Check plan
-    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [userId]);
+    const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [userId]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
     const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
-    if (!['creator', 'pro'].includes(userPlan)) {
+    const userRole = userResult.rows[0].role || 'user';
+    if (!['creator', 'pro'].includes(userPlan) && userRole !== 'admin') {
       return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
     }
 
@@ -609,12 +610,13 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
     }
 
     // Check plan
-    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [userId]);
+    const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [userId]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
     const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
-    if (!['creator', 'pro'].includes(userPlan)) {
+    const userRole = userResult.rows[0].role || 'user';
+    if (!['creator', 'pro'].includes(userPlan) && userRole !== 'admin') {
       return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
     }
 
@@ -687,16 +689,28 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
       return res.status(502).json({ error: 'Error clonando voz', detail: err.message });
     }
 
+    // Publish voice (same as regular clone flow) — required for TTS to work correctly
+    let finalVoiceId = cloneResult.voiceId;
+    try {
+      const publishResult = await inworldTtsService.publishVoice(cloneResult.voiceId, voiceName);
+      if (publishResult?.voiceId) {
+        finalVoiceId = publishResult.voiceId;
+        console.log(`[Studio Pro] Voz publicada: ${cloneResult.voiceId} -> ${finalVoiceId}`);
+      }
+    } catch (publishError) {
+      console.warn(`[Studio Pro] No se pudo publicar voz ${cloneResult.voiceId}: ${publishError.message}`);
+      // Continue with unpublished voiceId — TTS may still work
+    }
+
     // Store in user_voices table
-    const voiceId = cloneResult.voiceId;
     const displayName = voiceName;
 
     try {
       await pool.query(
         `INSERT INTO user_voices (user_id, voice_name, voice_id, provider, created_at)
          VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT DO NOTHING`,
-        [userId, displayName, voiceId, 'inworld-cloned']
+         ON CONFLICT (user_id, voice_name) DO UPDATE SET voice_id = $3`,
+        [userId, displayName, finalVoiceId, 'inworld-cloned']
       );
     } catch (err) {
       console.error('[Studio Pro] Error saving voice to DB:', err.message);
