@@ -46,7 +46,9 @@ export const verifyToken = async (req, res, next) => {
         [decoded.userId]
       );
     } catch (queryError) {
-      if (queryError?.code !== '42703') throw queryError;
+      const msg = String(queryError?.message || '').toLowerCase();
+      const missingColumn = queryError?.code === '42703' || msg.includes('session_token') || msg.includes('does not exist');
+      if (!missingColumn) throw queryError;
       console.warn('[Auth] session_token no existe en users, validando en modo compatible');
       result = await pool.query(
         `SELECT is_suspended, suspended_until

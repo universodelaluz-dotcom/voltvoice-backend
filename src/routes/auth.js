@@ -77,7 +77,9 @@ const updateUserSessionState = async ({ userId, sessionToken, includeUpdatedAt =
       [userId, sessionToken]
     );
   } catch (error) {
-    if (error?.code !== '42703') throw error;
+    const msg = String(error?.message || '').toLowerCase();
+    const missingColumn = error?.code === '42703' || msg.includes('session_token') || msg.includes('does not exist');
+    if (!missingColumn) throw error;
     console.warn('[Auth] session_token no existe, aplicando modo compatible');
     await tryEnsureSessionTokenColumn();
     await pool.query(
@@ -673,7 +675,11 @@ router.post('/login', async (req, res) => {
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const token = generateToken(user.id, sessionToken);
 
-    await updateUserSessionState({ userId: user.id, sessionToken, includeUpdatedAt: true });
+    try {
+      await updateUserSessionState({ userId: user.id, sessionToken, includeUpdatedAt: true });
+    } catch (sessionError) {
+      console.warn('[Auth] No se pudo persistir session_token en login clásico:', sessionError.message);
+    }
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
 
@@ -766,7 +772,11 @@ router.post('/google', async (req, res) => {
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const token = generateToken(user.id, sessionToken);
-    await updateUserSessionState({ userId: user.id, sessionToken });
+    try {
+      await updateUserSessionState({ userId: user.id, sessionToken });
+    } catch (sessionError) {
+      console.warn('[Auth] No se pudo persistir session_token en login Google:', sessionError.message);
+    }
 
     return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
