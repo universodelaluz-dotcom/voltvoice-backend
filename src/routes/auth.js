@@ -9,9 +9,18 @@ import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from 
 import { isTemporaryEmail, validateEmailFormat, sanitizeEmail } from '../services/email-validator.js';
 import { config } from '../../config.js';
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const parseGoogleClientIds = () => {
+  const fromList = String(process.env.GOOGLE_CLIENT_IDS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const fromSingle = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+  if (fromSingle && !fromList.includes(fromSingle)) fromList.push(fromSingle);
+  return fromList;
+};
+const GOOGLE_CLIENT_IDS = parseGoogleClientIds();
 const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET;
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
 
 const router = Router();
 const isRecaptchaRequired = config.isProduction
@@ -659,15 +668,15 @@ router.post('/google', async (req, res) => {
     return res.status(400).json({ error: 'Token de Google requerido' });
   }
 
-  if (!GOOGLE_CLIENT_ID) {
-    console.error('[Auth] GOOGLE_CLIENT_ID no configurado');
+  if (!GOOGLE_CLIENT_IDS.length) {
+    console.error('[Auth] GOOGLE_CLIENT_ID/GOOGLE_CLIENT_IDS no configurado');
     return res.status(500).json({ error: 'Google login no configurado' });
   }
 
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: GOOGLE_CLIENT_ID,
+      audience: GOOGLE_CLIENT_IDS,
     });
 
     const payload = ticket.getPayload();
@@ -723,7 +732,7 @@ router.post('/google', async (req, res) => {
     }));
   } catch (error) {
     console.error('[Auth] Error Google login:', error.message);
-    return res.status(401).json({ error: 'Token de Google inválido' });
+    return res.status(401).json({ error: 'Token de Google inválido o Client ID no coincide' });
   }
 });
 
