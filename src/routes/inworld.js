@@ -595,6 +595,72 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
 });
 
 /**
+ * POST /api/inworld/preview-clip - Extract audio segment and return as base64 for preview
+ * Does NOT clone voice, just returns the audio clip for listening
+ */
+router.post('/preview-clip', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { fileId, startMs, endMs } = req.body;
+
+    if (!fileId || startMs === undefined || endMs === undefined) {
+      return res.status(400).json({ error: 'fileId, startMs, endMs requeridos' });
+    }
+
+    const clipDuration = endMs - startMs;
+    if (clipDuration < 500) return res.status(400).json({ error: 'Clip muy corto' });
+    if (clipDuration > 60000) return res.status(400).json({ error: 'Clip muy largo para preview' });
+
+    const metadataPath = path.join(STUDIO_PRO_DIR, `${fileId}.json`);
+    if (!fs.existsSync(metadataPath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado. Puede haber expirado (3 min máx).' });
+    }
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+    if (metadata.userId !== userId) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const inputFilePath = metadata.filePath;
+    if (!fs.existsSync(inputFilePath)) {
+      return res.status(404).json({ error: 'Archivo original no encontrado' });
+    }
+
+    // Extract preview clip to temp file
+    const previewPath = path.join(STUDIO_PRO_DIR, `preview_${fileId}_${Date.now()}.wav`);
+    try {
+      await new Promise((resolve, reject) => {
+        ffmpeg(inputFilePath)
+          .setStartTime(startMs / 1000)
+          .setDuration(clipDuration / 1000)
+          .audioCodec('pcm_s16le')
+          .audioFrequency(44100)
+          .audioChannels(1)
+          .format('wav')
+          .on('error', reject)
+          .on('end', resolve)
+          .save(previewPath);
+      });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error extrayendo preview', detail: err.message });
+    }
+
+    let audioBuffer;
+    try {
+      audioBuffer = fs.readFileSync(previewPath);
+    } finally {
+      fs.unlink(previewPath, () => {});
+    }
+
+    const base64Audio = audioBuffer.toString('base64');
+    return res.status(200).json({
+      success: true,
+      audio: `data:audio/wav;base64,${base64Audio}`
+    });
+  } catch (err) {
+    console.error('[Preview Clip] Error:', err.message);
+    return res.status(500).json({ error: 'Error generando preview' });
+  }
+});
+
+/**
  * POST /api/inworld/extract-clip - Extract audio segment and clone voice
  * Available for CREATOR and PRO plans only
  * Body: { fileId, startMs, endMs, voiceName, langCode }
