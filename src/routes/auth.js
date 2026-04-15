@@ -7,6 +7,7 @@ import pool from '../db.js';
 import { generateToken, verifyToken } from '../../middleware/auth.js';
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../services/mail.js';
 import { isTemporaryEmail, validateEmailFormat, sanitizeEmail } from '../services/email-validator.js';
+import subscriptionService from '../services/subscriptionService.js';
 import { config } from '../../config.js';
 
 const parseGoogleClientIds = () => {
@@ -716,21 +717,10 @@ router.post('/google', async (req, res) => {
 
   try {
     let ticket;
-    try {
-      ticket = await googleClient.verifyIdToken({
-        idToken: credential,
-        audience: GOOGLE_CLIENT_IDS.length ? GOOGLE_CLIENT_IDS : undefined,
-      });
-    } catch (verifyError) {
-      // Compatibilidad: si el audience no coincide por cambios entre entornos,
-      // validamos firma/issuer sin forzar audience para no bloquear acceso legítimo.
-      const message = String(verifyError?.message || '');
-      const isAudienceMismatch =
-        message.includes('Wrong recipient') || message.toLowerCase().includes('audience');
-      if (!isAudienceMismatch) throw verifyError;
-      console.warn('[Auth] Google audience mismatch, applying compatibility fallback');
-      ticket = await googleClient.verifyIdToken({ idToken: credential });
-    }
+    ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_IDS.length ? GOOGLE_CLIENT_IDS : undefined,
+    });
 
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
@@ -814,6 +804,7 @@ function recordFailedLogin(ip, now) {
  */
 router.get('/me', verifyToken, async (req, res) => {
   try {
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
     const result = await pool.query(
       'UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id, email, plan, tokens, role, created_at',
       [req.user.userId]
@@ -829,10 +820,11 @@ router.get('/me', verifyToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: String(user.plan || 'free').toLowerCase(),
+        plan: String(subscription.backendPlan || user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         created_at: user.created_at,
+        subscription,
       }
     });
   } catch (error) {
