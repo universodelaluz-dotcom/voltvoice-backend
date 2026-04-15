@@ -85,25 +85,38 @@ export async function sendSupportEmail(fromEmail, userPlan, message) {
       return false;
     }
 
+    const normalizedPlan = String(userPlan || '').toUpperCase();
     const safeFrom = escapeHtml(fromEmail);
-    const safePlan = escapeHtml(String(userPlan || '').toUpperCase());
+    const safePlan = escapeHtml(normalizedPlan);
     const safeMessage = escapeHtml(message);
+    const createdAt = new Date().toISOString();
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: 'soporte@streamvoicer.com',
       replyTo: fromEmail,
-      subject: `[Soporte] Mensaje de ${fromEmail} (Plan: ${String(userPlan || '').toUpperCase()})`,
-      html: emailWrapper(`
-        <h2 style="color:#fff;margin-top:0;">Nuevo mensaje de soporte</h2>
-        <p><strong>Usuario de la plataforma:</strong> ${safeFrom}</p>
-        <p><strong>Correo de contacto:</strong> ${safeFrom}</p>
-        <p><strong>Plan:</strong> ${safePlan}</p>
-        <div style="background:#1e1e3a;border:1px solid rgba(6,182,212,0.3);border-radius:10px;padding:16px;margin:16px 0;">
-          <p style="margin:0;white-space:pre-wrap;">${safeMessage}</p>
+      subject: `[Soporte] ${fromEmail} | Plan ${normalizedPlan}`,
+      text: [
+        'Nuevo mensaje de soporte',
+        `Usuario de la plataforma: ${fromEmail}`,
+        `Correo de contacto: ${fromEmail}`,
+        `Plan: ${normalizedPlan}`,
+        `Fecha (UTC): ${createdAt}`,
+        '',
+        'Mensaje:',
+        message
+      ].join('\n'),
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;color:#111827;line-height:1.5;">
+          <h2 style="margin:0 0 16px;">Nuevo mensaje de soporte</h2>
+          <p style="margin:0 0 8px;"><strong>Usuario de la plataforma:</strong> ${safeFrom}</p>
+          <p style="margin:0 0 8px;"><strong>Correo de contacto:</strong> ${safeFrom}</p>
+          <p style="margin:0 0 8px;"><strong>Plan:</strong> ${safePlan}</p>
+          <p style="margin:0 0 16px;"><strong>Fecha (UTC):</strong> ${createdAt}</p>
+          <p style="margin:0 0 8px;"><strong>Mensaje:</strong></p>
+          <pre style="white-space:pre-wrap;background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:0;">${safeMessage}</pre>
         </div>
-        <p style="color:#9ca3af;font-size:12px;">Responde a este correo para contactar directamente al usuario.</p>
-      `)
+      `
     });
     console.log(`[Mail] Soporte recibido de: ${fromEmail}`);
     return true;
