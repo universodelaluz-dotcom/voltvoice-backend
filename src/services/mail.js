@@ -30,7 +30,7 @@ const emailWrapper = (content) => `
       ${content}
     </div>
     <div style="padding:16px 40px 24px;text-align:center;border-top:1px solid rgba(255,255,255,0.08);">
-      <p style="color:#4b5563;font-size:12px;margin:0;">&copy; 2026 Stream Voicer · <a href="mailto:soporte@streamvoicer.com" style="color:#06b6d4;text-decoration:none;">soporte@streamvoicer.com</a></p>
+      <p style="color:#4b5563;font-size:12px;margin:0;">&copy; 2026 Stream Voicer ï¿½ <a href="mailto:soporte@streamvoicer.com" style="color:#06b6d4;text-decoration:none;">soporte@streamvoicer.com</a></p>
     </div>
   </div>
 `;
@@ -96,7 +96,8 @@ export async function sendSupportEmail(fromEmail, userPlan, message) {
       subject: `[Soporte] Mensaje de ${fromEmail} (Plan: ${String(userPlan || '').toUpperCase()})`,
       html: emailWrapper(`
         <h2 style="color:#fff;margin-top:0;">Nuevo mensaje de soporte</h2>
-        <p><strong>De:</strong> ${safeFrom}</p>
+        <p><strong>Usuario de la plataforma:</strong> ${safeFrom}</p>
+        <p><strong>Correo de contacto:</strong> ${safeFrom}</p>
         <p><strong>Plan:</strong> ${safePlan}</p>
         <div style="background:#1e1e3a;border:1px solid rgba(6,182,212,0.3);border-radius:10px;padding:16px;margin:16px 0;">
           <p style="margin:0;white-space:pre-wrap;">${safeMessage}</p>

@@ -104,6 +104,29 @@ const voiceTypeTranslations = {
   'Meditation Instructor': 'Meditation Instructor'
 };
 
+const DAILY_VOICE_DELETE_LIMITS = {
+  start: 3,
+  creator: 6,
+  pro: 6,
+  premium: 6,
+  elite: 6,
+  on_demand: 6,
+  admin: 999,
+};
+
+const ensureVoiceDeleteEventsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS voice_delete_events (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      voice_name VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_delete_events_user_created
+      ON voice_delete_events(user_id, created_at DESC);
+  `);
+};
+
 /**
  * GET /api/settings - Cargar config del usuario
  */
@@ -262,6 +285,32 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
     }
 
     const { voice_id, voice_name, provider } = voiceResult.rows[0];
+    const isCountedVoiceType = ['inworld-cloned', 'inworld-generated', 'inworld'].includes(String(provider || '').toLowerCase());
+
+    // Límite diario de eliminaciones por plan
+    const userPlanResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
+    const userPlan = String(userPlanResult.rows[0]?.plan || 'free').toLowerCase();
+    const userRole = userPlanResult.rows[0]?.role || 'user';
+    if (isCountedVoiceType && userRole !== 'admin') {
+      await ensureVoiceDeleteEventsTable();
+      const dailyLimit = DAILY_VOICE_DELETE_LIMITS[userPlan] ?? 0;
+      if (dailyLimit <= 0) {
+        return res.status(403).json({ error: 'Tu plan actual no permite eliminar voces hoy.' });
+      }
+      const deleteCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM voice_delete_events
+         WHERE user_id = $1
+           AND created_at >= date_trunc('day', NOW())`,
+        [req.user.userId]
+      );
+      const usedToday = Number(deleteCountResult.rows[0]?.total || 0);
+      if (usedToday >= dailyLimit) {
+        return res.status(429).json({
+          error: `Límite diario de eliminaciones alcanzado para plan ${userPlan}: ${dailyLimit} por día.`
+        });
+      }
+    }
 
     // Si es una voz clonada, eliminarla también de Inworld
     if (provider === 'inworld-cloned' || provider === 'inworld-generated') {
@@ -279,6 +328,18 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
       'DELETE FROM user_voices WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.id, req.user.userId]
     );
+
+    if (isCountedVoiceType && userRole !== 'admin') {
+      try {
+        await ensureVoiceDeleteEventsTable();
+        await pool.query(
+          'INSERT INTO voice_delete_events (user_id, voice_name) VALUES ($1, $2)',
+          [req.user.userId, voice_name]
+        );
+      } catch (eventErr) {
+        console.warn('[Delete] No se pudo registrar evento de eliminación:', eventErr.message);
+      }
+    }
 
     console.log(`[Delete] ✓ Voz "${voice_name}" eliminada de la base de datos`);
 

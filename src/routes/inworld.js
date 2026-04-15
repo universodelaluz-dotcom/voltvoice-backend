@@ -55,6 +55,24 @@ const upload = multer({
 
 const router = Router();
 
+const EXTRACTOR_PRO_DAILY_LIMITS = {
+  creator: 4,
+  pro: 7,
+  admin: 999,
+};
+
+const ensureExtractorProUsageTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS extractor_pro_usage_events (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_extractor_pro_usage_user_created
+      ON extractor_pro_usage_events(user_id, created_at DESC);
+  `);
+};
+
 function getRealtimeApiKey() {
   const apiKey = process.env.INWORLD_API_KEY;
   if (apiKey) {
@@ -513,7 +531,7 @@ router.post('/test', async (req, res) => {
 });
 
 /**
- * POST /api/inworld/extract-audio - Upload file and get duration for Studio Pro
+ * POST /api/inworld/extract-audio - Upload file and get duration for Extractor Pro
  * Available for CREATOR and PRO plans only
  * Returns fileId and duration (milliseconds)
  */
@@ -529,7 +547,7 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
     const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
     const userRole = userResult.rows[0].role || 'user';
     if (!['creator', 'pro'].includes(userPlan) && userRole !== 'admin') {
-      return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
+      return res.status(403).json({ error: 'Extractor Pro requiere plan CREATOR o PRO' });
     }
 
     if (!req.file) {
@@ -552,7 +570,7 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
         });
       });
     } catch (err) {
-      console.error('[Studio Pro] ffprobe error:', err.message);
+      console.error('[Extractor Pro] ffprobe error:', err.message);
       fs.unlink(filePath, () => {});
       return res.status(400).json({ error: 'No se pudo procesar el archivo' });
     }
@@ -581,7 +599,7 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
     const metadataPath = path.join(STUDIO_PRO_DIR, `${fileId}.json`);
     fs.writeFileSync(metadataPath, JSON.stringify(metadata));
 
-    console.log(`[Studio Pro] Audio uploaded: fileId=${fileId} duration=${duration}ms user=${userId}`);
+    console.log(`[Extractor Pro] Audio uploaded: fileId=${fileId} duration=${duration}ms user=${userId}`);
 
     return res.status(200).json({
       success: true,
@@ -589,7 +607,7 @@ router.post('/extract-audio', verifyToken, upload.single('file'), async (req, re
       duration
     });
   } catch (error) {
-    console.error('[Studio Pro Extract] Error:', error.message);
+    console.error('[Extractor Pro Extract] Error:', error.message);
     if (req.file) {
       fs.unlink(req.file.path, () => {});
     }
@@ -675,6 +693,8 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { fileId, startMs, endMs, voiceName, langCode = 'ES_ES' } = req.body;
+    let usageLimit = null;
+    let usageBefore = 0;
 
     // Validate required fields
     if (!fileId || startMs === undefined || endMs === undefined || !voiceName) {
@@ -689,7 +709,29 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
     const userPlan = (userResult.rows[0].plan || 'free').toLowerCase();
     const userRole = userResult.rows[0].role || 'user';
     if (!['creator', 'pro'].includes(userPlan) && userRole !== 'admin') {
-      return res.status(403).json({ error: 'Studio Pro requiere plan CREATOR o PRO' });
+      return res.status(403).json({ error: 'Extractor Pro requiere plan CREATOR o PRO' });
+    }
+
+    // Daily usage limit (rolling 24h window): Creator 4, Pro 7
+    if (userRole !== 'admin') {
+      usageLimit = EXTRACTOR_PRO_DAILY_LIMITS[userPlan] ?? 0;
+      if (usageLimit <= 0) {
+        return res.status(403).json({ error: 'Tu plan actual no tiene acceso a Extractor Pro.' });
+      }
+      await ensureExtractorProUsageTable();
+      const usageCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM extractor_pro_usage_events
+         WHERE user_id = $1
+           AND created_at >= NOW() - INTERVAL '24 hours'`,
+        [userId]
+      );
+      usageBefore = Number(usageCountResult.rows[0]?.total || 0);
+      if (usageBefore >= usageLimit) {
+        return res.status(429).json({
+          error: `Límite diario alcanzado en Extractor Pro (${usageLimit} usos cada 24 horas).`
+        });
+      }
     }
 
     // Load metadata
@@ -739,7 +781,7 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
           .save(outputFilePath);
       });
     } catch (err) {
-      console.error('[Studio Pro] ffmpeg extraction error:', err.message);
+      console.error('[Extractor Pro] ffmpeg extraction error:', err.message);
       return res.status(500).json({ error: 'Error extrayendo audio', detail: err.message });
     }
 
@@ -748,7 +790,7 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
     try {
       audioBuffer = fs.readFileSync(outputFilePath);
     } catch (err) {
-      console.error('[Studio Pro] Error reading extracted clip:', err.message);
+      console.error('[Extractor Pro] Error reading extracted clip:', err.message);
       return res.status(500).json({ error: 'Error leyendo clip extraído' });
     }
 
@@ -757,7 +799,7 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
     try {
       cloneResult = await inworldTtsService.cloneVoice(voiceName, audioBuffer, '', langCode);
     } catch (err) {
-      console.error('[Studio Pro] Clone voice error:', err.message);
+      console.error('[Extractor Pro] Clone voice error:', err.message);
       return res.status(502).json({ error: 'Error clonando voz', detail: err.message });
     }
 
@@ -767,10 +809,10 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
       const publishResult = await inworldTtsService.publishVoice(cloneResult.voiceId, voiceName);
       if (publishResult?.voiceId) {
         finalVoiceId = publishResult.voiceId;
-        console.log(`[Studio Pro] Voz publicada: ${cloneResult.voiceId} -> ${finalVoiceId}`);
+        console.log(`[Extractor Pro] Voz publicada: ${cloneResult.voiceId} -> ${finalVoiceId}`);
       }
     } catch (publishError) {
-      console.warn(`[Studio Pro] No se pudo publicar voz ${cloneResult.voiceId}: ${publishError.message}`);
+      console.warn(`[Extractor Pro] No se pudo publicar voz ${cloneResult.voiceId}: ${publishError.message}`);
       // Continue with unpublished voiceId — TTS may still work
     }
 
@@ -785,8 +827,23 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
         [userId, displayName, finalVoiceId, 'inworld-cloned']
       );
     } catch (err) {
-      console.error('[Studio Pro] Error saving voice to DB:', err.message);
+      console.error('[Extractor Pro] Error saving voice to DB:', err.message);
       // Continue anyway - voice is created in Inworld even if DB save fails
+    }
+
+    // Register successful processed usage (only when processing succeeded)
+    let usageRemaining = null;
+    if (userRole !== 'admin' && Number.isFinite(usageLimit)) {
+      try {
+        await ensureExtractorProUsageTable();
+        await pool.query(
+          'INSERT INTO extractor_pro_usage_events (user_id) VALUES ($1)',
+          [userId]
+        );
+        usageRemaining = Math.max(0, usageLimit - (usageBefore + 1));
+      } catch (usageErr) {
+        console.warn('[Extractor Pro] No se pudo registrar uso:', usageErr.message);
+      }
     }
 
     // Clean up temp files immediately on success
@@ -796,19 +853,25 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
       fs.unlinkSync(metadataPath);
       fs.rmdirSync(outputDir, { force: true });
     } catch (err) {
-      console.warn('[Studio Pro] Cleanup error:', err.message);
+      console.warn('[Extractor Pro] Cleanup error:', err.message);
     }
 
-    console.log(`[Studio Pro] Voice cloned successfully: fileId=${fileId} voiceId=${finalVoiceId} user=${userId}`);
+    console.log(`[Extractor Pro] Voice cloned successfully: fileId=${fileId} voiceId=${finalVoiceId} user=${userId}`);
 
     return res.status(200).json({
       success: true,
       voiceId: finalVoiceId,
       displayName,
-      provider: 'inworld-cloned'
+      provider: 'inworld-cloned',
+      extractorProUsage: userRole === 'admin' ? null : {
+        limit: usageLimit,
+        used: usageBefore + 1,
+        remaining: usageRemaining,
+        windowHours: 24,
+      }
     });
   } catch (error) {
-    console.error('[Studio Pro Extract Clip] Error:', error.message);
+    console.error('[Extractor Pro Extract Clip] Error:', error.message);
     return res.status(500).json({
       error: 'Error procesando clip',
       detail: error.message
@@ -817,3 +880,4 @@ router.post('/extract-clip', verifyToken, async (req, res) => {
 });
 
 export default router;
+
