@@ -12,7 +12,7 @@ import { config } from '../config.js';
 
 const router = Router();
 
-const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '');
+const normalizeUsername = (username = '') => String(username || '').trim().toLowerCase().replace(/^@+/, '');
 
 async function resolveOptionalAuthUser(req) {
   const authHeader = req.headers.authorization || '';
