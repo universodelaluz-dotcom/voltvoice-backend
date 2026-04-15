@@ -6,6 +6,19 @@ import inworldTtsService from '../services/inworldTtsService.js';
 const router = Router();
 
 const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null;
+const normalizePlan = (value = 'free') => String(value || 'free').trim().toLowerCase();
+
+// "premium" y "elite" se mantienen como aliases internos de facturacion
+const CLONED_VOICE_LIMITS = {
+  free: 0,
+  start: 1,
+  pro: 5,
+  creator: 2,
+  premium: 2,
+  elite: 5,
+  on_demand: 999,
+  admin: 999
+};
 
 const normalizeStoredConfig = (rawConfig) => {
   if (!rawConfig) return {};
@@ -197,10 +210,9 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = userResult.rows[0]?.plan || 'free';
-    const maxVoices = voiceLimits[userPlan] ?? 0;
+    const userPlan = normalizePlan(userResult.rows[0]?.plan || 'free');
+    const maxVoices = CLONED_VOICE_LIMITS[userPlan] ?? 0;
 
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
@@ -371,20 +383,22 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 
   // Límite de voces clonadas según plan del usuario
   // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
-  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', pro: 'Pro', premium: 'Pro', elite: 'Elite', admin: 'Admin' };
-  const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, premium: 5, elite: 10, admin: 999, on_demand: 999 };
+  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', premium: 'Creator', pro: 'Pro', elite: 'Pro', admin: 'Admin' };
   try {
     const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = userResult.rows[0]?.plan || 'free';
+    const userPlan = normalizePlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
 
     if (userRole !== 'admin') {
-      const maxVoices = voiceLimits[userPlan] ?? 1;
+      const maxVoices = CLONED_VOICE_LIMITS[userPlan] ?? 0;
       const planLabel = PLAN_NAMES[userPlan] || userPlan;
 
       // Contar solo voces clonadas activas
       const countResult = await pool.query(
-        `SELECT COUNT(*) as total FROM user_voices WHERE user_id = $1 AND provider = 'inworld-cloned'`,
+        `SELECT COUNT(*) as total
+         FROM user_voices
+         WHERE user_id = $1
+           AND LOWER(COALESCE(provider, '')) IN ('inworld', 'inworld-cloned', 'inworld-generated')`,
         [req.user.userId]
       );
       if (parseInt(countResult.rows[0].total) >= maxVoices) {
