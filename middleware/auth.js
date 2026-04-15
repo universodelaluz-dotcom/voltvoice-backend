@@ -37,18 +37,36 @@ export const verifyToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.JWT_SECRET);
     req.user = decoded;
-    const result = await pool.query(
-      `SELECT is_suspended, suspended_until
-       FROM users
-       WHERE id::text = $1::text`,
-      [decoded.userId]
-    );
+    let result;
+    try {
+      result = await pool.query(
+        `SELECT is_suspended, suspended_until, session_token
+         FROM users
+         WHERE id::text = $1::text`,
+        [decoded.userId]
+      );
+    } catch (queryError) {
+      if (queryError?.code !== '42703') throw queryError;
+      console.warn('[Auth] session_token no existe en users, validando en modo compatible');
+      result = await pool.query(
+        `SELECT is_suspended, suspended_until
+         FROM users
+         WHERE id::text = $1::text`,
+        [decoded.userId]
+      );
+      result.rows = result.rows.map((row) => ({ ...row, session_token: null }));
+    }
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid token' });
     const user = result.rows[0];
     const blockedByFlag = user.is_suspended === true;
     const blockedByTime = user.suspended_until && new Date(user.suspended_until).getTime() > Date.now();
     if (blockedByFlag || blockedByTime) {
       return res.status(403).json({ error: 'Cuenta suspendida temporalmente' });
+    }
+    // Verificar sesión única: si el token de sesión no coincide, significa que
+    // el usuario inició sesión desde otro dispositivo y esta sesión fue desplazada
+    if (decoded.sessionToken && user.session_token && decoded.sessionToken !== user.session_token) {
+      return res.status(401).json({ error: 'SESSION_DISPLACED', message: 'Tu sesión fue iniciada en otro dispositivo.' });
     }
     next();
   } catch (err) {
@@ -93,11 +111,11 @@ export const requireAdmin = async (req, res, next) => {
 };
 
 /**
- * Generar JWT
+ * Generar JWT con sessionToken embebido
  */
-export const generateToken = (userId) => {
+export const generateToken = (userId, sessionToken = null) => {
   return jwt.sign(
-    { userId, iat: Math.floor(Date.now() / 1000) },
+    { userId, sessionToken, iat: Math.floor(Date.now() / 1000) },
     config.JWT_SECRET,
     { expiresIn: config.JWT_EXPIRES_IN }
   );

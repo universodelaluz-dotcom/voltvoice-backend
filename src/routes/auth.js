@@ -59,6 +59,44 @@ const attachAuthToResponse = (res, token, payload) => {
   return payload;
 };
 
+const tryEnsureSessionTokenColumn = async () => {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(64)');
+  } catch (error) {
+    console.warn('[Auth] No se pudo crear columna session_token:', error.message);
+  }
+};
+
+const updateUserSessionState = async ({ userId, sessionToken, includeUpdatedAt = false }) => {
+  const baseSet = includeUpdatedAt
+    ? 'updated_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP'
+    : 'last_seen = CURRENT_TIMESTAMP';
+  try {
+    await pool.query(
+      `UPDATE users SET ${baseSet}, session_token = $2 WHERE id = $1`,
+      [userId, sessionToken]
+    );
+  } catch (error) {
+    if (error?.code !== '42703') throw error;
+    console.warn('[Auth] session_token no existe, aplicando modo compatible');
+    await tryEnsureSessionTokenColumn();
+    await pool.query(
+      `UPDATE users SET ${baseSet} WHERE id = $1`,
+      [userId]
+    );
+  }
+};
+
+const clearUserSessionState = async (userId) => {
+  try {
+    await pool.query('UPDATE users SET session_token = NULL WHERE id = $1', [userId]);
+  } catch (error) {
+    if (error?.code !== '42703') throw error;
+    console.warn('[Auth] session_token no existe al cerrar sesión, ignorando');
+    await tryEnsureSessionTokenColumn();
+  }
+};
+
 // ===== RATE LIMITING EN MEMORIA =====
 const loginAttempts = new Map();
 const registerAttempts = new Map();
@@ -635,10 +673,7 @@ router.post('/login', async (req, res) => {
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const token = generateToken(user.id, sessionToken);
 
-    await pool.query(
-      'UPDATE users SET updated_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP, session_token = $2 WHERE id = $1',
-      [user.id, sessionToken]
-    );
+    await updateUserSessionState({ userId: user.id, sessionToken, includeUpdatedAt: true });
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
 
@@ -731,10 +766,7 @@ router.post('/google', async (req, res) => {
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const token = generateToken(user.id, sessionToken);
-    await pool.query(
-      'UPDATE users SET last_seen = CURRENT_TIMESTAMP, session_token = $2 WHERE id = $1',
-      [user.id, sessionToken]
-    );
+    await updateUserSessionState({ userId: user.id, sessionToken });
 
     return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
@@ -803,7 +835,7 @@ router.post('/logout', verifyToken, async (req, res) => {
   try {
     const userId = req.user?.userId ?? req.user?.id
     if (userId) {
-      await pool.query('UPDATE users SET session_token = NULL WHERE id = $1', [userId])
+      await clearUserSessionState(userId)
     }
   } catch (_) {}
   res.setHeader('Set-Cookie', clearAuthCookie());
