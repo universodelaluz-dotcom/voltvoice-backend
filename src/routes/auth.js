@@ -623,9 +623,13 @@ router.post('/login', async (req, res) => {
     }
 
     loginAttempts.delete(ip);
-    const token = generateToken(user.id);
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const token = generateToken(user.id, sessionToken);
 
-    await pool.query('UPDATE users SET updated_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+    await pool.query(
+      'UPDATE users SET updated_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP, session_token = $2 WHERE id = $1',
+      [user.id, sessionToken]
+    );
 
     console.log(`[Auth] Login exitoso: ${user.email} desde IP: ${ip}`);
 
@@ -634,7 +638,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : user.plan,
+        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
       }
@@ -698,16 +702,19 @@ router.post('/google', async (req, res) => {
       console.log(`[Auth] Nuevo usuario creado via Google: ${email} (ID: ${user.id})`);
     }
 
-    const token = generateToken(user.id);
-    // Update last_seen for all Google logins
-    await pool.query('UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const token = generateToken(user.id, sessionToken);
+    await pool.query(
+      'UPDATE users SET last_seen = CURRENT_TIMESTAMP, session_token = $2 WHERE id = $1',
+      [user.id, sessionToken]
+    );
 
     return res.status(200).json(attachAuthToResponse(res, token, {
       success: true,
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : user.plan,
+        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         name,
@@ -753,7 +760,7 @@ router.get('/me', verifyToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.role === 'admin' ? 'admin' : user.plan,
+        plan: user.role === 'admin' ? 'admin' : String(user.plan || 'free').toLowerCase(),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         created_at: user.created_at,
@@ -765,9 +772,15 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId ?? req.user?.id
+    if (userId) {
+      await pool.query('UPDATE users SET session_token = NULL WHERE id = $1', [userId])
+    }
+  } catch (_) {}
   res.setHeader('Set-Cookie', clearAuthCookie());
-  return res.status(200).json({ success: true, message: 'SesiÃ³n cerrada' });
+  return res.status(200).json({ success: true, message: 'Sesión cerrada' });
 });
 
 export default router;
