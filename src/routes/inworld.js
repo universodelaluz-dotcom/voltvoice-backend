@@ -6,7 +6,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { config } from '../config.js';
+
+// Point fluent-ffmpeg to the bundled binaries (works on any server including Render)
+ffmpeg.setFfmpegPath(ffmpegStatic);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
 import tokenService from '../services/tokenService.js';
 import { verifyToken } from '../../middleware/auth.js';
 import pool from '../db.js';
