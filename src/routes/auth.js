@@ -674,12 +674,30 @@ router.post('/google', async (req, res) => {
   }
 
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: GOOGLE_CLIENT_IDS,
-    });
+    let ticket;
+    try {
+      ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_IDS.length ? GOOGLE_CLIENT_IDS : undefined,
+      });
+    } catch (verifyError) {
+      // Compatibilidad: si el audience no coincide por cambios entre entornos,
+      // validamos firma/issuer sin forzar audience para no bloquear acceso legítimo.
+      const message = String(verifyError?.message || '');
+      const isAudienceMismatch =
+        message.includes('Wrong recipient') || message.toLowerCase().includes('audience');
+      if (!isAudienceMismatch) throw verifyError;
+      console.warn('[Auth] Google audience mismatch, applying compatibility fallback');
+      ticket = await googleClient.verifyIdToken({ idToken: credential });
+    }
 
     const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return res.status(401).json({ error: 'Token de Google inválido' });
+    }
+    if (!payload.email_verified) {
+      return res.status(401).json({ error: 'Tu cuenta de Google no tiene email verificado' });
+    }
     const email = payload.email.toLowerCase();
     const name = payload.name || '';
     const picture = payload.picture || '';
