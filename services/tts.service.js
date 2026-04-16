@@ -81,7 +81,8 @@ const badWords = [
   'mierda', 'puta', 'pendejo', 'cabrón', 'jodido', 'culo', 'coño',
   'carajo', 'puto', 'bastardo', 'maldito', 'hijo de', 'culero',
   'mamada', 'verga', 'chingada', 'chingado', 'culada', 'maricon',
-  'marica', 'pájaro', 'boludo', 'chamaco', 'pelotudo'
+  'marica', 'pájaro', 'boludo', 'chamaco', 'pelotudo', 'turba',
+  'turbar', 'turbate', 'turbado', 'asturbarste'
 ];
 
 export const censorBadWords = (text) => {
