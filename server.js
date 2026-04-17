@@ -81,6 +81,8 @@ const allowedOrigins = [
   config.FRONTEND_URL,
   'https://landing-page-zeta-two-23.vercel.app', // Old deployment
   'https://voltvoice-frontend.vercel.app', // New deployment
+  'https://streamvoicer.com',
+  'https://www.streamvoicer.com',
   'http://localhost:5173', // Local development
 ];
 
