@@ -109,6 +109,7 @@ app.use((req, res, next) => {
 if (config.NODE_ENV !== 'development') {
   app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: false,
   }));
 }
 
