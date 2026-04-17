@@ -156,6 +156,13 @@ router.post('/say', async (req, res) => {
 
     const cacheHit = await audioCacheService.lookup(cacheContext);
     if (cacheHit.hit) {
+      if (userId) {
+        db.query(
+          `INSERT INTO token_logs (user_id, action, tokens_used, characters_count, voice_name)
+           VALUES ($1, $2, 0, $3, $4)`,
+          [userId, 'tts_local_cache', String(text).length, resolvedVoice]
+        ).catch(() => {});
+      }
       const base64Audio = cacheHit.audioBuffer.toString('base64');
       return res.status(200).json({
         success: true,
@@ -195,6 +202,15 @@ router.post('/say', async (req, res) => {
     const audioBuffer = await downloadAudio(url);
     const base64Audio = audioBuffer.toString('base64');
     audioCacheService.storeAfterRender(cacheContext, audioBuffer, 'audio/mpeg').catch(() => {});
+
+    // Registrar en token_logs para que aparezca en estadísticas
+    if (userId) {
+      db.query(
+        `INSERT INTO token_logs (user_id, action, tokens_used, characters_count, voice_name)
+         VALUES ($1, $2, 0, $3, $4)`,
+        [userId, 'tts_local', String(text).length, resolvedVoice]
+      ).catch(() => {});
+    }
 
     return res.status(200).json({
       success: true,
