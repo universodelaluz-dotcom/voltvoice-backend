@@ -98,7 +98,7 @@ class MercadoPagoService {
               : `Compra ${payload.tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
             unit_price: chargedPrice,
-            currency_id: 'USD'
+            currency_id: 'MXN'
           }
         ],
         payer: {
@@ -112,7 +112,7 @@ class MercadoPagoService {
         auto_return: 'approved',
         notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
         external_reference: externalReference,
-        currency_id: 'USD'
+        currency_id: 'MXN'
       };
 
       const response = await axios.post(this.apiUrl, preferenceData, {
@@ -128,7 +128,7 @@ class MercadoPagoService {
         requiresPayment: true,
         quote: quotedPlan,
         preferenceId: response.data.id,
-        initPoint: response.data.init_point,
+        initPoint: this.token.startsWith('TEST-') ? response.data.sandbox_init_point : response.data.init_point,
         sandboxInitPoint: response.data.sandbox_init_point
       };
     } catch (error) {
