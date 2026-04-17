@@ -78,11 +78,11 @@ export const synthesizeAndDownload = async (text) => {
  * Censura palabras fuertes (es-MX)
  */
 const badWords = [
+  '+turba', '+turbar', '+turbate', '+turbado', '+asturbarste',
   'mierda', 'puta', 'pendejo', 'cabrón', 'jodido', 'culo', 'coño',
   'carajo', 'puto', 'bastardo', 'maldito', 'hijo de', 'culero',
   'mamada', 'verga', 'chingada', 'chingado', 'culada', 'maricon',
-  'marica', 'pájaro', 'boludo', 'chamaco', 'pelotudo', 'turba',
-  'turbar', 'turbate', 'turbado', 'asturbarste'
+  'marica', 'pájaro', 'boludo', 'chamaco', 'pelotudo'
 ];
 
 export const censorBadWords = (text) => {

@@ -73,11 +73,15 @@ const resolveAuthUserId = (req) => {
 };
 
 // ===== MIDDLEWARE =====
+// Serve static files FIRST (before CORS and other middleware)
+app.use(express.static(join(__dirname, './public')));
+
 // CORS configuration - allow frontend and any Vercel preview deployments
 const allowedOrigins = [
   config.FRONTEND_URL,
   'https://landing-page-zeta-two-23.vercel.app', // Old deployment
   'https://voltvoice-frontend.vercel.app', // New deployment
+  'http://localhost:5173', // Local development
 ];
 
 app.use(cors({
@@ -92,18 +96,20 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  // Disable default COOP from helmet and set an explicit policy below.
-  crossOriginOpenerPolicy: false,
-}));
-
-// Google Identity (popup) requires opener communication via postMessage.
-// A strict COOP (`same-origin`) can block this flow.
+// Remover cualquier CSP header para desarrollo
 app.use((req, res, next) => {
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('Content-Security-Policy-Report-Only');
   next();
 });
+
+// Helmet deshabilitado en desarrollo para permitir Google OAuth y APIs externas
+if (config.NODE_ENV !== 'development') {
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
+}
+
 
 const globalLimiter = rateLimit({
   windowMs: config.GLOBAL_RATE_LIMIT_WINDOW_MS,
@@ -119,7 +125,6 @@ app.use(globalLimiter);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(join(__dirname, '../frontend/public')));
 
 // Handle preflight requests
 app.options('*', cors({
