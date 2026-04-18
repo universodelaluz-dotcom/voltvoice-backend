@@ -38,6 +38,7 @@ const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived
 const ESTIMATED_COST_PER_1K_TOKENS_USD = Number(process.env.ADMIN_ESTIMATED_COST_PER_1K_TOKENS_USD || 0.004);
 const ESTIMATED_FIXED_MONTHLY_COST_USD = Number(process.env.ADMIN_ESTIMATED_FIXED_MONTHLY_COST_USD || 0);
 const DEFAULT_MAINTENANCE_MESSAGE = 'Aviso importante: estaremos en mantenimiento durante 4 minutos para aplicar mejoras. Gracias por tu paciencia.';
+const DEFAULT_DEPLOY_NOTIFY_EMAIL = 'soporte@streamvoicer.com';
 
 const parseLimit = (raw, fallback = 25, max = 200) => {
   const parsed = Number.parseInt(raw, 10);
@@ -97,6 +98,18 @@ const ensureDeployMonitorSettingsTable = async () => {
      VALUES (1)
      ON CONFLICT (id) DO NOTHING`
   );
+};
+
+const ensureBroadcastTargetsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_broadcast_targets (
+      id SERIAL PRIMARY KEY,
+      broadcast_id INTEGER NOT NULL REFERENCES admin_broadcasts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (broadcast_id, user_id)
+    );
+  `);
 };
 
 const logAdminAction = async ({ actorId, targetUserId = null, action, details = {} }) => {
@@ -1480,6 +1493,34 @@ router.put('/broadcasts/:id/status', requireAdmin, async (req, res) => {
 });
 
 /**
+ * DELETE /api/admin/broadcasts/:id - Eliminar comunicado
+ */
+router.delete('/broadcasts/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await pool.query(
+      `DELETE FROM admin_broadcasts
+       WHERE id = $1
+       RETURNING id, kind, title, status`,
+      [id]
+    );
+
+    if (deleted.rows.length === 0) return res.status(404).json({ error: 'Comunicado no encontrado' });
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'delete_broadcast',
+      details: { broadcastId: id, title: deleted.rows[0]?.title || null }
+    });
+
+    return res.json({ success: true, deleted: deleted.rows[0] });
+  } catch (err) {
+    console.error('[Admin] Error delete broadcast:', err.message);
+    return res.status(500).json({ error: 'Error eliminando comunicado' });
+  }
+});
+
+/**
  * GET /api/admin/deploy-monitor/status
  */
 router.get('/deploy-monitor/status', requireAdmin, async (req, res) => {
@@ -1542,7 +1583,7 @@ router.get('/deploy-monitor/status', requireAdmin, async (req, res) => {
       emailNotificationSentNow,
       settings: {
         notifyEnabled: Boolean(finalSettings.notify_enabled),
-        notifyEmail: finalSettings.notify_email || '',
+        notifyEmail: finalSettings.notify_email || DEFAULT_DEPLOY_NOTIFY_EMAIL,
         maintenanceMessage: finalSettings.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
         notifySentForCurrentWindow: Boolean(finalSettings.notify_sent_for_current_window),
         lastNotifiedReadyAt: finalSettings.last_notified_ready_at || null,
@@ -1590,7 +1631,7 @@ router.put('/deploy-monitor/settings', requireAdmin, async (req, res) => {
       success: true,
       settings: {
         notifyEnabled: Boolean(row.notify_enabled),
-        notifyEmail: row.notify_email || '',
+        notifyEmail: row.notify_email || DEFAULT_DEPLOY_NOTIFY_EMAIL,
         maintenanceMessage: row.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
         notifySentForCurrentWindow: Boolean(row.notify_sent_for_current_window),
         lastNotifiedReadyAt: row.last_notified_ready_at || null,
@@ -1631,7 +1672,7 @@ router.put('/deploy-monitor/message', requireAdmin, async (req, res) => {
       success: true,
       settings: {
         notifyEnabled: Boolean(row.notify_enabled),
-        notifyEmail: row.notify_email || '',
+        notifyEmail: row.notify_email || DEFAULT_DEPLOY_NOTIFY_EMAIL,
         maintenanceMessage: row.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
         notifySentForCurrentWindow: Boolean(row.notify_sent_for_current_window),
         lastNotifiedReadyAt: row.last_notified_ready_at || null,
@@ -1649,6 +1690,7 @@ router.put('/deploy-monitor/message', requireAdmin, async (req, res) => {
 router.post('/deploy-monitor/send-maintenance-notice', requireAdmin, async (req, res) => {
   try {
     await ensureDeployMonitorSettingsTable();
+    await ensureBroadcastTargetsTable();
 
     const settingsResult = await pool.query(
       `SELECT maintenance_message FROM admin_deploy_monitor_settings WHERE id = 1`
@@ -1657,22 +1699,43 @@ router.post('/deploy-monitor/send-maintenance-notice', requireAdmin, async (req,
     const requestedMessage = String(req.body.message || '').trim();
     const message = (requestedMessage || savedMessage).slice(0, 2000);
     const title = String(req.body.title || 'Aviso de mantenimiento').trim().slice(0, 140) || 'Aviso de mantenimiento';
+    const connectedUsersResult = await pool.query(
+      `SELECT id
+       FROM users
+       WHERE role <> 'admin'
+         AND last_seen >= NOW() - INTERVAL '5 minutes'`
+    );
+    const connectedUserIds = connectedUsersResult.rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+    if (connectedUserIds.length === 0) {
+      return res.status(400).json({ error: 'No hay usuarios conectados para notificar en este momento' });
+    }
 
     const created = await pool.query(
       `INSERT INTO admin_broadcasts
        (kind, title, message, audience_plan, priority, status, starts_at, ends_at, created_by)
-       VALUES ('maintenance_alert', $1, $2, 'all', 'high', 'active', NOW(), NOW() + INTERVAL '30 minutes', $3)
+       VALUES ('maintenance_alert', $1, $2, 'all', 'high', 'active', NOW(), NOW() + INTERVAL '4 minutes', $3)
        RETURNING *`,
       [title, message, req.user.userId]
     );
+    const broadcastId = created.rows?.[0]?.id;
+    if (broadcastId) {
+      for (const userId of connectedUserIds) {
+        await pool.query(
+          `INSERT INTO admin_broadcast_targets (broadcast_id, user_id)
+           VALUES ($1, $2)
+           ON CONFLICT (broadcast_id, user_id) DO NOTHING`,
+          [broadcastId, userId]
+        );
+      }
+    }
 
     await logAdminAction({
       actorId: req.user.userId,
       action: 'send_deploy_maintenance_notice',
-      details: { title, message }
+      details: { title, message, targetUsers: connectedUserIds.length }
     });
 
-    return res.status(201).json({ success: true, broadcast: created.rows[0] });
+    return res.status(201).json({ success: true, broadcast: created.rows[0], targetedUsers: connectedUserIds.length });
   } catch (err) {
     console.error('[Admin] Error deploy-monitor/send-maintenance-notice:', err.message);
     return res.status(500).json({ error: 'Error enviando aviso de mantenimiento' });
