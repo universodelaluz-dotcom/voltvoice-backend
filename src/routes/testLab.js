@@ -28,14 +28,19 @@ const toPublicPlan = (rawPlan = 'free') => {
 
 const ensureTestUsers = async () => {
   for (const spec of TEST_USERS) {
+    const exists = await pool.query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+      [spec.email]
+    );
+    if (exists.rows.length) continue;
+
     let inserted = false;
 
     // Intento 1: esquema moderno completo.
     try {
       await pool.query(
         `INSERT INTO users (email, password_hash, plan, tokens, role, email_verified)
-         VALUES ($1, $2, 'free', 0, 'user', TRUE)
-         ON CONFLICT (email) DO NOTHING`,
+         VALUES ($1, $2, 'free', 0, 'user', TRUE)`,
         [spec.email, DUMMY_PASSWORD_HASH]
       );
       inserted = true;
@@ -46,8 +51,7 @@ const ensureTestUsers = async () => {
       try {
         await pool.query(
           `INSERT INTO users (email, password_hash, plan, tokens)
-           VALUES ($1, $2, 'free', 0)
-           ON CONFLICT (email) DO NOTHING`,
+           VALUES ($1, $2, 'free', 0)`,
           [spec.email, DUMMY_PASSWORD_HASH]
         );
         inserted = true;
@@ -58,8 +62,7 @@ const ensureTestUsers = async () => {
     if (!inserted) {
       await pool.query(
         `INSERT INTO users (email, plan, tokens)
-         VALUES ($1, 'free', 0)
-         ON CONFLICT (email) DO NOTHING`,
+         VALUES ($1, 'free', 0)`,
         [spec.email]
       );
     }
