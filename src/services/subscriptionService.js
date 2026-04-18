@@ -12,7 +12,8 @@ const BACKEND_PLAN_TO_PLAN_KEY = {
   pro: 'start',
   premium: 'creator',
   elite: 'pro',
-  on_demand: 'pro',
+  // Legacy token-only users should behave as FREE for subscription upgrades.
+  on_demand: 'free',
 };
 
 const roundCurrency = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
