@@ -8,6 +8,29 @@ import audioCacheService from '../services/audioCacheService.js';
 const router = Router();
 
 const normalizePlan = (value = 'free') => String(value || 'free').trim().toLowerCase();
+const PLAN_KEY_TO_BACKEND_PLAN = {
+  free: 'free',
+  start: 'pro',
+  creator: 'premium',
+  pro: 'elite',
+  admin: 'admin',
+};
+const BACKEND_PLAN_TO_PLAN_KEY = {
+  free: 'free',
+  pro: 'start',
+  premium: 'creator',
+  elite: 'pro',
+  on_demand: 'pro',
+  admin: 'admin',
+};
+const toBackendPlan = (value = 'free') => {
+  const key = normalizePlan(value);
+  return PLAN_KEY_TO_BACKEND_PLAN[key] || key;
+};
+const toDisplayPlan = (value = 'free') => {
+  const plan = normalizePlan(value);
+  return BACKEND_PLAN_TO_PLAN_KEY[plan] || plan;
+};
 const ALLOWED_PLANS = new Set(['free', 'start', 'creator', 'pro', 'admin']);
 const ALLOWED_BROADCAST_KIND = new Set(['global_message', 'in_app_notification', 'maintenance_alert']);
 const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived']);
@@ -55,8 +78,15 @@ const buildUserWhere = (search, planFilter, includeSuspended = 'all') => {
   }
 
   if (planFilter && planFilter !== 'all') {
-    conditions.push(`u.plan = $${paramIdx++}`);
-    params.push(normalizePlan(planFilter));
+    const normalized = normalizePlan(planFilter);
+    const backendPlan = toBackendPlan(normalized);
+    if (backendPlan === normalized) {
+      conditions.push(`u.plan = $${paramIdx++}`);
+      params.push(backendPlan);
+    } else {
+      conditions.push(`(u.plan = $${paramIdx++} OR u.plan = $${paramIdx++})`);
+      params.push(backendPlan, normalized);
+    }
   }
 
   if (includeSuspended === 'yes') conditions.push('u.is_suspended = TRUE');
@@ -230,6 +260,17 @@ router.get('/stats', requireAdmin, async (req, res) => {
       return { dow: d, tokens: Number(row?.tokens || 0), messages: Number(row?.messages || 0) };
     });
 
+    const normalizedPlanBreakdownMap = new Map();
+    for (const row of planBreakdown.rows) {
+      const displayPlan = toDisplayPlan(row.plan);
+      const prev = normalizedPlanBreakdownMap.get(displayPlan) || { plan: displayPlan, count: 0, online: 0 };
+      prev.count += Number(row.count || 0);
+      prev.online += Number(row.online || 0);
+      normalizedPlanBreakdownMap.set(displayPlan, prev);
+    }
+    const normalizedPlanBreakdown = Array.from(normalizedPlanBreakdownMap.values())
+      .sort((a, b) => b.count - a.count);
+
     const totalRevenueUsd = Number(revenueTotal.rows[0].total || 0);
     const revenueMonthUsd = Number(revenueMonth.rows[0].total || 0);
     const revenueYearUsd  = Number(revenueYear.rows[0].total || 0);
@@ -269,12 +310,15 @@ router.get('/stats', requireAdmin, async (req, res) => {
         estimatedMarginYearUsd: marginYearUsd,
         estimatedCostPer1kTokensUsd: ESTIMATED_COST_PER_1K_TOKENS_USD,
         estimatedFixedMonthlyCostUsd: ESTIMATED_FIXED_MONTHLY_COST_USD,
-        planBreakdown: planBreakdown.rows,
+        planBreakdown: normalizedPlanBreakdown,
         monthlyOverview,
         hourlyUsage,
         weekdayUsage,
         recentActivity: recentActivity.rows,
-        topUsers: topUsers.rows,
+        topUsers: topUsers.rows.map((row) => ({
+          ...row,
+          normalized_plan: toDisplayPlan(row.plan),
+        })),
       }
     });
   } catch (err) {
@@ -332,9 +376,14 @@ router.get('/users', requireAdmin, async (req, res) => {
       pool.query(countQuery, params)
     ]);
 
+    const normalizedUsers = users.rows.map((row) => ({
+      ...row,
+      normalized_plan: toDisplayPlan(row.plan),
+    }));
+
     return res.json({
       success: true,
-      users: users.rows,
+      users: normalizedUsers,
       total: parseInt(total.rows[0].count, 10),
       page,
       pages: Math.ceil(parseInt(total.rows[0].count, 10) / limit)
@@ -357,8 +406,19 @@ router.get('/users', requireAdmin, async (req, res) => {
 router.get('/users/export-emails', requireAdmin, async (req, res) => {
   try {
     const plan = String(req.query.plan || 'all').toLowerCase();
-    const where = plan !== 'all' ? 'WHERE plan = $1' : '';
-    const params = plan !== 'all' ? [plan] : [];
+    const normalizedPlan = normalizePlan(plan);
+    let where = '';
+    let params = [];
+    if (normalizedPlan !== 'all') {
+      const backendPlan = toBackendPlan(normalizedPlan);
+      if (backendPlan === normalizedPlan) {
+        where = 'WHERE plan = $1';
+        params = [backendPlan];
+      } else {
+        where = 'WHERE (plan = $1 OR plan = $2)';
+        params = [backendPlan, normalizedPlan];
+      }
+    }
 
     const rows = await pool.query(
       `SELECT id, email, plan, role, created_at
@@ -373,7 +433,7 @@ router.get('/users/export-emails', requireAdmin, async (req, res) => {
       lines.push([
         row.id,
         csvEscape(row.email),
-        csvEscape(row.plan),
+        csvEscape(toDisplayPlan(row.plan)),
         csvEscape(row.role),
         csvEscape(row.created_at ? new Date(row.created_at).toISOString() : '')
       ].join(','));
@@ -404,6 +464,7 @@ router.post('/users', requireAdmin, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
     const plan = normalizePlan(req.body.plan || 'free');
+    const backendPlan = toBackendPlan(plan);
     const role = String(req.body.role || 'user').toLowerCase() === 'admin' ? 'admin' : 'user';
     const tokens = Number.isFinite(Number(req.body.tokens)) ? Math.max(0, parseInt(req.body.tokens, 10)) : 100;
 
@@ -419,17 +480,22 @@ router.post('/users', requireAdmin, async (req, res) => {
       `INSERT INTO users (email, password_hash, plan, tokens, email_verified, role, created_at, updated_at)
        VALUES ($1, $2, $3, $4, TRUE, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        RETURNING id, email, plan, tokens, role, created_at`,
-      [email, hash, plan, tokens, role]
+      [email, hash, backendPlan, tokens, role]
     );
 
     await logAdminAction({
       actorId: req.user.userId,
       targetUserId: created.rows[0].id,
       action: 'create_user',
-      details: { email, plan, role, tokens }
+      details: { email, plan, backendPlan, role, tokens }
     });
-
-    return res.status(201).json({ success: true, user: created.rows[0] });
+    return res.status(201).json({
+      success: true,
+      user: {
+        ...created.rows[0],
+        normalized_plan: toDisplayPlan(created.rows[0].plan),
+      }
+    });
   } catch (err) {
     console.error('[Admin] Error create user:', err.message);
     return res.status(500).json({ error: 'Error creando usuario' });
@@ -451,8 +517,9 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
     if (plan !== undefined) {
       const safePlan = normalizePlan(plan);
       if (!ALLOWED_PLANS.has(safePlan)) return res.status(400).json({ error: 'Plan invalido' });
+      const backendPlan = toBackendPlan(safePlan);
       updates.push(`plan = $${paramIdx++}`);
-      params.push(safePlan);
+      params.push(backendPlan);
     }
     if (tokens !== undefined) {
       updates.push(`tokens = $${paramIdx++}`);
@@ -486,7 +553,13 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
       details: { plan, tokens, role }
     });
 
-    return res.json({ success: true, user: result.rows[0] });
+    return res.json({
+      success: true,
+      user: {
+        ...result.rows[0],
+        normalized_plan: toDisplayPlan(result.rows[0].plan),
+      }
+    });
   } catch (err) {
     console.error('[Admin] Error updating user:', err.message);
     return res.status(500).json({ error: 'Error actualizando usuario' });
