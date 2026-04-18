@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import subscriptionService from './subscriptionService.js';
 
 const TOKEN_PACKAGES = {
+  100: { kind: 'tokens', price: 15, tokens: 100, description: 'TEST - 100 tokens' },
   150000: { kind: 'tokens', price: 4.99, tokens: 150000, description: 'MINI BOOST - 150K caracteres' },
   350000: { kind: 'tokens', price: 9.99, tokens: 350000, description: 'POWER BOOST - 350K caracteres' },
   700000: { kind: 'tokens', price: 14.99, tokens: 700000, description: 'MAX BOOST - 700K caracteres' }
@@ -37,6 +38,22 @@ class MercadoPagoService {
     }
 
     return TOKEN_PACKAGES[payload.tokensPackage] || null;
+  }
+
+  async getPayerData(userId) {
+    if (!userId) return {};
+    try {
+      const result = await db.query(
+        'SELECT email FROM users WHERE id = $1 LIMIT 1',
+        [userId]
+      );
+      const email = String(result.rows?.[0]?.email || '').trim().toLowerCase();
+      if (!email || !email.includes('@')) return {};
+      return { email };
+    } catch (error) {
+      console.warn('[MERCADO_PAGO] Could not load payer data:', error.message);
+      return {};
+    }
   }
 
   async createPaymentPreference(userId, payload) {
@@ -86,6 +103,10 @@ class MercadoPagoService {
         ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
         : `user_${userId}_tokens_${payload.tokensPackage}`;
 
+      const isLocalFrontend = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(config.FRONTEND_URL || '');
+
+      const payer = await this.getPayerData(userId);
+
       const preferenceData = {
         items: [
           {
@@ -101,19 +122,36 @@ class MercadoPagoService {
             currency_id: 'MXN'
           }
         ],
-        payer: {
-          email: `user_${userId}@voltvoice.com`
-        },
+        payer,
         back_urls: {
           success: `${config.FRONTEND_URL}?payment=success`,
           failure: `${config.FRONTEND_URL}?payment=failed`,
           pending: `${config.FRONTEND_URL}?payment=pending`
         },
-        auto_return: 'approved',
         notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
         external_reference: externalReference,
         currency_id: 'MXN'
       };
+
+      // Mercado Pago puede rechazar auto_return cuando back_urls usa localhost.
+      if (!isLocalFrontend) {
+        preferenceData.auto_return = 'approved';
+      }
+
+      // En credenciales TEST, forzar pruebas con tarjeta para evitar desvíos
+      // a flujos de medios offline durante QA local.
+      if (this.token?.startsWith('TEST-')) {
+        preferenceData.payment_methods = {
+          excluded_payment_types: [
+            { id: 'ticket' },
+            { id: 'atm' },
+            { id: 'bank_transfer' }
+          ],
+          installments: 1,
+          default_installments: 1
+        };
+      }
+
 
       const response = await axios.post(this.apiUrl, preferenceData, {
         headers: {
@@ -128,7 +166,9 @@ class MercadoPagoService {
         requiresPayment: true,
         quote: quotedPlan,
         preferenceId: response.data.id,
-        initPoint: this.token.startsWith('TEST-') ? response.data.sandbox_init_point : response.data.init_point,
+        // Usar init_point como URL principal incluso con credenciales TEST.
+        // sandbox_init_point puede causar bucles de redirect/challenge en algunos flujos.
+        initPoint: response.data.init_point || response.data.sandbox_init_point,
         sandboxInitPoint: response.data.sandbox_init_point
       };
     } catch (error) {
