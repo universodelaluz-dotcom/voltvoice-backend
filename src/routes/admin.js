@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import pool from '../db.js';
 import { requireAdmin } from '../../middleware/auth.js';
 import audioCacheService from '../services/audioCacheService.js';
+import { sendDeployReadyEmail } from '../services/mail.js';
 
 const router = Router();
 
@@ -36,6 +37,7 @@ const ALLOWED_BROADCAST_KIND = new Set(['global_message', 'in_app_notification',
 const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived']);
 const ESTIMATED_COST_PER_1K_TOKENS_USD = Number(process.env.ADMIN_ESTIMATED_COST_PER_1K_TOKENS_USD || 0.004);
 const ESTIMATED_FIXED_MONTHLY_COST_USD = Number(process.env.ADMIN_ESTIMATED_FIXED_MONTHLY_COST_USD || 0);
+const DEFAULT_MAINTENANCE_MESSAGE = 'Aviso importante: estaremos en mantenimiento durante 4 minutos para aplicar mejoras. Gracias por tu paciencia.';
 
 const parseLimit = (raw, fallback = 25, max = 200) => {
   const parsed = Number.parseInt(raw, 10);
@@ -53,7 +55,49 @@ const parseHours = (raw, fallback = 48, max = 24 * 14) => {
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(parsed, max);
 };
+const parseYear = (raw, fallback = new Date().getFullYear()) => {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 2020 || parsed > 2100) return fallback;
+  return parsed;
+};
+const parseMonth = (raw, fallback = 0) => {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < 0 || parsed > 12) return fallback;
+  return parsed;
+};
+const buildDateRange = (year, month = 0) => {
+  if (month >= 1 && month <= 12) {
+    const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
+    return { start, end };
+  }
+  const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+  return { start, end };
+};
 const csvEscape = (value = '') => `"${String(value ?? '').replace(/"/g, '""')}"`;
+const isValidEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+const ensureDeployMonitorSettingsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_deploy_monitor_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      notify_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      notify_email VARCHAR(255),
+      maintenance_message TEXT NOT NULL DEFAULT '${DEFAULT_MAINTENANCE_MESSAGE.replace(/'/g, "''")}',
+      notify_sent_for_current_window BOOLEAN NOT NULL DEFAULT FALSE,
+      last_notified_ready_at TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(
+    `INSERT INTO admin_deploy_monitor_settings (id)
+     VALUES (1)
+     ON CONFLICT (id) DO NOTHING`
+  );
+};
 
 const logAdminAction = async ({ actorId, targetUserId = null, action, details = {} }) => {
   try {
@@ -330,6 +374,133 @@ router.get('/stats', requireAdmin, async (req, res) => {
       stack: err.stack
     });
     return res.status(500).json({ error: 'Error obteniendo stats' });
+  }
+});
+
+/**
+ * GET /api/admin/transactions/logs - Log global de movimientos
+ * Query params:
+ *  - year: number (default: año actual)
+ *  - month: 0..12 (0 = todo el año)
+ *  - page: default 1
+ *  - limit: default 250, max 1000
+ */
+router.get('/transactions/logs', requireAdmin, async (req, res) => {
+  try {
+    const currentYear = new Date().getFullYear();
+    const year = parseYear(req.query.year, currentYear);
+    const month = parseMonth(req.query.month, 0);
+    const page = parseIntRange(req.query.page, 1, 1, 10000);
+    const limit = parseLimit(req.query.limit, 250, 1000);
+    const offset = (page - 1) * limit;
+    const { start, end } = buildDateRange(year, month);
+
+    const [countResult, rowsResult] = await Promise.all([
+      pool.query(
+        `
+          WITH movements AS (
+            SELECT t.created_at AS event_at
+            FROM transactions t
+            WHERE t.status = 'completed'
+              AND t.created_at >= $1
+              AND t.created_at < $2
+            UNION ALL
+            SELECT aal.created_at AS event_at
+            FROM admin_audit_logs aal
+            WHERE aal.created_at >= $1
+              AND aal.created_at < $2
+          )
+          SELECT COUNT(*)::int AS total
+          FROM movements
+        `,
+        [start.toISOString(), end.toISOString()]
+      ),
+      pool.query(
+        `
+          WITH movements AS (
+            SELECT
+              t.created_at AS event_at,
+              to_char(date_trunc('month', t.created_at), 'YYYY-MM') AS month_key,
+              'payment'::text AS source,
+              'payment_completed'::text AS action,
+              t.user_id::text AS actor_user_id,
+              u.email AS actor_email,
+              NULL::text AS target_user_id,
+              NULL::text AS target_email,
+              jsonb_build_object(
+                'amountUsd', t.amount_usd,
+                'tokensPurchased', t.tokens_purchased,
+                'paymentId', t.stripe_payment_id,
+                'status', t.status
+              ) AS details
+            FROM transactions t
+            LEFT JOIN users u ON u.id::text = t.user_id::text
+            WHERE t.status = 'completed'
+              AND t.created_at >= $1
+              AND t.created_at < $2
+
+            UNION ALL
+
+            SELECT
+              aal.created_at AS event_at,
+              to_char(date_trunc('month', aal.created_at), 'YYYY-MM') AS month_key,
+              'admin_audit'::text AS source,
+              aal.action AS action,
+              actor.id::text AS actor_user_id,
+              actor.email AS actor_email,
+              target.id::text AS target_user_id,
+              target.email AS target_email,
+              COALESCE(aal.details, '{}'::jsonb) AS details
+            FROM admin_audit_logs aal
+            LEFT JOIN users actor ON actor.id::text = aal.actor_user_id::text
+            LEFT JOIN users target ON target.id::text = aal.target_user_id::text
+            WHERE aal.created_at >= $1
+              AND aal.created_at < $2
+          )
+          SELECT *
+          FROM movements
+          ORDER BY event_at DESC
+          LIMIT $3 OFFSET $4
+        `,
+        [start.toISOString(), end.toISOString(), limit, offset]
+      )
+    ]);
+
+    const items = rowsResult.rows.map((row) => ({
+      eventAt: row.event_at,
+      monthKey: row.month_key,
+      source: row.source,
+      action: row.action,
+      actorUserId: row.actor_user_id,
+      actorEmail: row.actor_email,
+      targetUserId: row.target_user_id,
+      targetEmail: row.target_email,
+      details: row.details || {}
+    }));
+
+    const byMonthMap = new Map();
+    for (const item of items) {
+      const key = item.monthKey || 'sin-mes';
+      if (!byMonthMap.has(key)) byMonthMap.set(key, []);
+      byMonthMap.get(key).push(item);
+    }
+    const byMonth = Array.from(byMonthMap.entries()).map(([monthKey, entries]) => ({
+      monthKey,
+      total: entries.length,
+      items: entries
+    }));
+
+    return res.json({
+      success: true,
+      filters: { year, month, page, limit },
+      total: countResult.rows?.[0]?.total || 0,
+      pages: Math.max(1, Math.ceil((countResult.rows?.[0]?.total || 0) / limit)),
+      byMonth,
+      items
+    });
+  } catch (err) {
+    console.error('[Admin] Error transactions logs:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo log de transacciones' });
   }
 });
 
@@ -1305,6 +1476,206 @@ router.put('/broadcasts/:id/status', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error update broadcast:', err.message);
     return res.status(500).json({ error: 'Error actualizando comunicado' });
+  }
+});
+
+/**
+ * GET /api/admin/deploy-monitor/status
+ */
+router.get('/deploy-monitor/status', requireAdmin, async (req, res) => {
+  try {
+    await ensureDeployMonitorSettingsTable();
+
+    const [settingsResult, connectedResult] = await Promise.all([
+      pool.query(
+        `SELECT notify_enabled, notify_email, maintenance_message, notify_sent_for_current_window, last_notified_ready_at
+         FROM admin_deploy_monitor_settings
+         WHERE id = 1`
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS connected
+         FROM users
+         WHERE role <> 'admin'
+           AND last_seen >= NOW() - INTERVAL '5 minutes'`
+      )
+    ]);
+
+    const settings = settingsResult.rows?.[0] || {};
+    const connectedUsers = Number(connectedResult.rows?.[0]?.connected || 0);
+    const readyForDeploy = connectedUsers === 0;
+    let emailNotificationSentNow = false;
+
+    if (readyForDeploy) {
+      if (settings.notify_enabled && settings.notify_email && !settings.notify_sent_for_current_window) {
+        const sent = await sendDeployReadyEmail(settings.notify_email, connectedUsers);
+        if (sent) {
+          emailNotificationSentNow = true;
+          await pool.query(
+            `UPDATE admin_deploy_monitor_settings
+             SET notify_sent_for_current_window = TRUE,
+                 last_notified_ready_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = 1`
+          );
+        }
+      }
+    } else if (settings.notify_sent_for_current_window) {
+      await pool.query(
+        `UPDATE admin_deploy_monitor_settings
+         SET notify_sent_for_current_window = FALSE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1`
+      );
+    }
+
+    const refreshed = await pool.query(
+      `SELECT notify_enabled, notify_email, maintenance_message, notify_sent_for_current_window, last_notified_ready_at
+       FROM admin_deploy_monitor_settings
+       WHERE id = 1`
+    );
+    const finalSettings = refreshed.rows?.[0] || {};
+
+    return res.json({
+      success: true,
+      connectedUsers,
+      readyForDeploy,
+      emailNotificationSentNow,
+      settings: {
+        notifyEnabled: Boolean(finalSettings.notify_enabled),
+        notifyEmail: finalSettings.notify_email || '',
+        maintenanceMessage: finalSettings.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
+        notifySentForCurrentWindow: Boolean(finalSettings.notify_sent_for_current_window),
+        lastNotifiedReadyAt: finalSettings.last_notified_ready_at || null,
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] Error deploy-monitor/status:', err.message);
+    return res.status(500).json({ error: 'Error obteniendo estado de deploy monitor' });
+  }
+});
+
+/**
+ * PUT /api/admin/deploy-monitor/settings
+ */
+router.put('/deploy-monitor/settings', requireAdmin, async (req, res) => {
+  try {
+    await ensureDeployMonitorSettingsTable();
+
+    const notifyEnabled = req.body.notifyEnabled === true;
+    const notifyEmail = String(req.body.notifyEmail || '').trim().toLowerCase();
+
+    if (notifyEnabled && (!notifyEmail || !isValidEmail(notifyEmail))) {
+      return res.status(400).json({ error: 'Correo invalido para notificaciones' });
+    }
+
+    const updated = await pool.query(
+      `UPDATE admin_deploy_monitor_settings
+       SET notify_enabled = $1,
+           notify_email = $2,
+           notify_sent_for_current_window = CASE WHEN $1 = FALSE THEN FALSE ELSE notify_sent_for_current_window END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1
+       RETURNING notify_enabled, notify_email, maintenance_message, notify_sent_for_current_window, last_notified_ready_at`,
+      [notifyEnabled, notifyEmail || null]
+    );
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'update_deploy_monitor_settings',
+      details: { notifyEnabled, notifyEmail: notifyEmail || null }
+    });
+
+    const row = updated.rows?.[0] || {};
+    return res.json({
+      success: true,
+      settings: {
+        notifyEnabled: Boolean(row.notify_enabled),
+        notifyEmail: row.notify_email || '',
+        maintenanceMessage: row.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
+        notifySentForCurrentWindow: Boolean(row.notify_sent_for_current_window),
+        lastNotifiedReadyAt: row.last_notified_ready_at || null,
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] Error deploy-monitor/settings:', err.message);
+    return res.status(500).json({ error: 'Error guardando configuracion de deploy monitor' });
+  }
+});
+
+/**
+ * PUT /api/admin/deploy-monitor/message
+ */
+router.put('/deploy-monitor/message', requireAdmin, async (req, res) => {
+  try {
+    await ensureDeployMonitorSettingsTable();
+    const maintenanceMessage = String(req.body.maintenanceMessage || '').trim().slice(0, 1000);
+    if (!maintenanceMessage) return res.status(400).json({ error: 'El mensaje no puede estar vacio' });
+
+    const updated = await pool.query(
+      `UPDATE admin_deploy_monitor_settings
+       SET maintenance_message = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1
+       RETURNING notify_enabled, notify_email, maintenance_message, notify_sent_for_current_window, last_notified_ready_at`,
+      [maintenanceMessage]
+    );
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'update_deploy_monitor_message',
+      details: { maintenanceMessage }
+    });
+
+    const row = updated.rows?.[0] || {};
+    return res.json({
+      success: true,
+      settings: {
+        notifyEnabled: Boolean(row.notify_enabled),
+        notifyEmail: row.notify_email || '',
+        maintenanceMessage: row.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE,
+        notifySentForCurrentWindow: Boolean(row.notify_sent_for_current_window),
+        lastNotifiedReadyAt: row.last_notified_ready_at || null,
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] Error deploy-monitor/message:', err.message);
+    return res.status(500).json({ error: 'Error guardando mensaje de mantenimiento' });
+  }
+});
+
+/**
+ * POST /api/admin/deploy-monitor/send-maintenance-notice
+ */
+router.post('/deploy-monitor/send-maintenance-notice', requireAdmin, async (req, res) => {
+  try {
+    await ensureDeployMonitorSettingsTable();
+
+    const settingsResult = await pool.query(
+      `SELECT maintenance_message FROM admin_deploy_monitor_settings WHERE id = 1`
+    );
+    const savedMessage = settingsResult.rows?.[0]?.maintenance_message || DEFAULT_MAINTENANCE_MESSAGE;
+    const requestedMessage = String(req.body.message || '').trim();
+    const message = (requestedMessage || savedMessage).slice(0, 2000);
+    const title = String(req.body.title || 'Aviso de mantenimiento').trim().slice(0, 140) || 'Aviso de mantenimiento';
+
+    const created = await pool.query(
+      `INSERT INTO admin_broadcasts
+       (kind, title, message, audience_plan, priority, status, starts_at, ends_at, created_by)
+       VALUES ('maintenance_alert', $1, $2, 'all', 'high', 'active', NOW(), NOW() + INTERVAL '30 minutes', $3)
+       RETURNING *`,
+      [title, message, req.user.userId]
+    );
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'send_deploy_maintenance_notice',
+      details: { title, message }
+    });
+
+    return res.status(201).json({ success: true, broadcast: created.rows[0] });
+  } catch (err) {
+    console.error('[Admin] Error deploy-monitor/send-maintenance-notice:', err.message);
+    return res.status(500).json({ error: 'Error enviando aviso de mantenimiento' });
   }
 });
 

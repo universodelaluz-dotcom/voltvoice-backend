@@ -170,3 +170,25 @@ export async function sendPasswordResetEmail(email, code) {
     return false;
   }
 }
+
+export async function sendDeployReadyEmail(email, connectedUsers = 0) {
+  try {
+    if (!hasMailCredentials() || !email) return false;
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Stream Voicer: mejor momento para deploy',
+      html: emailWrapper(`
+        <h2 style="color:#fff;margin-top:0;">Mejor momento para deploy</h2>
+        <p>Tu panel detecto que este es un buen momento para desplegar cambios.</p>
+        <p><strong>Usuarios conectados ahora:</strong> ${Number(connectedUsers) || 0}</p>
+        <p style="color:#9ca3af;font-size:14px;">Recomendacion: realiza el deploy ahora para minimizar impacto.</p>
+      `)
+    });
+    return true;
+  } catch (error) {
+    console.error(`[Mail] Error enviando aviso de deploy a ${email}:`, error.message);
+    return false;
+  }
+}
