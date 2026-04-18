@@ -210,6 +210,28 @@ class SubscriptionService {
     }
 
     if (billingCycle !== sub.billingCycle) {
+      // Cambio de ciclo del mismo plan:
+      // - mensual -> anual: permitir cambio inmediato con prorrateo.
+      // - anual -> mensual: mantener programación al siguiente ciclo.
+      if (sub.billingCycle === 'monthly' && billingCycle === 'annual') {
+        const currentPrice = current.monthlyPrice;
+        const proration = computeProration({
+          periodStart: sub.periodStart,
+          periodEnd: sub.periodEnd,
+          oldPrice: currentPrice,
+          newPrice: targetPrice,
+          now,
+        });
+        return {
+          action: 'billing_cycle_upgrade_immediate',
+          payableAmountUsd: proration.payable,
+          prorationCreditUsd: proration.credit,
+          remainingMs: proration.remainingMs,
+          totalMs: proration.totalMs,
+          ratio: proration.ratio,
+        };
+      }
+
       return {
         action: 'billing_cycle_next_cycle',
         payableAmountUsd: 0,
@@ -307,6 +329,9 @@ class SubscriptionService {
         const ratio = Number(quote.ratio || 0);
         tokenIncrement = Math.max(0, Math.round((targetPlan.tokens - baseCurrent.tokens) * ratio));
         nextCycle = sub.billingCycle || nextCycle;
+      } else if (quote.action === 'billing_cycle_upgrade_immediate') {
+        nextStart = now;
+        nextEnd = addBillingCycle(now, nextCycle);
       } else {
         throw new Error('Este cambio no requiere pago inmediato');
       }
@@ -328,7 +353,9 @@ class SubscriptionService {
           userId,
           targetPlan.backendPlan,
           tokenIncrement,
-          quote.action === 'immediate_purchase' ? targetPlan.tokens : 0,
+          (quote.action === 'immediate_purchase' || quote.action === 'billing_cycle_upgrade_immediate')
+            ? targetPlan.tokens
+            : 0,
           nextCycle,
           nextStart,
           nextEnd,
