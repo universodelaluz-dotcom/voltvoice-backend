@@ -182,21 +182,15 @@ class SubscriptionService {
     }
 
     if (target.tier > current.tier) {
-      const currentPrice = sub.billingCycle === 'annual' ? current.annualPrice : current.monthlyPrice;
-      const proration = computeProration({
-        periodStart: sub.periodStart,
-        periodEnd: sub.periodEnd,
-        oldPrice: currentPrice,
-        newPrice: targetPrice,
-        now,
-      });
+      // Regla comercial simplificada: upgrades cobran precio completo del plan destino.
+      // Evita cobros parciales/confusos cuando hay estados de suscripción inconsistentes.
       return {
         action: 'upgrade_immediate',
-        payableAmountUsd: proration.payable,
-        prorationCreditUsd: proration.credit,
-        remainingMs: proration.remainingMs,
-        totalMs: proration.totalMs,
-        ratio: proration.ratio,
+        payableAmountUsd: roundCurrency(targetPrice),
+        prorationCreditUsd: 0,
+        remainingMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - now.getTime()),
+        totalMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - (sub.periodStart?.getTime() || 0)),
+        ratio: 0,
       };
     }
 
