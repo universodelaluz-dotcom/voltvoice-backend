@@ -323,15 +323,17 @@ class SubscriptionService {
       if (quote.action === 'immediate_purchase') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
+        // Al pagar un plan, conservar saldo actual y sumar cupo del plan comprado.
+        tokenIncrement = targetPlan.tokens;
       } else if (quote.action === 'upgrade_immediate') {
-        // Mantiene el ciclo actual y ajusta cupo de tokens de forma proporcional.
-        const baseCurrent = sub.currentPlan || PLAN_CATALOG.free;
-        const ratio = Number(quote.ratio || 0);
-        tokenIncrement = Math.max(0, Math.round((targetPlan.tokens - baseCurrent.tokens) * ratio));
+        // Upgrade pagado en ciclo activo: conservar saldo y sumar el cupo del plan objetivo.
+        tokenIncrement = targetPlan.tokens;
         nextCycle = sub.billingCycle || nextCycle;
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
+        // Cambio de ciclo pagado (mensual -> anual): conservar saldo y sumar cupo anual.
+        tokenIncrement = targetPlan.tokens;
       } else if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
         // Pago recibido para un cambio programado: conserva plan actual y agenda el cambio
         // al cierre del periodo vigente.
@@ -354,7 +356,7 @@ class SubscriptionService {
       await client.query(
         `UPDATE users
          SET plan = $2,
-             tokens = GREATEST(tokens + $3, $4),
+             tokens = tokens + $3,
              subscription_billing_cycle = $5,
              subscription_current_period_start = $6,
              subscription_current_period_end = $7,
@@ -368,9 +370,6 @@ class SubscriptionService {
           userId,
           targetPlan.backendPlan,
           tokenIncrement,
-          (quote.action === 'immediate_purchase' || quote.action === 'billing_cycle_upgrade_immediate')
-            ? targetPlan.tokens
-            : 0,
           nextCycle,
           nextStart,
           nextEnd,
