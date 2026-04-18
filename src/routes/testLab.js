@@ -73,9 +73,7 @@ const getTestUsers = async () => {
        id,
        email,
        plan,
-       tokens,
-       subscription_billing_cycle,
-       subscription_current_period_end
+       tokens
      FROM users
      WHERE email = ANY($1::text[])`,
     [TEST_USERS.map((u) => u.email)]
@@ -98,19 +96,19 @@ const getTestUsers = async () => {
     }
     return {
       slot: spec.slot,
-    id: Number(row.id),
-    email: String(row.email || ''),
-    plan: toPublicPlan(row.plan),
-    tokens: Number(row.tokens || 0),
-    billingCycle: String(row.subscription_billing_cycle || 'monthly').toLowerCase(),
-    subscriptionEndsAt: row.subscription_current_period_end || null,
+      id: Number(row.id),
+      email: String(row.email || ''),
+      plan: toPublicPlan(row.plan),
+      tokens: Number(row.tokens || 0),
+      billingCycle: 'monthly',
+      subscriptionEndsAt: null,
     };
   });
 };
 
 const getUserById = async (userId) => {
   const result = await pool.query(
-    `SELECT id, email, plan, tokens, role
+    `SELECT id, email, plan, tokens
      FROM users
      WHERE id = $1
      LIMIT 1`,
@@ -211,7 +209,7 @@ router.post('/users/:id/assume', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: Number(row.id), email: String(row.email), role: String(row.role || 'user') },
+      { userId: Number(row.id), email: String(row.email), role: 'user' },
       config.JWT_SECRET,
       { expiresIn: config.JWT_EXPIRES_IN || '7d' }
     );
@@ -222,7 +220,7 @@ router.post('/users/:id/assume', async (req, res) => {
       user: {
         id: Number(row.id),
         email: String(row.email),
-        role: String(row.role || 'user'),
+        role: 'user',
         plan: toPublicPlan(row.plan),
         tokens: Number(row.tokens || 0),
       },
