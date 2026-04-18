@@ -144,6 +144,12 @@ router.post('/users/:id/reset', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS test_lab_user_resets (
+        user_id INT PRIMARY KEY,
+        reset_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
 
     const exists = await client.query('SELECT id FROM users WHERE id = $1 LIMIT 1', [userId]);
     if (!exists.rows.length) {
@@ -177,6 +183,13 @@ router.post('/users/:id/reset', async (req, res) => {
 
     await client.query('DELETE FROM transactions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM token_logs WHERE user_id::text = $1::text', [String(userId)]);
+    await client.query(
+      `INSERT INTO test_lab_user_resets (user_id, reset_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET reset_at = EXCLUDED.reset_at`,
+      [userId]
+    );
 
     await client.query('COMMIT');
 

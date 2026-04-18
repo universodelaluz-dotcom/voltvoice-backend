@@ -71,6 +71,26 @@ class MercadoPagoService {
     return TOKEN_PACKAGES[payload.tokensPackage] || null;
   }
 
+  async getTestResetCutoff(userId) {
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS test_lab_user_resets (
+          user_id INT PRIMARY KEY,
+          reset_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      const result = await db.query(
+        'SELECT reset_at FROM test_lab_user_resets WHERE user_id = $1 LIMIT 1',
+        [Number(userId)]
+      );
+      const value = result.rows?.[0]?.reset_at;
+      return value ? new Date(value) : null;
+    } catch (error) {
+      console.warn('[MERCADO_PAGO] Could not read test reset cutoff:', error.message);
+      return null;
+    }
+  }
+
   async getPayerData(userId) {
     if (!userId) return {};
     try {
@@ -305,6 +325,20 @@ class MercadoPagoService {
         throw new Error('Invalid external reference');
       }
 
+      const resetCutoff = await this.getTestResetCutoff(userId);
+      const paymentCreatedAt = payment?.date_created ? new Date(payment.date_created) : null;
+      if (
+        resetCutoff &&
+        paymentCreatedAt &&
+        Number.isFinite(paymentCreatedAt.getTime()) &&
+        paymentCreatedAt.getTime() <= resetCutoff.getTime()
+      ) {
+        console.log(
+          `[MERCADO_PAGO] Ignorando pago ${payment.id} por reset de test user (${resetCutoff.toISOString()}).`
+        );
+        return { success: true, status: 'ignored_before_test_reset' };
+      }
+
       if (kind === 'plan') {
         const item = this.getCheckoutItem({
           itemType: 'plan',
@@ -402,6 +436,7 @@ class MercadoPagoService {
 
     let reconciled = 0;
     let alreadyProcessed = 0;
+    let ignoredBeforeReset = 0;
     const scanned = [];
 
     for (const externalReference of candidateRefs) {
@@ -428,6 +463,8 @@ class MercadoPagoService {
             const processed = await this.handlePaymentNotification({ data: { id: paymentId } });
             if (processed?.status === 'already_processed') {
               alreadyProcessed += 1;
+            } else if (processed?.status === 'ignored_before_test_reset') {
+              ignoredBeforeReset += 1;
             } else {
               reconciled += 1;
             }
@@ -449,7 +486,7 @@ class MercadoPagoService {
       }
     }
 
-    return { success: true, userId: numericUserId, reconciled, alreadyProcessed, scanned };
+    return { success: true, userId: numericUserId, reconciled, alreadyProcessed, ignoredBeforeReset, scanned };
   }
 }
 
