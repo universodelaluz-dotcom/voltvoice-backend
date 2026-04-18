@@ -357,9 +357,9 @@ class SubscriptionService {
         `UPDATE users
          SET plan = $2,
              tokens = tokens + $3,
-             subscription_billing_cycle = $5,
-             subscription_current_period_start = $6,
-             subscription_current_period_end = $7,
+             subscription_billing_cycle = $4,
+             subscription_current_period_start = $5,
+             subscription_current_period_end = $6,
              subscription_cancel_at_period_end = FALSE,
              subscription_cancelled_at = NULL,
              subscription_pending_plan_key = NULL,
