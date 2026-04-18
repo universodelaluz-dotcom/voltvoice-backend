@@ -75,21 +75,8 @@ class MercadoPagoService {
         quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
 
         const shouldChargeNowForScheduledChange =
-          // Cobrar primero y programar después (evita bloqueo antes de checkout)
-          quotedPlan.action === 'billing_cycle_next_cycle'
-          || (quotedPlan.action === 'downgrade_next_cycle' && billingCycle === 'annual');
-
-        if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action) && !shouldChargeNowForScheduledChange) {
-          const scheduled = await subscriptionService.schedulePlanChange(Number(userId), item.planKey, billingCycle);
-          return {
-            success: true,
-            action: quotedPlan.action,
-            requiresPayment: false,
-            message: 'Cambio de plan programado para el siguiente ciclo de facturación.',
-            subscription: scheduled.subscription,
-            quote: quotedPlan
-          };
-        }
+          // Para evitar bloqueos antes de checkout: cambios programables cobran primero.
+          ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action);
 
         if (quotedPlan.action === 'already_on_plan') {
           return {
@@ -295,3 +282,5 @@ class MercadoPagoService {
 }
 
 export default new MercadoPagoService();
+
+
