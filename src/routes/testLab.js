@@ -10,6 +10,7 @@ const TEST_USERS = [
   { slot: 3, email: 'test.user3@streamvoicer.local' },
   { slot: 4, email: 'test.user4@streamvoicer.local' },
 ];
+const DUMMY_PASSWORD_HASH = '$2b$10$u3aX0QhMkg4QvOFc6U5vQe7qzjK1xN6l1P2Qz6x8mU9pL0sW1a2bC';
 
 const BACKEND_PLAN_TO_PUBLIC = {
   free: 'free',
@@ -27,12 +28,41 @@ const toPublicPlan = (rawPlan = 'free') => {
 
 const ensureTestUsers = async () => {
   for (const spec of TEST_USERS) {
-    await pool.query(
-      `INSERT INTO users (email, plan, tokens, role, email_verified)
-       VALUES ($1, 'free', 0, 'user', TRUE)
-       ON CONFLICT (email) DO NOTHING`,
-      [spec.email]
-    );
+    let inserted = false;
+
+    // Intento 1: esquema moderno completo.
+    try {
+      await pool.query(
+        `INSERT INTO users (email, password_hash, plan, tokens, role, email_verified)
+         VALUES ($1, $2, 'free', 0, 'user', TRUE)
+         ON CONFLICT (email) DO NOTHING`,
+        [spec.email, DUMMY_PASSWORD_HASH]
+      );
+      inserted = true;
+    } catch (_) {}
+
+    // Intento 2: sin role/email_verified.
+    if (!inserted) {
+      try {
+        await pool.query(
+          `INSERT INTO users (email, password_hash, plan, tokens)
+           VALUES ($1, $2, 'free', 0)
+           ON CONFLICT (email) DO NOTHING`,
+          [spec.email, DUMMY_PASSWORD_HASH]
+        );
+        inserted = true;
+      } catch (_) {}
+    }
+
+    // Intento 3: esquema mínimo legado.
+    if (!inserted) {
+      await pool.query(
+        `INSERT INTO users (email, plan, tokens)
+         VALUES ($1, 'free', 0)
+         ON CONFLICT (email) DO NOTHING`,
+        [spec.email]
+      );
+    }
   }
 };
 
@@ -99,7 +129,7 @@ router.get('/users', async (_req, res) => {
     return res.json({ success: true, users });
   } catch (error) {
     console.error('[TEST_LAB] users error:', error.message);
-    return res.status(500).json({ error: 'No se pudieron cargar los usuarios de prueba.' });
+    return res.status(500).json({ error: 'No se pudieron cargar los usuarios de prueba.', detail: error.message });
   }
 });
 
