@@ -332,6 +332,21 @@ class SubscriptionService {
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
+      } else if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
+        // Pago recibido para un cambio programado: conserva plan actual y agenda el cambio
+        // al cierre del periodo vigente.
+        await client.query(
+          `UPDATE users
+           SET subscription_pending_plan_key = $2,
+               subscription_pending_billing_cycle = $3,
+               subscription_pending_effective_at = subscription_current_period_end,
+               subscription_cancel_at_period_end = FALSE
+           WHERE id = $1`,
+          [userId, targetKey, nextCycle]
+        );
+        const updated = await this.getUserRow(client, userId, false);
+        await client.query('COMMIT');
+        return { quote, subscription: this.toResponse(updated) };
       } else {
         throw new Error('Este cambio no requiere pago inmediato');
       }

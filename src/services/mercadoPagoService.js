@@ -74,7 +74,10 @@ class MercadoPagoService {
       if (item.kind === 'plan') {
         quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
 
-        if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action)) {
+        const shouldChargeNowForScheduledChange =
+          quotedPlan.action === 'downgrade_next_cycle' && billingCycle === 'annual';
+
+        if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action) && !shouldChargeNowForScheduledChange) {
           const scheduled = await subscriptionService.schedulePlanChange(Number(userId), item.planKey, billingCycle);
           return {
             success: true,
@@ -97,6 +100,9 @@ class MercadoPagoService {
         }
 
         chargedPrice = quotedPlan.payableAmountUsd;
+        if (shouldChargeNowForScheduledChange && chargedPrice <= 0) {
+          chargedPrice = item.price;
+        }
       }
 
       const externalReference = item.kind === 'plan'
@@ -227,10 +233,13 @@ class MercadoPagoService {
           billingCycle: parts[4]
         });
 
+        const scheduledChange = ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(applied.quote?.action);
+        const tokensPurchased = scheduledChange ? 0 : item.tokens;
+
         await db.query(
           `INSERT INTO transactions (user_id, tokens_purchased, amount_usd, stripe_payment_id, status)
            VALUES ($1, $2, $3, $4, $5)`,
-          [userId, item.tokens, payment.transaction_amount, paymentId, 'completed']
+          [userId, tokensPurchased, payment.transaction_amount, paymentId, 'completed']
         );
 
         return {
@@ -238,7 +247,8 @@ class MercadoPagoService {
           userId,
           plan: applied.subscription.backendPlan,
           newBalance: applied.subscription.tokens,
-          tokensAdded: item.tokens,
+          tokensAdded: tokensPurchased,
+          scheduled: scheduledChange,
           quote: applied.quote
         };
       }
