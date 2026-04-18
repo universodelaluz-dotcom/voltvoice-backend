@@ -8,16 +8,24 @@ const router = Router();
 
 const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null;
 const normalizePlan = (value = 'free') => String(value || 'free').trim().toLowerCase();
+const BACKEND_PLAN_TO_PUBLIC_PLAN = {
+  free: 'free',
+  pro: 'start',
+  premium: 'creator',
+  elite: 'pro',
+  on_demand: 'free',
+  start: 'start',
+  creator: 'creator',
+  admin: 'admin',
+};
+const toPublicPlan = (planValue) => BACKEND_PLAN_TO_PUBLIC_PLAN[normalizePlan(planValue)] || 'free';
 
 // "premium" y "elite" se mantienen como aliases internos de facturacion
 const CLONED_VOICE_LIMITS = {
   free: 0,
   start: 1,
-  pro: 5,
   creator: 2,
-  premium: 2,
-  elite: 5,
-  on_demand: 999,
+  pro: 5,
   admin: 999
 };
 
@@ -122,9 +130,6 @@ const DAILY_VOICE_DELETE_LIMITS = {
   start: 3,
   creator: 6,
   pro: 6,
-  premium: 6,
-  elite: 6,
-  on_demand: 6,
   admin: 999,
 };
 
@@ -212,7 +217,7 @@ router.post('/', verifyToken, async (req, res) => {
 router.get('/voices', verifyToken, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = normalizePlan(userResult.rows[0]?.plan || 'free');
+    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const maxVoices = CLONED_VOICE_LIMITS[userPlan] ?? 0;
 
     const result = await pool.query(
@@ -302,7 +307,7 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
 
     // Límite diario de eliminaciones por plan
     const userPlanResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = String(userPlanResult.rows[0]?.plan || 'free').toLowerCase();
+    const userPlan = toPublicPlan(userPlanResult.rows[0]?.plan || 'free');
     const userRole = userPlanResult.rows[0]?.role || 'user';
     if (isCountedVoiceType && userRole !== 'admin') {
       await ensureVoiceDeleteEventsTable();
@@ -384,10 +389,10 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 
   // Límite de voces clonadas según plan del usuario
   // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
-  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', premium: 'Creator', pro: 'Pro', elite: 'Pro', admin: 'Admin' };
+  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', pro: 'Pro', admin: 'Admin' };
   try {
     const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = normalizePlan(userResult.rows[0]?.plan || 'free');
+    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
 
     if (userRole !== 'admin') {
@@ -474,10 +479,10 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   }
 
   // Límite de voces generadas según plan del usuario
-  const voiceLimits = { free: 0, pro: 2, premium: 4, elite: 8, on_demand: 999 };
+  const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, admin: 999 };
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = userResult.rows[0]?.plan || 'free';
+    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const maxVoices = voiceLimits[userPlan] || 0;
 
     if (maxVoices === 0) {
@@ -642,7 +647,7 @@ router.get('/plan', verifyToken, async (req, res) => {
       success: true,
       userId: user.id,
       email: user.email,
-      currentPlan: user.plan || 'free',
+      currentPlan: toPublicPlan(user.plan || 'free'),
       tokens: user.tokens,
       subscription
     });

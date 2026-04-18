@@ -19,10 +19,41 @@ const PLAN_PACKAGES = {
   'pro_annual': { kind: 'plan', planKey: 'pro', backendPlan: 'elite', price: 149.00, tokens: 800000, description: 'Plan PRO Anual' }
 };
 
+const roundMoney = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
+
+const normalizeCurrency = (value) => {
+  const code = String(value || '').trim().toUpperCase();
+  return code === 'USD' ? 'USD' : 'MXN';
+};
+
+const convertUsdToCheckoutAmount = (amountUsd) => {
+  const currency = normalizeCurrency(config.MERCADO_PAGO_CURRENCY);
+  const usd = Number(amountUsd) || 0;
+  if (currency === 'USD') {
+    return { amount: roundMoney(usd), currency };
+  }
+
+  const rate = Number(config.MERCADO_PAGO_USD_MXN_RATE);
+  const usdToMxnRate = Number.isFinite(rate) && rate > 0 ? rate : 17;
+  return { amount: roundMoney(usd * usdToMxnRate), currency };
+};
+
+const isPublicHttpsUrl = (urlValue) => {
+  try {
+    const parsed = new URL(String(urlValue || ''));
+    const host = String(parsed.hostname || '').toLowerCase();
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+    return parsed.protocol === 'https:' && !isLocalHost;
+  } catch {
+    return false;
+  }
+};
+
 class MercadoPagoService {
   constructor() {
     this.apiUrl = 'https://api.mercadopago.com/checkout/preferences';
     this.token = config.MERCADO_PAGO_ACCESS_TOKEN;
+    this.preferenceCache = new Map();
 
     if (!this.token) {
       console.warn('[MERCADO_PAGO] Access token not configured. Payments will not work.');
@@ -96,9 +127,28 @@ class MercadoPagoService {
 
       const externalReference = item.kind === 'plan'
         ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
+        : `user_${userId}_tokens_${payload.tokensPackage}_${Date.now()}`;
+      const cacheKey = item.kind === 'plan'
+        ? externalReference
         : `user_${userId}_tokens_${payload.tokensPackage}`;
-
-      const isLocalFrontend = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(config.FRONTEND_URL || '');
+      const now = Date.now();
+      const cached = this.preferenceCache.get(cacheKey);
+      if (item.kind === 'plan' && cached && cached.expiresAt > now) {
+        return {
+          success: true,
+          action: quotedPlan?.action || 'purchase',
+          requiresPayment: true,
+          quote: quotedPlan,
+          preferenceId: cached.preferenceId,
+          initPoint: cached.initPoint,
+          sandboxInitPoint: cached.sandboxInitPoint,
+          cached: true
+        };
+      }
+      const checkoutAmount = convertUsdToCheckoutAmount(chargedPrice);
+      console.log(
+        `[MERCADO_PAGO] Preference amount -> usd_base=${roundMoney(chargedPrice)} ${checkoutAmount.currency}_sent=${checkoutAmount.amount}`
+      );
 
       const payer = await this.getPayerData(userId);
 
@@ -108,13 +158,13 @@ class MercadoPagoService {
             id: item.kind === 'plan'
               ? `plan_${item.planKey}_${billingCycle}`
               : `tokens_${payload.tokensPackage}`,
-            title: `VoltVoice - ${item.description}`,
+            title: `Streamvoicer - ${item.description}`,
             description: item.kind === 'plan'
               ? `Compra del ${item.description}`
               : `Compra ${payload.tokensPackage} tokens para sintetizar voces`,
             quantity: 1,
-            unit_price: chargedPrice,
-            currency_id: 'MXN'
+            unit_price: checkoutAmount.amount,
+            currency_id: checkoutAmount.currency
           }
         ],
         payer,
@@ -125,17 +175,19 @@ class MercadoPagoService {
         },
         notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
         external_reference: externalReference,
-        currency_id: 'MXN'
+        currency_id: checkoutAmount.currency
       };
 
-      // Mercado Pago puede rechazar auto_return cuando back_urls usa localhost.
-      if (!isLocalFrontend) {
+      if (isPublicHttpsUrl(config.FRONTEND_URL)) {
         preferenceData.auto_return = 'approved';
       }
 
-      // En credenciales TEST, forzar pruebas con tarjeta para evitar desvíos
-      // a flujos de medios offline durante QA local.
-      if (this.token?.startsWith('TEST-')) {
+      // En entorno de pruebas/local, forzar flujo con tarjeta para reducir
+      // errores de procesamiento en medios alternativos.
+      const forceCardFlow =
+        this.token?.startsWith('TEST-') ||
+        (config.isDevelopment && item.kind === 'tokens');
+      if (forceCardFlow) {
         preferenceData.payment_methods = {
           excluded_payment_types: [
             { id: 'ticket' },
@@ -148,14 +200,44 @@ class MercadoPagoService {
       }
 
 
-      const response = await axios.post(this.apiUrl, preferenceData, {
-        headers: {
-          'Authorization': `Bearer ${this.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const requestHeaders = {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/json'
+      };
 
-      return {
+      let response;
+      try {
+        response = await axios.post(this.apiUrl, preferenceData, { headers: requestHeaders });
+      } catch (initialError) {
+        const status = Number(initialError?.response?.status || 0);
+        const apiCause = String(initialError?.response?.data?.cause?.[0]?.code || '').toLowerCase();
+        const apiMessage = String(initialError?.response?.data?.message || '').toLowerCase();
+        const shouldRetryWithoutAutoReturn =
+          status === 400 &&
+          preferenceData?.auto_return === 'approved' &&
+          (
+            apiCause.includes('invalid_back_urls') ||
+            apiMessage.includes('back_url') ||
+            apiMessage.includes('back_urls') ||
+            apiMessage.includes('auto_return')
+          );
+
+        const shouldRetryTokensWithoutPayer = status === 403 && item.kind === 'tokens';
+
+        if (!shouldRetryWithoutAutoReturn && !shouldRetryTokensWithoutPayer) throw initialError;
+
+        if (shouldRetryWithoutAutoReturn) {
+          console.warn('[MERCADO_PAGO] Retry create preference without auto_return due to invalid back_urls/auto_return');
+          delete preferenceData.auto_return;
+        }
+        if (shouldRetryTokensWithoutPayer) {
+          console.warn('[MERCADO_PAGO] Retry token preference without payer due to 403');
+          delete preferenceData.payer;
+        }
+        response = await axios.post(this.apiUrl, preferenceData, { headers: requestHeaders });
+      }
+
+      const responsePayload = {
         success: true,
         action: quotedPlan?.action || 'purchase',
         requiresPayment: true,
@@ -166,9 +248,24 @@ class MercadoPagoService {
         initPoint: response.data.init_point || response.data.sandbox_init_point,
         sandboxInitPoint: response.data.sandbox_init_point
       };
+      if (item.kind === 'plan') {
+        this.preferenceCache.set(cacheKey, {
+          preferenceId: responsePayload.preferenceId,
+          initPoint: responsePayload.initPoint,
+          sandboxInitPoint: responsePayload.sandboxInitPoint,
+          expiresAt: Date.now() + 60 * 1000
+        });
+      }
+      return responsePayload;
     } catch (error) {
-      console.error('[MERCADO_PAGO] Error creating payment preference:', error.response?.data || error.message);
-      throw error;
+      const details = error?.response?.data || error.message;
+      console.error('[MERCADO_PAGO] Error creating payment preference:', details);
+      const normalizedMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.cause?.[0]?.description ||
+        error?.message ||
+        'Error creating payment preference';
+      throw new Error(normalizedMessage);
     }
   }
 
@@ -193,6 +290,9 @@ class MercadoPagoService {
       });
 
       const payment = response.data;
+      console.log(
+        `[MERCADO_PAGO] Payment notification -> id=${payment.id} status=${payment.status} amount=${payment.transaction_amount} currency=${payment.currency_id}`
+      );
       if (payment.status !== 'approved') {
         return { success: false, status: payment.status };
       }
@@ -278,6 +378,78 @@ class MercadoPagoService {
     `;
     const result = await db.query(query, [userId]);
     return result.rows;
+  }
+
+  async reconcileUserPayments(userId) {
+    if (!this.token) {
+      throw new Error('MERCADO_PAGO_ACCESS_TOKEN is not configured');
+    }
+
+    const numericUserId = Number(userId);
+    if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
+      throw new Error('Invalid user id');
+    }
+
+    const candidateRefs = [];
+    for (const key of Object.keys(PLAN_PACKAGES)) {
+      const item = PLAN_PACKAGES[key];
+      const cycle = key.endsWith('_annual') ? 'annual' : 'monthly';
+      candidateRefs.push(`user_${numericUserId}_plan_${item.planKey}_${cycle}`);
+    }
+    for (const tokenAmount of Object.keys(TOKEN_PACKAGES)) {
+      candidateRefs.push(`user_${numericUserId}_tokens_${tokenAmount}`);
+    }
+
+    let reconciled = 0;
+    let alreadyProcessed = 0;
+    const scanned = [];
+
+    for (const externalReference of candidateRefs) {
+      try {
+        const response = await axios.get('https://api.mercadopago.com/v1/payments/search', {
+          headers: {
+            'Authorization': `Bearer ${this.token}`
+          },
+          params: {
+            external_reference: externalReference,
+            sort: 'date_created',
+            criteria: 'desc',
+            limit: 5
+          }
+        });
+
+        const results = Array.isArray(response?.data?.results) ? response.data.results : [];
+        for (const payment of results) {
+          if (String(payment?.status || '').toLowerCase() !== 'approved') continue;
+          const paymentId = String(payment?.id || '').trim();
+          if (!paymentId) continue;
+
+          try {
+            const processed = await this.handlePaymentNotification({ data: { id: paymentId } });
+            if (processed?.status === 'already_processed') {
+              alreadyProcessed += 1;
+            } else {
+              reconciled += 1;
+            }
+          } catch (error) {
+            const msg = String(error?.message || '').toLowerCase();
+            if (msg.includes('already')) {
+              alreadyProcessed += 1;
+            } else {
+              console.warn(`[MERCADO_PAGO] reconcile skipped payment ${paymentId}: ${error.message}`);
+            }
+          }
+        }
+        scanned.push({ externalReference, found: results.length });
+      } catch (error) {
+        console.warn(
+          `[MERCADO_PAGO] reconcile search failed for ref ${externalReference}:`,
+          error?.response?.data?.message || error.message
+        );
+      }
+    }
+
+    return { success: true, userId: numericUserId, reconciled, alreadyProcessed, scanned };
   }
 }
 

@@ -89,14 +89,18 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
       });
     }
 
+    const tokenLooksTest = String(config.MERCADO_PAGO_ACCESS_TOKEN || '').startsWith('TEST-');
+    const preferSandboxCheckout = Boolean(preference.sandboxInitPoint) && tokenLooksTest;
+
     return res.json({
       success: true,
       requiresPayment: true,
       action: preference.action,
       quote: preference.quote,
       preferenceId: preference.preferenceId,
-      // Usar init_point para produccion, sandbox_init_point para testing
-      checkoutUrl: preference.initPoint,
+      // Elegir checkout por tipo de credencial, no por localhost.
+      // TEST-* -> sandbox, APP_USR-* -> init_point normal.
+      checkoutUrl: preferSandboxCheckout ? preference.sandboxInitPoint : preference.initPoint,
       sandboxUrl: preference.sandboxInitPoint
     });
   } catch (error) {
@@ -151,6 +155,17 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     res.json({ transactions });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST - Reconciliar pagos aprobados cuando webhook no llegó (útil en local)
+router.post('/reconcile', authMiddleware, async (req, res) => {
+  try {
+    const result = await mercadoPagoService.reconcileUserPayments(req.userId);
+    return res.json(result);
+  } catch (error) {
+    console.error('[MERCADO_PAGO_ROUTE] Reconcile error:', error.message);
+    return res.status(500).json({ error: error.message });
   }
 });
 

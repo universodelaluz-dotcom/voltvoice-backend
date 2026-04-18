@@ -114,17 +114,19 @@ if (config.NODE_ENV !== 'development') {
 }
 
 
-const globalLimiter = rateLimit({
-  windowMs: config.GLOBAL_RATE_LIMIT_WINDOW_MS,
-  max: config.GLOBAL_RATE_LIMIT_MAX_REQUESTS,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    monitoring.recordRateLimit({ path: req.path, ip: req.ip });
-    return res.status(429).json({ error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' });
-  },
-});
-app.use(globalLimiter);
+if (!config.isDevelopment) {
+  const globalLimiter = rateLimit({
+    windowMs: config.GLOBAL_RATE_LIMIT_WINDOW_MS,
+    max: config.GLOBAL_RATE_LIMIT_MAX_REQUESTS,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      monitoring.recordRateLimit({ path: req.path, ip: req.ip });
+      return res.status(429).json({ error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' });
+    },
+  });
+  app.use(globalLimiter);
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));

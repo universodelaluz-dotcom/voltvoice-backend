@@ -95,14 +95,14 @@ export async function createPaypalOrder(userId, payload) {
         intent: 'CAPTURE',
         purchase_units: [{
           reference_id: referenceId,
-          description: `VoltVoice - ${item.description}`,
+          description: `Streamvoicer - ${item.description}`,
           amount: {
             currency_code: 'USD',
             value: chargedPrice.toFixed(2)
           }
         }],
         application_context: {
-          brand_name: 'VoltVoice',
+          brand_name: 'Streamvoicer',
           return_url: `${config.FRONTEND_URL}?payment=success&provider=paypal`,
           cancel_url: `${config.FRONTEND_URL}?payment=cancelled`,
           user_action: 'PAY_NOW'

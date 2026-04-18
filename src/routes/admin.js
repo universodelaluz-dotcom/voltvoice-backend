@@ -338,6 +338,16 @@ router.get('/stats', requireAdmin, async (req, res) => {
  */
 router.get('/users', requireAdmin, async (req, res) => {
   try {
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_billing_cycle VARCHAR(20) DEFAULT 'monthly';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_current_period_start TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_at_period_end BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_plan_key VARCHAR(20);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_billing_cycle VARCHAR(20);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_effective_at TIMESTAMP;
+    `);
+
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseLimit(req.query.limit, 50, 100);
     const search = (req.query.search || '').trim();
@@ -351,6 +361,9 @@ router.get('/users', requireAdmin, async (req, res) => {
     const query = `
       SELECT u.id, u.email, u.plan, u.tokens, u.role, u.created_at, u.last_seen,
              u.is_suspended, u.suspension_reason, u.suspended_until,
+             u.subscription_billing_cycle, u.subscription_current_period_start, u.subscription_current_period_end,
+             u.subscription_cancel_at_period_end, u.subscription_pending_plan_key,
+             u.subscription_pending_billing_cycle, u.subscription_pending_effective_at,
              COALESCE(tl.total_tokens_used, 0) AS total_tokens_used,
              COALESCE(tx.total_tokens_purchased, 0) AS total_tokens_purchased
       FROM users u
@@ -379,6 +392,11 @@ router.get('/users', requireAdmin, async (req, res) => {
     const normalizedUsers = users.rows.map((row) => ({
       ...row,
       normalized_plan: toDisplayPlan(row.plan),
+      subscription_billing_cycle: String(row.subscription_billing_cycle || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly',
+      subscription_pending_plan_display: row.subscription_pending_plan_key ? toDisplayPlan(row.subscription_pending_plan_key) : null,
+      subscription_pending_billing_cycle: row.subscription_pending_billing_cycle
+        ? (String(row.subscription_pending_billing_cycle).toLowerCase() === 'annual' ? 'annual' : 'monthly')
+        : null,
     }));
 
     return res.json({

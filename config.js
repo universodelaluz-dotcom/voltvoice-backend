@@ -45,6 +45,8 @@ export const config = {
   // Mercado Pago
   MERCADO_PAGO_ACCESS_TOKEN: process.env.MERCADO_PAGO_ACCESS_TOKEN,
   MERCADO_PAGO_WEBHOOK_SECRET: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
+  MERCADO_PAGO_CURRENCY: String(process.env.MERCADO_PAGO_CURRENCY || 'MXN').trim().toUpperCase(),
+  MERCADO_PAGO_USD_MXN_RATE: Number(process.env.MERCADO_PAGO_USD_MXN_RATE || 17),
 
   // PayPal
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,

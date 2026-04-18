@@ -54,6 +54,20 @@ const clearAuthCookie = () => {
   return parts.join('; ');
 };
 
+const BACKEND_PLAN_TO_PUBLIC_PLAN = {
+  free: 'free',
+  pro: 'start',
+  premium: 'creator',
+  elite: 'pro',
+  on_demand: 'free',
+  start: 'start',
+  creator: 'creator',
+  admin: 'admin',
+};
+
+const toPublicPlan = (value) =>
+  BACKEND_PLAN_TO_PUBLIC_PLAN[String(value || 'free').trim().toLowerCase()] || 'free';
+
 const attachAuthToResponse = (res, token, payload) => {
   res.setHeader('Set-Cookie', buildAuthCookie(token));
   if (config.AUTH_INCLUDE_TOKEN_RESPONSE) return { ...payload, token };
@@ -105,9 +119,9 @@ const loginAttempts = new Map();
 const registerAttempts = new Map();
 const forgotPasswordAttempts = new Map();
 
-const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_MAX_ATTEMPTS = config.isDevelopment ? 50 : 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_LOCKOUT_MS = 30 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = config.isDevelopment ? 60 * 1000 : 30 * 60 * 1000;
 
 const REGISTER_MAX_ATTEMPTS = 1; // Cambio: de 3 a 1 registro por hora
 const REGISTER_WINDOW_MS = 60 * 60 * 1000;
@@ -383,7 +397,7 @@ router.post('/verify-email', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: user.plan,
+        plan: toPublicPlan(user.plan),
         tokens: user.tokens,
       }
     }));
@@ -689,7 +703,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: String(user.plan || 'free').toLowerCase(),
+        plan: toPublicPlan(user.plan),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
       }
@@ -773,7 +787,7 @@ router.post('/google', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: String(user.plan || 'free').toLowerCase(),
+        plan: toPublicPlan(user.plan),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         name,
@@ -820,7 +834,7 @@ router.get('/me', verifyToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        plan: String(subscription.backendPlan || user.plan || 'free').toLowerCase(),
+        plan: subscription.currentPlanKey || toPublicPlan(user.plan),
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         created_at: user.created_at,
@@ -845,6 +859,4 @@ router.post('/logout', verifyToken, async (req, res) => {
 });
 
 export default router;
-
-
 
