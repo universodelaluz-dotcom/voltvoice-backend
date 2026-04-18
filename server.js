@@ -25,6 +25,7 @@ import botRoutes from './src/routes/bot.js';
 import adminRoutes from './src/routes/admin.js';
 import opsRoutes from './src/routes/ops.js';
 import supportRoutes from './src/routes/support.js';
+import testLabRoutes from './src/routes/testLab.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -711,6 +712,8 @@ try {
   console.log('[STARTUP] ✓ Ops routes loaded');
   app.use('/api/support', supportRoutes);
   console.log('[STARTUP] ✓ Support routes loaded');
+  app.use('/api/test-lab', testLabRoutes);
+  console.log('[STARTUP] ✓ Test Lab routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
 }
