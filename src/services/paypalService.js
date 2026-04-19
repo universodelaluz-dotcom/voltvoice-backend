@@ -2,6 +2,8 @@ import axios from 'axios';
 import { config } from '../config.js';
 import db from '../db.js';
 import subscriptionService from './subscriptionService.js';
+import { sendPaymentReceiptEmail } from './mail.js';
+import couponService from './couponService.js';
 
 const PAYPAL_API = config.PAYPAL_MODE === 'sandbox'
   ? 'https://api-m.sandbox.paypal.com'
@@ -31,6 +33,31 @@ function getCheckoutItem(payload = {}) {
   return TOKEN_PACKAGES[payload.tokensPackage] || null;
 }
 
+async function ensurePaidPlanForTokenPackages(userId) {
+  const result = await db.query(
+    "SELECT LOWER(COALESCE(plan, 'free')) AS plan FROM users WHERE id = $1 LIMIT 1",
+    [Number(userId)]
+  );
+  const plan = String(result.rows?.[0]?.plan || 'free').toLowerCase();
+  if (plan === 'free' || plan === 'on_demand') {
+    const error = new Error('Los paquetes de tokens están disponibles solo para usuarios con plan de pago activo.');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+async function getUserEmail(userId) {
+  try {
+    const result = await db.query(
+      "SELECT email FROM users WHERE id = $1 LIMIT 1",
+      [Number(userId)]
+    );
+    return String(result.rows?.[0]?.email || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 async function getAccessToken() {
   const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET } = config;
   if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
@@ -52,25 +79,58 @@ async function getAccessToken() {
   return res.data.access_token;
 }
 
-export async function createPaypalOrder(userId, payload) {
+const buildCouponMeta = ({ couponId, originalAmount, finalAmount }) => {
+  const safeCouponId = Number.isFinite(Number(couponId)) ? Number(couponId) : 0;
+  const original = Number(originalAmount || 0);
+  const final = Number(finalAmount || 0);
+  return `cp:${safeCouponId}|od:${original.toFixed(2)}|fd:${final.toFixed(2)}`;
+};
+
+const parseCouponMeta = (customId = '') => {
+  const out = { couponId: 0, originalAmount: 0, finalAmount: 0 };
+  const parts = String(customId || '').split('|');
+  for (const p of parts) {
+    const [k, v] = String(p || '').split(':');
+    if (!k) continue;
+    if (k === 'cp') out.couponId = Number.parseInt(v, 10) || 0;
+    if (k === 'od') out.originalAmount = Number(v) || 0;
+    if (k === 'fd') out.finalAmount = Number(v) || 0;
+  }
+  return out;
+};
+
+export async function createPaypalOrder(userId, payload, options = {}) {
   const item = getCheckoutItem(payload);
   if (!item) throw new Error('Invalid checkout item');
+  if (item.kind === 'tokens') {
+    await ensurePaidPlanForTokenPackages(userId);
+  }
 
   try {
     const accessToken = await getAccessToken();
     const billingCycle = String(payload.billingCycle || 'monthly').toLowerCase();
     let quote = null;
     let chargedPrice = item.price;
+    const originalPrice = Number(item.price || 0);
+    let couponMeta = null;
 
     if (item.kind === 'plan') {
       quote = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
-      if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
-        const scheduled = await subscriptionService.schedulePlanChange(Number(userId), item.planKey, billingCycle);
+      const shouldChargeNowForScheduledChange =
+        ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action);
+      if (quote.action === 'already_scheduled') {
         return {
           action: quote.action,
           requiresPayment: false,
-          message: 'Cambio de plan programado para el siguiente ciclo de facturación.',
-          subscription: scheduled.subscription,
+          message: 'Este cambio ya está programado para el siguiente ciclo.',
+          quote
+        };
+      }
+      if (quote.action === 'pending_change_exists') {
+        return {
+          action: quote.action,
+          requiresPayment: false,
+          message: 'Ya tienes un cambio de plan programado. Espera al próximo ciclo o cancela el cambio pendiente.',
           quote
         };
       }
@@ -83,11 +143,53 @@ export async function createPaypalOrder(userId, payload) {
         };
       }
       chargedPrice = quote.payableAmountUsd;
+      if (shouldChargeNowForScheduledChange && chargedPrice <= 0) {
+        chargedPrice = item.price;
+      }
     }
 
     const referenceId = item.kind === 'plan'
       ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
       : `user_${userId}_tokens_${payload.tokensPackage}`;
+
+    const couponCode = String(payload.couponCode || '').trim();
+    const couponId = Number.parseInt(payload.couponId, 10);
+    if (couponCode && chargedPrice > 0) {
+      const couponValidation = await couponService.validate(
+        couponCode,
+        Number(userId),
+        Number(chargedPrice),
+        item.kind === 'plan' ? 'plan' : 'tokens',
+        item.kind === 'plan' ? item.planKey : item.tokens,
+        options.clientIp || null
+      );
+
+      if (!couponValidation?.valid) {
+        const err = new Error(couponValidation?.message || 'Cupón inválido para esta compra');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const validatedCouponId = Number(couponValidation?.coupon?.id || 0);
+      if (Number.isFinite(couponId) && couponId > 0 && validatedCouponId > 0 && couponId !== validatedCouponId) {
+        const err = new Error('El cupón cambió, vuelve a validarlo e intenta de nuevo.');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      chargedPrice = Number(couponValidation.finalAmount || chargedPrice);
+      couponMeta = {
+        couponId: validatedCouponId,
+        originalAmount: Number(couponValidation.originalAmount || originalPrice),
+        finalAmount: Number(couponValidation.finalAmount || chargedPrice),
+        discount: Number(couponValidation.discount || 0),
+      };
+    }
+
+    const backendBaseUrl = String(options.backendBaseUrl || config.BACKEND_URL || '').trim().replace(/\/+$/, '');
+    if (!backendBaseUrl) {
+      throw new Error('BACKEND_URL not configured for PayPal return URL');
+    }
 
     const res = await axios.post(
       `${PAYPAL_API}/v2/checkout/orders`,
@@ -95,6 +197,7 @@ export async function createPaypalOrder(userId, payload) {
         intent: 'CAPTURE',
         purchase_units: [{
           reference_id: referenceId,
+          custom_id: couponMeta ? buildCouponMeta(couponMeta) : undefined,
           description: `Streamvoicer - ${item.description}`,
           amount: {
             currency_code: 'USD',
@@ -103,7 +206,7 @@ export async function createPaypalOrder(userId, payload) {
         }],
         application_context: {
           brand_name: 'Streamvoicer',
-          return_url: `${config.FRONTEND_URL}?payment=success&provider=paypal`,
+          return_url: `${backendBaseUrl}/api/paypal/return`,
           cancel_url: `${config.FRONTEND_URL}?payment=cancelled`,
           user_action: 'PAY_NOW'
         }
@@ -130,7 +233,7 @@ export async function createPaypalOrder(userId, payload) {
   }
 }
 
-export async function capturePaypalOrder(orderId) {
+export async function capturePaypalOrder(orderId, options = {}) {
   try {
     const accessToken = await getAccessToken();
     const res = await axios.post(
@@ -156,6 +259,7 @@ export async function capturePaypalOrder(orderId) {
 
     const captureId = purchaseUnit?.payments?.captures?.[0]?.id || orderId;
     const amountPaid = Number(purchaseUnit?.payments?.captures?.[0]?.amount?.value || purchaseUnit?.amount?.value || 0);
+    const couponMeta = parseCouponMeta(purchaseUnit?.custom_id || '');
 
     if (kind === 'plan') {
       const item = getCheckoutItem({
@@ -176,6 +280,32 @@ export async function capturePaypalOrder(orderId) {
          VALUES ($1, $2, $3, $4, $5)`,
         [userId, item.tokens, amountPaid, captureId, 'completed']
       );
+
+      if (couponMeta.couponId > 0 && couponMeta.originalAmount > couponMeta.finalAmount) {
+        await couponService.redeem(
+          couponMeta.couponId,
+          userId,
+          String(captureId),
+          Math.max(0, Number(couponMeta.originalAmount - couponMeta.finalAmount)),
+          Number(couponMeta.originalAmount),
+          Number(couponMeta.finalAmount),
+          options.clientIp || null,
+          options.userAgent || null
+        );
+      }
+
+      const planBuyerEmail = await getUserEmail(userId);
+      if (planBuyerEmail) {
+        sendPaymentReceiptEmail({
+          toEmail: planBuyerEmail,
+          provider: 'paypal',
+          paymentId: String(captureId),
+          itemDescription: item.description,
+          amount: amountPaid,
+          currency: purchaseUnit?.payments?.captures?.[0]?.amount?.currency_code || 'USD',
+          purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString()
+        }).catch(() => {});
+      }
 
       return {
         ...capture,
@@ -199,6 +329,32 @@ export async function capturePaypalOrder(orderId) {
       [userId, tokens, amountPaid, captureId, 'completed']
     );
 
+    if (couponMeta.couponId > 0 && couponMeta.originalAmount > couponMeta.finalAmount) {
+      await couponService.redeem(
+        couponMeta.couponId,
+        userId,
+        String(captureId),
+        Math.max(0, Number(couponMeta.originalAmount - couponMeta.finalAmount)),
+        Number(couponMeta.originalAmount),
+        Number(couponMeta.finalAmount),
+        options.clientIp || null,
+        options.userAgent || null
+      );
+    }
+
+    const tokensBuyerEmail = await getUserEmail(userId);
+    if (tokensBuyerEmail) {
+      sendPaymentReceiptEmail({
+        toEmail: tokensBuyerEmail,
+        provider: 'paypal',
+        paymentId: String(captureId),
+        itemDescription: `${tokens} tokens`,
+        amount: amountPaid,
+        currency: purchaseUnit?.payments?.captures?.[0]?.amount?.currency_code || 'USD',
+        purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString()
+      }).catch(() => {});
+    }
+
     return {
       ...capture,
       tokensAdded: tokens,
@@ -211,3 +367,4 @@ export async function capturePaypalOrder(orderId) {
 }
 
 export default { createPaypalOrder, capturePaypalOrder };
+

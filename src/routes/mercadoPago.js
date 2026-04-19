@@ -67,7 +67,7 @@ const authMiddleware = (req, res, next) => {
 // POST - Crear preferencia de pago (checkout)
 router.post('/create-preference', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage, planId, billingCycle, itemType } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId } = req.body;
 
     if (!tokensPackage && !planId) {
       return res.status(400).json({ error: 'Missing checkout item' });
@@ -75,7 +75,7 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
 
     const preference = await mercadoPagoService.createPaymentPreference(
       req.userId,
-      { tokensPackage, planId, billingCycle, itemType }
+      { tokensPackage, planId, billingCycle, itemType, couponCode, couponId }
     );
 
     if (preference.requiresPayment === false) {
@@ -111,7 +111,8 @@ router.post('/create-preference', authMiddleware, async (req, res) => {
       errorMessage: error.message,
       userId: req.userId,
     });
-    res.status(500).json({ error: error.message });
+    const statusCode = Number(error?.statusCode || 500);
+    res.status(statusCode).json({ error: error.message });
   }
 });
 

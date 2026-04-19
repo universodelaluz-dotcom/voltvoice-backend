@@ -432,6 +432,7 @@ router.get('/transactions/logs', requireAdmin, async (req, res) => {
         `
           WITH movements AS (
             SELECT
+              t.id::text AS entry_id,
               t.created_at AS event_at,
               to_char(date_trunc('month', t.created_at), 'YYYY-MM') AS month_key,
               'payment'::text AS source,
@@ -455,6 +456,7 @@ router.get('/transactions/logs', requireAdmin, async (req, res) => {
             UNION ALL
 
             SELECT
+              aal.id::text AS entry_id,
               aal.created_at AS event_at,
               to_char(date_trunc('month', aal.created_at), 'YYYY-MM') AS month_key,
               'admin_audit'::text AS source,
@@ -480,6 +482,7 @@ router.get('/transactions/logs', requireAdmin, async (req, res) => {
     ]);
 
     const items = rowsResult.rows.map((row) => ({
+      entryId: row.entry_id,
       eventAt: row.event_at,
       monthKey: row.month_key,
       source: row.source,
@@ -514,6 +517,52 @@ router.get('/transactions/logs', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error transactions logs:', err.message);
     return res.status(500).json({ error: 'Error obteniendo log de transacciones' });
+  }
+});
+
+/**
+ * DELETE /api/admin/transactions/logs/:source/:entryId
+ * Borra un movimiento individual del log general.
+ */
+router.delete('/transactions/logs/:source/:entryId', requireAdmin, async (req, res) => {
+  try {
+    const source = String(req.params.source || '').trim();
+    const entryId = Number.parseInt(req.params.entryId, 10);
+
+    if (!Number.isFinite(entryId) || entryId <= 0) {
+      return res.status(400).json({ error: 'entryId invalido' });
+    }
+
+    let query = null;
+    if (source === 'payment') {
+      query = {
+        text: 'DELETE FROM transactions WHERE id = $1 RETURNING id',
+        values: [entryId]
+      };
+    } else if (source === 'admin_audit') {
+      query = {
+        text: 'DELETE FROM admin_audit_logs WHERE id = $1 RETURNING id',
+        values: [entryId]
+      };
+    } else {
+      return res.status(400).json({ error: 'source invalido' });
+    }
+
+    const deleted = await pool.query(query.text, query.values);
+    if (!deleted.rowCount) {
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+
+    await logAdminAction({
+      actorId: req.user.userId,
+      action: 'delete_movement_log',
+      details: { source, entryId }
+    });
+
+    return res.json({ success: true, deleted: { source, entryId } });
+  } catch (err) {
+    console.error('[Admin] Error deleting movement log:', err.message);
+    return res.status(500).json({ error: 'Error borrando movimiento' });
   }
 });
 

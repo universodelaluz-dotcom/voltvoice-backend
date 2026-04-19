@@ -170,6 +170,41 @@ class SubscriptionService {
     const targetPrice = billingCycle === 'annual' ? target.annualPrice : target.monthlyPrice;
     const current = sub.currentPlan;
     const currentPaidActive = isPaidPlan(sub.currentPlanKey) && sub.periodEnd && sub.periodEnd.getTime() > now.getTime();
+    const hasPendingChange =
+      Boolean(sub.pendingPlanKey) &&
+      Boolean(sub.pendingEffectiveAt) &&
+      Boolean(sub.periodEnd) &&
+      sub.periodEnd.getTime() > now.getTime();
+
+    if (hasPendingChange) {
+      const pendingPlanKey = normalizePlanKey(sub.pendingPlanKey);
+      const pendingBillingCycle = normalizeCycle(sub.pendingBillingCycle || sub.billingCycle);
+      const sameAsPending = targetKey === pendingPlanKey && billingCycle === pendingBillingCycle;
+
+      if (sameAsPending) {
+        return {
+          action: 'already_scheduled',
+          payableAmountUsd: 0,
+          prorationCreditUsd: 0,
+          pendingPlanKey,
+          pendingBillingCycle,
+          pendingEffectiveAt: toIsoOrNull(sub.pendingEffectiveAt),
+          remainingMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - now.getTime()),
+          totalMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - (sub.periodStart?.getTime() || 0)),
+        };
+      }
+
+      return {
+        action: 'pending_change_exists',
+        payableAmountUsd: 0,
+        prorationCreditUsd: 0,
+        pendingPlanKey,
+        pendingBillingCycle,
+        pendingEffectiveAt: toIsoOrNull(sub.pendingEffectiveAt),
+        remainingMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - now.getTime()),
+        totalMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - (sub.periodStart?.getTime() || 0)),
+      };
+    }
 
     if (!currentPaidActive) {
       return {

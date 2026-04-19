@@ -192,3 +192,49 @@ export async function sendDeployReadyEmail(email, connectedUsers = 0) {
     return false;
   }
 }
+
+export async function sendPaymentReceiptEmail({
+  toEmail,
+  provider = 'payment',
+  paymentId = '',
+  itemDescription = '',
+  amount = 0,
+  currency = 'USD',
+  purchasedAt = new Date().toISOString()
+}) {
+  try {
+    if (!hasMailCredentials() || !toEmail) return false;
+
+    const safeProvider = escapeHtml(String(provider || '').toUpperCase());
+    const safePaymentId = escapeHtml(String(paymentId || ''));
+    const safeItem = escapeHtml(String(itemDescription || 'Compra en Stream Voicer'));
+    const safeAmount = Number(amount || 0).toFixed(2);
+    const safeCurrency = escapeHtml(String(currency || 'USD').toUpperCase());
+    const safeDate = escapeHtml(String(purchasedAt || new Date().toISOString()));
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: toEmail,
+      subject: `Recibo de pago - ${safeProvider} - Stream Voicer`,
+      html: emailWrapper(`
+        <h2 style="color:#fff;margin-top:0;">Pago acreditado</h2>
+        <p>Gracias por tu compra. Tu pago fue procesado correctamente.</p>
+        <div style="margin:20px 0;padding:16px;border-radius:12px;background:#111a33;border:1px solid rgba(6,182,212,0.35);">
+          <p style="margin:0 0 8px;"><strong>Concepto:</strong> ${safeItem}</p>
+          <p style="margin:0 0 8px;"><strong>Monto:</strong> ${safeAmount} ${safeCurrency}</p>
+          <p style="margin:0 0 8px;"><strong>Proveedor:</strong> ${safeProvider}</p>
+          <p style="margin:0 0 8px;"><strong>ID de pago:</strong> ${safePaymentId}</p>
+          <p style="margin:0;"><strong>Fecha:</strong> ${safeDate}</p>
+        </div>
+        <p style="color:#9ca3af;font-size:14px;margin-bottom:0;">
+          Conserva este correo como comprobante.
+        </p>
+      `)
+    });
+
+    return true;
+  } catch (error) {
+    console.error(`[Mail] Error enviando recibo a ${toEmail}:`, error.message);
+    return false;
+  }
+}

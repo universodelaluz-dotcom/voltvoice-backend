@@ -26,6 +26,7 @@ import adminRoutes from './src/routes/admin.js';
 import opsRoutes from './src/routes/ops.js';
 import supportRoutes from './src/routes/support.js';
 import testLabRoutes from './src/routes/testLab.js';
+import couponRoutes from './src/routes/coupons.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -713,6 +714,7 @@ try {
   app.use('/api/support', supportRoutes);
   console.log('[STARTUP] ✓ Support routes loaded');
   app.use('/api/test-lab', testLabRoutes);
+  app.use('/api/coupons', couponRoutes);
   console.log('[STARTUP] ✓ Test Lab routes loaded');
 } catch (err) {
   console.error('[STARTUP] ✗ Error loading routes:', err.message);
@@ -780,3 +782,4 @@ server.listen(PORT, '0.0.0.0', () => {
 ╚══════════════════════════════════════╝
   `);
 });
+

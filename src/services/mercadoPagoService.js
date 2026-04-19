@@ -2,6 +2,8 @@ import axios from 'axios';
 import db from '../db.js';
 import { config } from '../config.js';
 import subscriptionService from './subscriptionService.js';
+import { sendPaymentReceiptEmail } from './mail.js';
+import couponService from './couponService.js';
 
 const TOKEN_PACKAGES = {
   100: { kind: 'tokens', price: 15, tokens: 100, description: 'TEST - 100 tokens' },
@@ -36,6 +38,26 @@ const convertUsdToCheckoutAmount = (amountUsd) => {
   const rate = Number(config.MERCADO_PAGO_USD_MXN_RATE);
   const usdToMxnRate = Number.isFinite(rate) && rate > 0 ? rate : 17;
   return { amount: roundMoney(usd * usdToMxnRate), currency };
+};
+
+const buildCouponMeta = ({ couponId, originalAmount, finalAmount }) => {
+  const safeCouponId = Number.isFinite(Number(couponId)) ? Number(couponId) : 0;
+  const original = Number(originalAmount || 0);
+  const final = Number(finalAmount || 0);
+  return `cp:${safeCouponId}|od:${original.toFixed(2)}|fd:${final.toFixed(2)}`;
+};
+
+const parseCouponMeta = (raw = '') => {
+  const out = { couponId: 0, originalAmount: 0, finalAmount: 0 };
+  const parts = String(raw || '').split('|');
+  for (const p of parts) {
+    const [k, v] = String(p || '').split(':');
+    if (!k) continue;
+    if (k === 'cp') out.couponId = Number.parseInt(v, 10) || 0;
+    if (k === 'od') out.originalAmount = Number(v) || 0;
+    if (k === 'fd') out.finalAmount = Number(v) || 0;
+  }
+  return out;
 };
 
 const isPublicHttpsUrl = (urlValue) => {
@@ -107,6 +129,28 @@ class MercadoPagoService {
     }
   }
 
+  async getUserEmail(userId) {
+    try {
+      const result = await db.query('SELECT email FROM users WHERE id = $1 LIMIT 1', [Number(userId)]);
+      return String(result.rows?.[0]?.email || '').trim().toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  async ensurePaidPlanForTokenPackages(userId) {
+    const result = await db.query(
+      'SELECT LOWER(COALESCE(plan, \'free\')) AS plan FROM users WHERE id = $1 LIMIT 1',
+      [Number(userId)]
+    );
+    const plan = String(result.rows?.[0]?.plan || 'free').toLowerCase();
+    if (plan === 'free' || plan === 'on_demand') {
+      const error = new Error('Los paquetes de tokens están disponibles solo para usuarios con plan de pago activo.');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
   async createPaymentPreference(userId, payload) {
     try {
       if (!this.token) {
@@ -117,10 +161,15 @@ class MercadoPagoService {
       if (!item) {
         throw new Error('Invalid checkout item');
       }
+      if (item.kind === 'tokens') {
+        await this.ensurePaidPlanForTokenPackages(userId);
+      }
 
       const billingCycle = String(payload.billingCycle || 'monthly').toLowerCase();
       let quotedPlan = null;
       let chargedPrice = item.price;
+      const originalPrice = Number(item.price || 0);
+      let couponMeta = null;
 
       if (item.kind === 'plan') {
         quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
@@ -128,6 +177,26 @@ class MercadoPagoService {
         const shouldChargeNowForScheduledChange =
           // Para evitar bloqueos antes de checkout: cambios programables cobran primero.
           ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action);
+
+        if (quotedPlan.action === 'already_scheduled') {
+          return {
+            success: true,
+            action: quotedPlan.action,
+            requiresPayment: false,
+            message: 'Este cambio ya está programado para el siguiente ciclo.',
+            quote: quotedPlan
+          };
+        }
+
+        if (quotedPlan.action === 'pending_change_exists') {
+          return {
+            success: true,
+            action: quotedPlan.action,
+            requiresPayment: false,
+            message: 'Ya tienes un cambio de plan programado. Espera al próximo ciclo o cancela el cambio pendiente.',
+            quote: quotedPlan
+          };
+        }
 
         if (quotedPlan.action === 'already_on_plan') {
           return {
@@ -145,11 +214,48 @@ class MercadoPagoService {
         }
       }
 
-      const externalReference = item.kind === 'plan'
+      const couponCode = String(payload.couponCode || '').trim();
+      const couponId = Number.parseInt(payload.couponId, 10);
+      if (couponCode && chargedPrice > 0) {
+        const couponValidation = await couponService.validate(
+          couponCode,
+          Number(userId),
+          Number(chargedPrice),
+          item.kind === 'plan' ? 'plan' : 'tokens',
+          item.kind === 'plan' ? item.planKey : item.tokens,
+          null
+        );
+
+        if (!couponValidation?.valid) {
+          const err = new Error(couponValidation?.message || 'Cupón inválido para esta compra');
+          err.statusCode = 400;
+          throw err;
+        }
+
+        const validatedCouponId = Number(couponValidation?.coupon?.id || 0);
+        if (Number.isFinite(couponId) && couponId > 0 && validatedCouponId > 0 && couponId !== validatedCouponId) {
+          const err = new Error('El cupón cambió, vuelve a validarlo e intenta de nuevo.');
+          err.statusCode = 400;
+          throw err;
+        }
+
+        chargedPrice = Number(couponValidation.finalAmount || chargedPrice);
+        couponMeta = {
+          couponId: validatedCouponId,
+          originalAmount: Number(couponValidation.originalAmount || originalPrice),
+          finalAmount: Number(couponValidation.finalAmount || chargedPrice),
+          discount: Number(couponValidation.discount || 0),
+        };
+      }
+
+      const baseExternalReference = item.kind === 'plan'
         ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
         : `user_${userId}_tokens_${payload.tokensPackage}_${Date.now()}`;
+      const externalReference = couponMeta
+        ? `${baseExternalReference}|${buildCouponMeta(couponMeta)}`
+        : baseExternalReference;
       const cacheKey = item.kind === 'plan'
-        ? externalReference
+        ? baseExternalReference
         : `user_${userId}_tokens_${payload.tokensPackage}`;
       const now = Date.now();
       const cached = this.preferenceCache.get(cacheKey);
@@ -317,9 +423,11 @@ class MercadoPagoService {
         return { success: false, status: payment.status };
       }
 
-      const parts = String(payment.external_reference || '').split('_');
-      const userId = parts[1];
-      const kind = parts[2];
+      const [baseReference, couponRawMeta = ''] = String(payment.external_reference || '').split('|', 2);
+      const referenceParts = String(baseReference || '').split('_');
+      const userId = referenceParts[1];
+      const kind = referenceParts[2];
+      const couponMeta = parseCouponMeta(couponRawMeta);
 
       if (!userId || !kind) {
         throw new Error('Invalid external reference');
@@ -342,8 +450,8 @@ class MercadoPagoService {
       if (kind === 'plan') {
         const item = this.getCheckoutItem({
           itemType: 'plan',
-          planId: parts[3],
-          billingCycle: parts[4]
+          planId: referenceParts[3],
+          billingCycle: referenceParts[4]
         });
 
         if (!item) {
@@ -353,7 +461,7 @@ class MercadoPagoService {
         const applied = await subscriptionService.applyPaidPlanChange({
           userId: Number(userId),
           planKey: item.planKey,
-          billingCycle: parts[4]
+          billingCycle: referenceParts[4]
         });
 
         const scheduledChange = ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(applied.quote?.action);
@@ -364,6 +472,32 @@ class MercadoPagoService {
            VALUES ($1, $2, $3, $4, $5)`,
           [userId, tokensPurchased, payment.transaction_amount, paymentId, 'completed']
         );
+
+        if (couponMeta.couponId > 0 && couponMeta.originalAmount > couponMeta.finalAmount) {
+          await couponService.redeem(
+            couponMeta.couponId,
+            Number(userId),
+            String(paymentId),
+            Math.max(0, Number(couponMeta.originalAmount - couponMeta.finalAmount)),
+            Number(couponMeta.originalAmount),
+            Number(couponMeta.finalAmount),
+            null,
+            null
+          );
+        }
+
+        const planBuyerEmail = await this.getUserEmail(userId);
+        if (planBuyerEmail) {
+          sendPaymentReceiptEmail({
+            toEmail: planBuyerEmail,
+            provider: 'mercadopago',
+            paymentId: String(paymentId),
+            itemDescription: item.description,
+            amount: payment.transaction_amount,
+            currency: payment.currency_id || config.MERCADO_PAGO_CURRENCY || 'MXN',
+            purchasedAt: payment.date_approved || payment.date_created || new Date().toISOString()
+          }).catch(() => {});
+        }
 
         return {
           success: true,
@@ -376,7 +510,7 @@ class MercadoPagoService {
         };
       }
 
-      const tokens = parseInt(parts[3], 10);
+      const tokens = parseInt(referenceParts[3], 10);
       const result = await db.query(
         `UPDATE users
          SET tokens = tokens + $1
@@ -390,6 +524,32 @@ class MercadoPagoService {
          VALUES ($1, $2, $3, $4, $5)`,
         [userId, tokens, payment.transaction_amount, paymentId, 'completed']
       );
+
+      if (couponMeta.couponId > 0 && couponMeta.originalAmount > couponMeta.finalAmount) {
+        await couponService.redeem(
+          couponMeta.couponId,
+          Number(userId),
+          String(paymentId),
+          Math.max(0, Number(couponMeta.originalAmount - couponMeta.finalAmount)),
+          Number(couponMeta.originalAmount),
+          Number(couponMeta.finalAmount),
+          null,
+          null
+        );
+      }
+
+      const tokensBuyerEmail = await this.getUserEmail(userId);
+      if (tokensBuyerEmail) {
+        sendPaymentReceiptEmail({
+          toEmail: tokensBuyerEmail,
+          provider: 'mercadopago',
+          paymentId: String(paymentId),
+          itemDescription: `${tokens} tokens`,
+          amount: payment.transaction_amount,
+          currency: payment.currency_id || config.MERCADO_PAGO_CURRENCY || 'MXN',
+          purchasedAt: payment.date_approved || payment.date_created || new Date().toISOString()
+        }).catch(() => {});
+      }
 
       return {
         success: true,
