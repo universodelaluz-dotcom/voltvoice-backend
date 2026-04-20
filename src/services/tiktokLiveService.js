@@ -10,6 +10,10 @@ class TikTokLiveService {
     this.donors = new Map(); // username -> Set de usuarios que han donado
     this.communityMembers = new Map(); // username -> Set de usuarios Fan Club detectados
     this.debugEvents = new Map(); // username -> eventos decodificados recientes
+    this.streamHandlers = new Map(); // username -> { onMessage, runtimeHooks }
+    this.reconnectTimers = new Map(); // username -> timeout
+    this.reconnectAttempts = new Map(); // username -> number
+    this.manualDisconnects = new Set(); // username con desconexion manual pendiente
   }
 
   _hasCommunityMemberBadge(data = {}) {
@@ -239,11 +243,112 @@ class TikTokLiveService {
    * Desregistrar callback de cliente
    */
   unregisterClientCallback(username, callback) {
-    const callbacks = this.clientCallbacks.get(this._normalizeUsername(username));
+    const normalizedUsername = this._normalizeUsername(username);
+    const callbacks = this.clientCallbacks.get(normalizedUsername);
     if (callbacks) {
       const index = callbacks.indexOf(callback);
       if (index > -1) callbacks.splice(index, 1);
+      if (callbacks.length === 0) {
+        this.clientCallbacks.delete(normalizedUsername);
+      }
     }
+  }
+
+  _clearReconnectTimer(username) {
+    const normalizedUsername = this._normalizeUsername(username);
+    const timer = this.reconnectTimers.get(normalizedUsername);
+    if (timer) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(normalizedUsername);
+    }
+  }
+
+  _hasActiveSubscribers(username) {
+    const callbacks = this.clientCallbacks.get(this._normalizeUsername(username));
+    return Array.isArray(callbacks) && callbacks.length > 0;
+  }
+
+  _cleanupDisconnectedStreamState(username) {
+    const normalizedUsername = this._normalizeUsername(username);
+    this.activeStreams.delete(normalizedUsername);
+    this.messageQueue.delete(normalizedUsername);
+    this.tiktokConnections.delete(normalizedUsername);
+    this.donors.delete(normalizedUsername);
+    this.communityMembers.delete(normalizedUsername);
+    this.debugEvents.delete(normalizedUsername);
+  }
+
+  _scheduleUnexpectedReconnect(username, onMessage, runtimeHooks = {}) {
+    const normalizedUsername = this._normalizeUsername(username);
+    if (!normalizedUsername) return;
+    if (this.manualDisconnects.has(normalizedUsername)) return;
+    if (!this._hasActiveSubscribers(normalizedUsername)) return;
+    if (this.reconnectTimers.has(normalizedUsername)) return;
+
+    const attempt = (this.reconnectAttempts.get(normalizedUsername) || 0) + 1;
+    const maxAttempts = 20;
+    if (attempt > maxAttempts) {
+      if (runtimeHooks && typeof runtimeHooks.onEvent === 'function') {
+        try {
+          runtimeHooks.onEvent({
+            streamUsername: normalizedUsername,
+            eventType: 'reconnect_gave_up',
+            eventLevel: 'error',
+            message: `Stopped auto-reconnect after ${maxAttempts} attempts`
+          });
+        } catch {}
+      }
+      return;
+    }
+
+    this.reconnectAttempts.set(normalizedUsername, attempt);
+    const delay = Math.min(30000, 1000 * Math.pow(2, Math.max(0, attempt - 1)));
+
+    if (runtimeHooks && typeof runtimeHooks.onEvent === 'function') {
+      try {
+        runtimeHooks.onEvent({
+          streamUsername: normalizedUsername,
+          eventType: 'reconnect_scheduled',
+          eventLevel: 'warn',
+          message: `Auto-reconnect scheduled in ${delay}ms (attempt ${attempt})`
+        });
+      } catch {}
+    }
+
+    const timer = setTimeout(async () => {
+      this.reconnectTimers.delete(normalizedUsername);
+      if (this.manualDisconnects.has(normalizedUsername)) return;
+      if (!this._hasActiveSubscribers(normalizedUsername)) return;
+
+      if (runtimeHooks && typeof runtimeHooks.onEvent === 'function') {
+        try {
+          runtimeHooks.onEvent({
+            streamUsername: normalizedUsername,
+            eventType: 'reconnect_attempt',
+            eventLevel: 'info',
+            message: `Attempting auto-reconnect #${attempt}`
+          });
+        } catch {}
+      }
+
+      try {
+        await this.connectToStream(normalizedUsername, onMessage, runtimeHooks);
+      } catch (error) {
+        if (runtimeHooks && typeof runtimeHooks.onEvent === 'function') {
+          try {
+            runtimeHooks.onEvent({
+              streamUsername: normalizedUsername,
+              eventType: 'reconnect_failed',
+              eventLevel: 'error',
+              message: String(error?.message || error || 'reconnect_failed').slice(0, 500)
+            });
+          } catch {}
+        }
+        this._scheduleUnexpectedReconnect(normalizedUsername, onMessage, runtimeHooks);
+      }
+    }, delay);
+
+    this.reconnectTimers.set(normalizedUsername, timer);
   }
 
   /**
@@ -265,13 +370,39 @@ class TikTokLiveService {
   /**
    * Conectar a stream de TikTok en tiempo real
    */
-  async connectToStream(username, onMessage) {
+  async connectToStream(username, onMessage, runtimeHooks = {}) {
     try {
       const normalizedUsername = this._normalizeUsername(username);
+      this.manualDisconnects.delete(normalizedUsername);
+      this._clearReconnectTimer(normalizedUsername);
+      const emitRuntime = (event = {}) => {
+        if (!runtimeHooks || typeof runtimeHooks.onEvent !== 'function') return;
+        try {
+          runtimeHooks.onEvent({
+            streamUsername: normalizedUsername,
+            ...event
+          });
+        } catch (hookErr) {
+          console.warn('[TikTok] Runtime hook error:', hookErr?.message || hookErr);
+        }
+      };
 
       if (!normalizedUsername) {
         throw new Error('Username de TikTok invalido');
       }
+
+      const existingStream = this.activeStreams.get(normalizedUsername);
+      if (existingStream && this.tiktokConnections.get(normalizedUsername)) {
+        return existingStream;
+      }
+
+      this.streamHandlers.set(normalizedUsername, { onMessage, runtimeHooks });
+
+      emitRuntime({
+        eventType: 'connect_attempt',
+        eventLevel: 'info',
+        message: 'Attempting TikTok stream connection'
+      });
 
       console.log(`[TikTok] Conectando a @${normalizedUsername}...`);
 
@@ -503,21 +634,40 @@ class TikTokLiveService {
       // Agregar isModerator a mensajes de chat
       tiktokConnection.on('error', (error) => {
         console.error(`[TikTok] Error en stream @${normalizedUsername}:`, error);
+        emitRuntime({
+          eventType: 'stream_error',
+          eventLevel: 'error',
+          message: String(error?.message || error || 'unknown_stream_error').slice(0, 500),
+          details: {
+            name: error?.name || null
+          }
+        });
       });
 
       tiktokConnection.on('disconnect', () => {
         console.log(`[TikTok] Desconectado de @${normalizedUsername}`);
+        emitRuntime({
+          eventType: 'stream_disconnected',
+          eventLevel: 'warn',
+          message: 'Stream disconnected by connector'
+        });
         this.emitMessageToClients(normalizedUsername, {
           type: 'stream_disconnected',
           username: normalizedUsername,
           timestamp: Date.now()
         });
-        this.disconnectStream(normalizedUsername);
+        this._cleanupDisconnectedStreamState(normalizedUsername);
+        this._scheduleUnexpectedReconnect(normalizedUsername, onMessage, runtimeHooks);
       });
 
       // Conectar
       await tiktokConnection.connect();
       console.log(`[TikTok] ✓ Conectado a @${username}`);
+      emitRuntime({
+        eventType: 'stream_connected',
+        eventLevel: 'info',
+        message: 'TikTok stream connected successfully'
+      });
 
       // Registrar conexión
       const stream = {
@@ -531,10 +681,21 @@ class TikTokLiveService {
       this.activeStreams.set(normalizedUsername, stream);
       this.messageQueue.set(normalizedUsername, []);
       this.tiktokConnections.set(normalizedUsername, tiktokConnection);
+      this.reconnectAttempts.set(normalizedUsername, 0);
 
       return stream;
     } catch (error) {
       console.error('[TikTok] Error conectando:', error.message);
+      if (runtimeHooks && typeof runtimeHooks.onEvent === 'function') {
+        try {
+          runtimeHooks.onEvent({
+            streamUsername: this._normalizeUsername(username),
+            eventType: 'connect_failed',
+            eventLevel: 'error',
+            message: String(error?.message || error || 'connect_failed').slice(0, 500)
+          });
+        } catch {}
+      }
       throw new Error(`No se pudo conectar a @${this._normalizeUsername(username)}: ${error.message}`);
     }
   }
@@ -578,6 +739,9 @@ class TikTokLiveService {
    */
   async disconnectStream(username) {
     const normalizedUsername = this._normalizeUsername(username);
+    this.manualDisconnects.add(normalizedUsername);
+    this._clearReconnectTimer(normalizedUsername);
+    this.reconnectAttempts.delete(normalizedUsername);
     const tiktokConnection = this.tiktokConnections.get(normalizedUsername);
 
     if (tiktokConnection) {
@@ -595,6 +759,7 @@ class TikTokLiveService {
     this.donors.delete(normalizedUsername);
     this.communityMembers.delete(normalizedUsername);
     this.debugEvents.delete(normalizedUsername);
+    this.streamHandlers.delete(normalizedUsername);
 
     console.log(`[TikTok] ✓ Desconectado de @${username}`);
   }

@@ -9,6 +9,10 @@ class InworldTtsService {
     // La API key ya viene en base64 desde el .env (igual que el local)
     this.apiKey = process.env.INWORLD_API_KEY;
     this.modelId = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
+    const configuredTemperature = Number(process.env.INWORLD_TTS_TEMPERATURE);
+    this.temperature = (!Number.isFinite(configuredTemperature) || configuredTemperature <= 0)
+      ? 0.7
+      : Math.min(2, Math.max(0.7, configuredTemperature));
     this.builtinVoices = new Set(['Diego', 'Lupita', 'Miguel', 'Rafael', 'Garret', 'Connor', 'Arno']);
 
     if (!this.apiKey) {
@@ -58,7 +62,8 @@ class InworldTtsService {
       const requestBody = JSON.stringify({
         text: text,
         voiceId: resolvedVoiceId,
-        modelId: this.modelId
+        modelId: this.modelId,
+        temperature: this.temperature
       });
 
       const options = {

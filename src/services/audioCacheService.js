@@ -7,27 +7,29 @@ const SETTINGS_CACHE_TTL_MS = 5000;
 
 const DEFAULT_SETTINGS = {
   enabled: true,
-  maxCacheableChars: 120,
-  personalTtlSeconds: 86400,
-  globalTtlSeconds: 604800,
-  personalFreeTtlSeconds: 172800,
-  personalPaidTtlSeconds: 604800,
-  personalFreeMaxEntries: 200,
-  personalPaidMaxEntries: 1000,
-  globalMaxEntries: 1500,
-  globalInactiveDays: 30,
-  globalLowUsageThreshold: 8,
+  maxCacheableChars: 600,
+  personalTtlSeconds: 604800,
+  globalTtlSeconds: 2592000,
+  personalFreeTtlSeconds: 604800,
+  personalPaidTtlSeconds: 2592000,
+  personalFreeMaxEntries: 1500,
+  personalPaidMaxEntries: 10000,
+  globalMaxEntries: 20000,
+  globalInactiveDays: 120,
+  globalLowUsageThreshold: 0,
   subscriptionGraceDays: 15,
   purgePersonalizationAfterGrace: false,
-  hotCacheMaxEntries: 1500,
-  globalRepeatThreshold: 4,
-  lookupTimeoutMs: 35,
+  hotCacheMaxEntries: 12000,
+  globalRepeatThreshold: 1,
+  lookupTimeoutMs: 60,
 };
+const NON_AUDIO_PARAM_KEYS = new Set(['source', 'requestedVoiceId', 'requestId', 'traceId', 'debug']);
 
 class AudioCacheService {
   constructor() {
     this.hotCache = new Map();
     this.userPolicyCache = new Map();
+    this.inFlightRenders = new Map();
     this.lastGlobalPruneAt = 0;
     this.settingsCache = {
       loadedAt: 0,
@@ -54,10 +56,25 @@ class AudioCacheService {
       .trim();
   }
 
+  buildRelaxedText(text = '') {
+    const normalized = this.normalizeText(text);
+    if (!normalized) return '';
+
+    return normalized
+      .toLowerCase()
+      .replace(/[“”«»]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/([,.;:!?]){2,}/g, '$1')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+  }
+
   normalizeParams(params = {}) {
     const normalized = {};
     const entries = Object.entries(params)
-      .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+      .filter(([key, value]) => !NON_AUDIO_PARAM_KEYS.has(String(key || '')) && value !== undefined && value !== null && value !== '')
       .sort(([a], [b]) => a.localeCompare(b));
 
     for (const [key, value] of entries) {
@@ -124,7 +141,7 @@ class AudioCacheService {
     const digits = (text.match(/\d/g) || []).length;
     const symbols = (text.match(/[^\p{L}\p{N}\s]/gu) || []).length;
     const len = Math.max(text.length, 1);
-    return (digits + symbols) / len > 0.38;
+    return (digits + symbols) / len > 0.72;
   }
 
   shouldCacheText(normalizedText, maxCacheableChars) {
@@ -138,12 +155,6 @@ class AudioCacheService {
     const alertLike = this.isAlertOrNotificationLike(normalizedText);
     const commonLike = this.isCommonStreamResponse(normalizedText);
     const shortPhrase = normalizedText.length <= 80 && words <= 14;
-    const longImprovised = normalizedText.length > 95 || words > 20;
-
-    if (longImprovised && !alertLike) {
-      return { allowed: false, reason: 'likely_unique_long_form' };
-    }
-
     if (shortPhrase || greetingLike || alertLike || commonLike) {
       return { allowed: true, reason: 'stream_friendly_phrase' };
     }
@@ -170,23 +181,33 @@ class AudioCacheService {
 
       if (result.rows.length > 0) {
         const row = result.rows[0];
+        const rowNumber = (value) => Number(value || 0);
         this.settingsCache.value = {
           enabled: row.enabled !== false,
-          maxCacheableChars: Number(row.max_cacheable_chars || DEFAULT_SETTINGS.maxCacheableChars),
-          personalTtlSeconds: Number(row.personal_ttl_seconds || DEFAULT_SETTINGS.personalTtlSeconds),
-          globalTtlSeconds: Number(row.global_ttl_seconds || DEFAULT_SETTINGS.globalTtlSeconds),
-          personalFreeTtlSeconds: Number(row.personal_free_ttl_seconds || row.personal_ttl_seconds || DEFAULT_SETTINGS.personalFreeTtlSeconds),
-          personalPaidTtlSeconds: Number(row.personal_paid_ttl_seconds || DEFAULT_SETTINGS.personalPaidTtlSeconds),
-          personalFreeMaxEntries: Number(row.personal_free_max_entries || DEFAULT_SETTINGS.personalFreeMaxEntries),
-          personalPaidMaxEntries: Number(row.personal_paid_max_entries || DEFAULT_SETTINGS.personalPaidMaxEntries),
-          globalMaxEntries: Number(row.global_max_entries || row.hot_cache_max_entries || DEFAULT_SETTINGS.globalMaxEntries),
-          globalInactiveDays: Number(row.global_inactive_days || DEFAULT_SETTINGS.globalInactiveDays),
-          globalLowUsageThreshold: Number(row.global_low_usage_threshold || DEFAULT_SETTINGS.globalLowUsageThreshold),
+          maxCacheableChars: Math.max(DEFAULT_SETTINGS.maxCacheableChars, rowNumber(row.max_cacheable_chars)),
+          personalTtlSeconds: Math.max(DEFAULT_SETTINGS.personalTtlSeconds, rowNumber(row.personal_ttl_seconds)),
+          globalTtlSeconds: Math.max(DEFAULT_SETTINGS.globalTtlSeconds, rowNumber(row.global_ttl_seconds)),
+          personalFreeTtlSeconds: Math.max(
+            DEFAULT_SETTINGS.personalFreeTtlSeconds,
+            rowNumber(row.personal_free_ttl_seconds || row.personal_ttl_seconds)
+          ),
+          personalPaidTtlSeconds: Math.max(DEFAULT_SETTINGS.personalPaidTtlSeconds, rowNumber(row.personal_paid_ttl_seconds)),
+          personalFreeMaxEntries: Math.max(DEFAULT_SETTINGS.personalFreeMaxEntries, rowNumber(row.personal_free_max_entries)),
+          personalPaidMaxEntries: Math.max(DEFAULT_SETTINGS.personalPaidMaxEntries, rowNumber(row.personal_paid_max_entries)),
+          globalMaxEntries: Math.max(
+            DEFAULT_SETTINGS.globalMaxEntries,
+            rowNumber(row.global_max_entries || row.hot_cache_max_entries)
+          ),
+          globalInactiveDays: Math.max(DEFAULT_SETTINGS.globalInactiveDays, rowNumber(row.global_inactive_days)),
+          globalLowUsageThreshold: Math.min(DEFAULT_SETTINGS.globalLowUsageThreshold, rowNumber(row.global_low_usage_threshold)),
           subscriptionGraceDays: Number(row.subscription_grace_days || DEFAULT_SETTINGS.subscriptionGraceDays),
           purgePersonalizationAfterGrace: row.purge_personalization_after_grace === true,
-          hotCacheMaxEntries: Number(row.hot_cache_max_entries || DEFAULT_SETTINGS.hotCacheMaxEntries),
-          globalRepeatThreshold: Number(row.global_repeat_threshold || DEFAULT_SETTINGS.globalRepeatThreshold),
-          lookupTimeoutMs: Number(row.lookup_timeout_ms || DEFAULT_SETTINGS.lookupTimeoutMs),
+          hotCacheMaxEntries: Math.max(DEFAULT_SETTINGS.hotCacheMaxEntries, rowNumber(row.hot_cache_max_entries)),
+          globalRepeatThreshold: Math.min(
+            DEFAULT_SETTINGS.globalRepeatThreshold,
+            Math.max(1, rowNumber(row.global_repeat_threshold || DEFAULT_SETTINGS.globalRepeatThreshold))
+          ),
+          lookupTimeoutMs: Math.max(DEFAULT_SETTINGS.lookupTimeoutMs, rowNumber(row.lookup_timeout_ms)),
         };
       } else {
         this.settingsCache.value = { ...DEFAULT_SETTINGS };
@@ -443,7 +464,8 @@ class AudioCacheService {
     const hasUser = Number.isFinite(Number(userId)) && Number(userId) > 0;
 
     if (normalizedProvider === 'local' || this.isLocalVoice(voiceId)) {
-      return hasUser ? 'personal' : null;
+      // Share local voices globally to maximize reuse/cost savings across users.
+      return 'global';
     }
 
     if (normalizedProvider === 'inworld') {
@@ -464,6 +486,7 @@ class AudioCacheService {
   }) {
     const settings = await this.getSettings();
     const normalizedText = this.normalizeText(text);
+    const relaxedText = this.buildRelaxedText(text);
     const scope = this.resolveScope({ voiceId, provider, userId });
     const textRule = this.shouldCacheText(normalizedText, settings.maxCacheableChars);
     const cacheAllowedByText = textRule.allowed;
@@ -484,6 +507,16 @@ class AudioCacheService {
           userId: numericUserId,
           voiceId,
           normalizedText,
+          paramsHash,
+          modelVersion,
+        })
+      : null;
+    const relaxedCacheKey = enabled && relaxedText && relaxedText !== normalizedText
+      ? this.buildCacheKey({
+          scope,
+          userId: numericUserId,
+          voiceId,
+          normalizedText: relaxedText,
           paramsHash,
           modelVersion,
         })
@@ -514,6 +547,8 @@ class AudioCacheService {
               : (!subscriptionAllowed ? 'subscription_required_for_personal_voice' : 'unknown')))),
       allowReason: textRule.reason,
       phraseKey: this.buildGlobalPhraseKey({ voiceId, normalizedText, paramsHash, modelVersion }),
+      relaxedText,
+      relaxedCacheKey,
     };
   }
 
@@ -592,12 +627,35 @@ class AudioCacheService {
       return {
         hit: true,
         source: 'hot',
+        key: context.cacheKey,
         contentType: hotHit.contentType,
         audioBuffer: hotHit.audioBuffer,
       };
     }
 
-    const row = await this.lookupPersistent(context.cacheKey, context.settings.lookupTimeoutMs);
+    let row = await this.lookupPersistent(context.cacheKey, context.settings.lookupTimeoutMs);
+    let matchedKey = context.cacheKey;
+    if (!row && context.relaxedCacheKey) {
+      const relaxedHotHit = this.getFromHotCache(context.relaxedCacheKey);
+      if (relaxedHotHit) {
+        this.trackMetric({
+          hot_hits: 1,
+          saved_render_count: 1,
+          chars_served_from_cache: context.normalizedText.length,
+          tokens_saved_estimate: context.provider === 'inworld' ? context.normalizedText.length : 0,
+        });
+        return {
+          hit: true,
+          source: 'hot_relaxed',
+          key: context.relaxedCacheKey,
+          contentType: relaxedHotHit.contentType,
+          audioBuffer: relaxedHotHit.audioBuffer,
+        };
+      }
+      row = await this.lookupPersistent(context.relaxedCacheKey, context.settings.lookupTimeoutMs);
+      matchedKey = context.relaxedCacheKey;
+    }
+
     if (!row) {
       this.trackMetric({ misses: 1 });
       return { hit: false, source: 'miss' };
@@ -609,7 +667,7 @@ class AudioCacheService {
       : Buffer.from(row.audio_data || '', 'base64');
 
     this.setHotCache(
-      context.cacheKey,
+      matchedKey,
       { audioBuffer, contentType: row.content_type || 'audio/mpeg', expiresAt },
       context.settings.hotCacheMaxEntries
     );
@@ -625,12 +683,13 @@ class AudioCacheService {
       `UPDATE audio_cache_entries
        SET hits = hits + 1, last_hit_at = NOW()
        WHERE cache_key = $1`,
-      [context.cacheKey]
+      [matchedKey]
     ).catch(() => {});
 
     return {
       hit: true,
-      source: 'persistent',
+      source: matchedKey === context.cacheKey ? 'persistent' : 'persistent_relaxed',
+      key: matchedKey,
       contentType: row.content_type || 'audio/mpeg',
       audioBuffer,
     };
@@ -638,6 +697,7 @@ class AudioCacheService {
 
   async shouldPromoteToGlobal(context) {
     if (!context?.enabled || context.scope !== 'global') return false;
+    if (Number(context.settings.globalRepeatThreshold || 0) <= 1) return true;
 
     try {
       const result = await pool.query(
@@ -784,6 +844,42 @@ class AudioCacheService {
       console.warn('[AudioCache] Persistent store failed:', err.message);
     });
 
+    // Also store a relaxed alias key to improve hit rate for small punctuation/casing differences.
+    if (context.relaxedCacheKey && context.relaxedText && context.relaxedText !== context.normalizedText) {
+      this.setHotCache(
+        context.relaxedCacheKey,
+        { audioBuffer, contentType, expiresAt: hotExpiresAtMs },
+        context.settings.hotCacheMaxEntries
+      );
+      pool.query(
+        `INSERT INTO audio_cache_entries
+         (cache_key, scope, user_id, voice_id, text_normalized, params_hash, model_version, content_type, audio_data, char_count, expires_at, hits, last_hit_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, NOW())
+         ON CONFLICT (cache_key) DO UPDATE
+         SET content_type = EXCLUDED.content_type,
+             audio_data = EXCLUDED.audio_data,
+             char_count = EXCLUDED.char_count,
+             expires_at = EXCLUDED.expires_at,
+             model_version = EXCLUDED.model_version,
+             updated_at = NOW()`,
+        [
+          context.relaxedCacheKey,
+          context.scope,
+          context.scope === 'personal' ? context.userId : null,
+          context.voiceId,
+          context.relaxedText,
+          context.paramsHash,
+          context.modelVersion,
+          contentType,
+          audioBuffer,
+          context.relaxedText.length,
+          expiresAt,
+        ]
+      ).catch((err) => {
+        console.warn('[AudioCache] Relaxed alias store failed:', err.message);
+      });
+    }
+
     if (context.scope === 'global') {
       this.pruneGlobalCache(context.settings).catch(() => {});
     } else if (context.scope === 'personal' && context.userId) {
@@ -794,6 +890,51 @@ class AudioCacheService {
   clearHotCache() {
     this.hotCache.clear();
     this.userPolicyCache.clear();
+    this.inFlightRenders.clear();
+  }
+
+  claimInFlightRender(cacheKey) {
+    const key = String(cacheKey || '');
+    if (!key) {
+      return {
+        isOwner: true,
+        wait: Promise.resolve(true),
+        release: () => {},
+      };
+    }
+
+    const existing = this.inFlightRenders.get(key);
+    if (existing?.promise) {
+      return {
+        isOwner: false,
+        wait: existing.promise,
+        release: () => {},
+      };
+    }
+
+    let resolveDone;
+    let rejectDone;
+    const promise = new Promise((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+
+    this.inFlightRenders.set(key, {
+      promise,
+      startedAt: Date.now(),
+    });
+
+    return {
+      isOwner: true,
+      wait: promise,
+      release: (error = null) => {
+        const current = this.inFlightRenders.get(key);
+        if (!current || current.promise !== promise) return;
+        this.inFlightRenders.delete(key);
+        if (error) rejectDone(error);
+        else resolveDone(true);
+      },
+    };
   }
 }
 

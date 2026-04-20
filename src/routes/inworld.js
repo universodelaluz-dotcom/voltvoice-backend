@@ -61,6 +61,15 @@ const EXTRACTOR_PRO_DAILY_LIMITS = {
   admin: 999,
 };
 
+const INWORLD_DEFAULT_MODEL = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
+const INWORLD_MIN_TEMPERATURE = 0.7;
+const INWORLD_MAX_TEMPERATURE = 2.0;
+const INWORLD_TTS_TEMPERATURE = (() => {
+  const configured = Number(process.env.INWORLD_TTS_TEMPERATURE);
+  if (!Number.isFinite(configured) || configured <= 0) return INWORLD_MIN_TEMPERATURE;
+  return Math.min(INWORLD_MAX_TEMPERATURE, Math.max(INWORLD_MIN_TEMPERATURE, configured));
+})();
+
 const ensureExtractorProUsageTable = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS extractor_pro_usage_events (
@@ -89,11 +98,12 @@ function getRealtimeApiKey() {
   return null;
 }
 
-function streamInworldAudio({ apiKey, text, mappedVoice, modelId }) {
+function streamInworldAudio({ apiKey, text, mappedVoice, modelId, temperature = INWORLD_TTS_TEMPERATURE }) {
   const requestBody = JSON.stringify({
     text,
     voiceId: mappedVoice,
     modelId,
+    temperature,
   });
 
   return new Promise((resolve, reject) => {
@@ -167,6 +177,7 @@ router.post('/tts', async (req, res) => {
     const {
       text,
       voiceId,
+      temperature: requestedTemperature,
       speed,
       pitch,
       emotion,
@@ -196,7 +207,15 @@ router.post('/tts', async (req, res) => {
       'default': 'Diego'
     };
     const mappedVoice = voiceMap[voiceId] || voiceId || 'Diego';
-    const resolvedModelId = requestedModelId || modelVersion || 'inworld-tts-1.5-max';
+    const resolvedModelId = requestedModelId || modelVersion || INWORLD_DEFAULT_MODEL;
+    const resolvedTemperature = INWORLD_TTS_TEMPERATURE;
+    if (Number.isFinite(Number(requestedTemperature)) && Number(requestedTemperature) > resolvedTemperature) {
+      console.log('[Inworld TTS] Ignoring higher requested temperature, using locked minimum:', resolvedTemperature);
+    }
+    console.log(
+      `[Inworld TTS] Request resolved -> voice="${mappedVoice}" model="${resolvedModelId}" temp="${resolvedTemperature}"` +
+      ` requestedModel="${requestedModelId || modelVersion || 'none'}" requestedTemp="${requestedTemperature ?? 'none'}"`
+    );
 
     let userId = null;
     let isAdmin = false;
@@ -220,6 +239,7 @@ router.post('/tts', async (req, res) => {
       text,
       modelVersion: resolvedModelId,
       params: {
+        temperature: resolvedTemperature,
         speed,
         pitch,
         emotion,
@@ -244,6 +264,7 @@ router.post('/tts', async (req, res) => {
 
     const cacheHit = await audioCacheService.lookup(cacheContext);
     if (cacheHit.hit) {
+      console.log(`[Inworld TTS] Cache HIT -> model="${resolvedModelId}" temp="${resolvedTemperature}" key="${cacheContext.cacheKey}"`);
       let remainingTokens = undefined;
       if (userId && !isAdmin && tokensNeeded > 0) {
         const deduction = await tokenService.deductTokens(
@@ -273,17 +294,70 @@ router.post('/tts', async (req, res) => {
       });
     }
 
+    const inFlight = audioCacheService.claimInFlightRender(cacheContext?.cacheKey);
+    if (!inFlight.isOwner) {
+      console.log(`[Inworld TTS] Waiting in-flight render for key="${cacheContext?.cacheKey || 'none'}"`);
+      const waitTimeoutMs = Math.max(
+        250,
+        Math.min(3000, Number(cacheContext?.settings?.lookupTimeoutMs || 35) * 40)
+      );
+      try {
+        await Promise.race([
+          inFlight.wait,
+          new Promise((resolve) => setTimeout(resolve, waitTimeoutMs)),
+        ]);
+      } catch {
+        // If the owner render fails, continue and try rendering below.
+      }
+
+      const postWaitHit = await audioCacheService.lookup(cacheContext);
+      if (postWaitHit.hit) {
+        let remainingTokens = undefined;
+        if (userId && !isAdmin && tokensNeeded > 0) {
+          const deduction = await tokenService.deductTokens(
+            userId,
+            tokensNeeded,
+            String(text).length,
+            mappedVoice,
+            'ptt_speech_cache'
+          );
+          remainingTokens = deduction.remainingTokens;
+        }
+        const base64Audio = postWaitHit.audioBuffer.toString('base64');
+        return res.status(200).json({
+          success: true,
+          audio: `data:${postWaitHit.contentType};base64,${base64Audio}`,
+          audioSize: postWaitHit.audioBuffer.length,
+          voiceId,
+          characters: String(text).length,
+          tokensUsed: userId && !isAdmin ? tokensNeeded : 0,
+          ...(Number.isFinite(remainingTokens) ? { remainingTokens } : {}),
+          cache: {
+            hit: true,
+            source: `inflight_${postWaitHit.source}`,
+            scope: cacheContext.scope,
+            key: cacheContext.cacheKey,
+          }
+        });
+      }
+    }
+
     audioCacheService.trackMetric({ rendered_requests: 1 });
+    console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
     let audioBuffer;
+    const renderOwner = inFlight.isOwner ? inFlight : null;
     try {
       audioBuffer = await streamInworldAudio({
         apiKey,
         text: String(text),
         mappedVoice,
         modelId: resolvedModelId,
+        temperature: resolvedTemperature,
       });
+      if (renderOwner) renderOwner.release();
     } catch (streamErr) {
+      if (renderOwner) renderOwner.release(streamErr);
       console.error('[Inworld TTS] Request error:', streamErr.message);
       return res.status(502).json({
         success: false,

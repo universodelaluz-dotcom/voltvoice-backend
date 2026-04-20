@@ -11,8 +11,62 @@ import pool from '../db.js';
 import { config } from '../config.js';
 
 const router = Router();
+const INWORLD_DEFAULT_MODEL = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
+const INWORLD_TTS_TEMPERATURE = (() => {
+  const configured = Number(process.env.INWORLD_TTS_TEMPERATURE);
+  if (!Number.isFinite(configured) || configured <= 0) return 0.7;
+  return Math.min(2, Math.max(0.7, configured));
+})();
 
 const normalizeUsername = (username = '') => String(username || '').trim().toLowerCase().replace(/^@+/, '');
+
+const sanitizeRuntimeDetails = (details = {}) => {
+  try {
+    if (!details || typeof details !== 'object') return {};
+    const trimmed = {};
+    Object.entries(details).slice(0, 20).forEach(([key, value]) => {
+      if (value == null) {
+        trimmed[key] = value;
+      } else if (typeof value === 'string') {
+        trimmed[key] = value.slice(0, 500);
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        trimmed[key] = value;
+      } else {
+        const parsed = JSON.parse(JSON.stringify(value));
+        trimmed[key] = typeof parsed === 'string' ? parsed.slice(0, 500) : parsed;
+      }
+    });
+    return trimmed;
+  } catch {
+    return {};
+  }
+};
+
+const logStreamRuntimeEvent = async ({
+  userId = null,
+  streamUsername = null,
+  eventType = 'runtime_event',
+  eventLevel = 'info',
+  message = '',
+  details = null
+} = {}) => {
+  try {
+    await pool.query(
+      `INSERT INTO stream_runtime_logs (user_id, stream_username, event_type, event_level, message, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())`,
+      [
+        Number.isFinite(Number(userId)) ? Number(userId) : null,
+        streamUsername ? normalizeUsername(streamUsername) : null,
+        String(eventType || 'runtime_event').slice(0, 80),
+        String(eventLevel || 'info').slice(0, 20),
+        String(message || '').slice(0, 500),
+        JSON.stringify(sanitizeRuntimeDetails(details || {}))
+      ]
+    );
+  } catch (err) {
+    console.warn('[TikTok] Warning stream_runtime_logs:', err.message);
+  }
+};
 
 async function resolveOptionalAuthUser(req) {
   const authHeader = req.headers.authorization || '';
@@ -86,7 +140,7 @@ const normalizeUnicode = (text) => {
 router.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -146,15 +200,34 @@ router.get('/debug/:username', requireAdmin, (req, res) => {
  */
 router.post('/connect', async (req, res) => {
   const username = normalizeUsername(req.body?.username);
+  let runtimeUserId = null;
 
   if (!username) {
     return res.status(400).json({ error: 'username required' });
   }
 
   try {
+    const { userId } = await resolveOptionalAuthUser(req);
+    runtimeUserId = userId;
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'connect_request',
+      eventLevel: 'info',
+      message: 'Manual connect requested via API',
+      details: { ip: req.ip || null }
+    });
+
     // Verificar si ya estÃ¡ conectado
     const existing = tiktokLiveService.getStreamStatus(username);
     if (existing) {
+      await logStreamRuntimeEvent({
+        userId: runtimeUserId,
+        streamUsername: username,
+        eventType: 'connect_already_connected',
+        eventLevel: 'info',
+        message: 'Connect requested while stream already connected'
+      });
       return res.status(200).json({
         success: true,
         username,
@@ -167,6 +240,17 @@ router.post('/connect', async (req, res) => {
     const stream = await tiktokLiveService.connectToStream(username, (message) => {
       console.log(`[TikTok] Mensaje recibido: @${message.username}: ${message.text}`);
       // El WebSocket transmitirÃ¡ automÃ¡ticamente via registerClientCallback
+    }, {
+      onEvent: (event) => {
+        logStreamRuntimeEvent({
+          userId: runtimeUserId,
+          streamUsername: username,
+          eventType: event?.eventType || 'runtime_event',
+          eventLevel: event?.eventLevel || 'info',
+          message: event?.message || '',
+          details: event?.details || null
+        });
+      }
     });
 
     return res.status(200).json({
@@ -179,6 +263,14 @@ router.post('/connect', async (req, res) => {
   } catch (error) {
     console.error('[TikTok] Error conectando:', error.message);
     const notLive = isNotLiveError(error.message);
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'connect_failed_api',
+      eventLevel: notLive ? 'warn' : 'error',
+      message: String(error.message || 'connect_failed').slice(0, 500),
+      details: { notLive }
+    });
     return res.status(notLive ? 409 : 400).json({
       error: error.message || 'Error conectando a TikTok LIVE',
       notLive,
@@ -192,6 +284,8 @@ router.post('/connect', async (req, res) => {
  */
 router.post('/message', async (req, res) => {
   const { username, messageUsername, messageText, voiceId } = req.body;
+  let runtimeUserId = null;
+  let inFlightRender = null;
 
   if (!username || !messageText) {
     return res.status(400).json({ error: 'username and messageText required' });
@@ -225,6 +319,7 @@ router.post('/message', async (req, res) => {
     const selectedVoiceId = voiceId || 'es-ES';
     const isGoogleVoice = freeVoices.hasOwnProperty(selectedVoiceId);
     const { userId, isAdmin } = await resolveOptionalAuthUser(req);
+    runtimeUserId = userId;
 
     let fallbackToLocal = false;
     let fallbackReason = null;
@@ -253,8 +348,12 @@ router.post('/message', async (req, res) => {
         text: processedText,
         modelVersion: isGoogleVoice
           ? 'google-translate-tts-v1'
-          : (process.env.INWORLD_MODEL || 'inworld-tts-1.5-max'),
-        params: { source: 'tiktok_live', requestedVoiceId: selectedVoiceId }
+          : INWORLD_DEFAULT_MODEL,
+        params: {
+          source: 'tiktok_live',
+          requestedVoiceId: selectedVoiceId,
+          temperature: INWORLD_TTS_TEMPERATURE
+        }
       });
 
       const cacheHit = await audioCacheService.lookup(cacheContext);
@@ -288,6 +387,56 @@ router.post('/message', async (req, res) => {
             key: cacheContext.cacheKey
           }
         });
+      }
+
+      const inFlight = audioCacheService.claimInFlightRender(cacheContext?.cacheKey);
+      inFlightRender = inFlight.isOwner ? inFlight : null;
+      if (!inFlight.isOwner) {
+        const waitTimeoutMs = Math.max(
+          250,
+          Math.min(2500, Number(cacheContext?.settings?.lookupTimeoutMs || 35) * 35)
+        );
+        try {
+          await Promise.race([
+            inFlight.wait,
+            new Promise((resolve) => setTimeout(resolve, waitTimeoutMs)),
+          ]);
+        } catch {
+          // If owner render fails, continue normal flow.
+        }
+
+        const postWaitHit = await audioCacheService.lookup(cacheContext);
+        if (postWaitHit.hit) {
+          if (!isGoogleVoice && userId && !isAdmin && tokensNeeded > 0) {
+            await tokenService.deductTokens(
+              userId,
+              tokensNeeded,
+              String(processedText).length,
+              selectedVoiceId,
+              'tiktok_live_cache'
+            );
+          }
+
+          const base64Audio = postWaitHit.audioBuffer.toString('base64');
+          return res.status(200).json({
+            success: true,
+            audio: `data:${postWaitHit.contentType || 'audio/mpeg'};base64,${base64Audio}`,
+            contentType: postWaitHit.contentType || 'audio/mpeg',
+            text: processedText,
+            user: messageUsername || 'Usuario',
+            fallback: false,
+            fallbackReason: null,
+            useLocalVoice: false,
+            fallbackVoiceId: null,
+            tokensUsed: (!isGoogleVoice && userId && !isAdmin) ? tokensNeeded : 0,
+            cache: {
+              hit: true,
+              source: `inflight_${postWaitHit.source}`,
+              scope: cacheContext.scope,
+              key: cacheContext.cacheKey
+            }
+          });
+        }
       }
     }
 
@@ -361,6 +510,7 @@ router.post('/message', async (req, res) => {
       });
     }
 
+    try { inFlightRender?.release(); } catch {}
     return res.status(200).json({
       success: true,
       audio: audioDataUrl,
@@ -378,8 +528,21 @@ router.post('/message', async (req, res) => {
         key: cacheContext?.cacheKey || null,
         cacheable: cacheContext?.enabled || false
       }
-    });  } catch (error) {
+    });
+  } catch (error) {
+    try { inFlightRender?.release(error); } catch {}
     console.error('[TikTok] Error procesando mensaje:', error);
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'message_processing_error',
+      eventLevel: 'error',
+      message: String(error?.message || 'message_processing_error').slice(0, 500),
+      details: {
+        messageUsername: messageUsername || null,
+        voiceId: voiceId || null
+      }
+    });
     return res.status(500).json({
       error: error.message || 'Error procesando mensaje',
       details: error.toString()
@@ -413,13 +576,30 @@ router.get('/status/:username', (req, res) => {
  */
 router.post('/disconnect', async (req, res) => {
   const username = normalizeUsername(req.body?.username);
+  let runtimeUserId = null;
 
   if (!username) {
     return res.status(400).json({ error: 'username required' });
   }
 
   try {
+    const { userId } = await resolveOptionalAuthUser(req);
+    runtimeUserId = userId;
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'disconnect_request',
+      eventLevel: 'info',
+      message: 'Manual disconnect requested via API'
+    });
     await tiktokLiveService.disconnectStream(username);
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'disconnect_success',
+      eventLevel: 'info',
+      message: 'Stream disconnected manually'
+    });
 
     return res.status(200).json({
       success: true,
@@ -427,6 +607,13 @@ router.post('/disconnect', async (req, res) => {
     });
   } catch (error) {
     console.error('[TikTok] Error desconectando:', error.message);
+    await logStreamRuntimeEvent({
+      userId: runtimeUserId,
+      streamUsername: username,
+      eventType: 'disconnect_failed',
+      eventLevel: 'error',
+      message: String(error.message || 'disconnect_failed').slice(0, 500)
+    });
     return res.status(400).json({
       error: error.message || 'Error desconectando'
     });

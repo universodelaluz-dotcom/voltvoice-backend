@@ -591,6 +591,24 @@ import pool from './src/db.js';
       CREATE INDEX IF NOT EXISTS idx_api_request_logs_path ON api_request_logs(path, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_api_request_logs_status ON api_request_logs(status_code, created_at DESC);
 
+      -- Runtime stream logs (soporte: caidas/reconexiones/errores de stream)
+      CREATE TABLE IF NOT EXISTS stream_runtime_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        stream_username VARCHAR(120),
+        event_type VARCHAR(80) NOT NULL,
+        event_level VARCHAR(20) DEFAULT 'info',
+        message VARCHAR(500),
+        details JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_stream_runtime_logs_user_created
+        ON stream_runtime_logs(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_stream_runtime_logs_stream_created
+        ON stream_runtime_logs(stream_username, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_stream_runtime_logs_event_created
+        ON stream_runtime_logs(event_type, created_at DESC);
+
       -- ===== COUPON SYSTEM =====
       CREATE TABLE IF NOT EXISTS coupons (
         id SERIAL PRIMARY KEY,

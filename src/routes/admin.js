@@ -37,6 +37,8 @@ const ALLOWED_BROADCAST_KIND = new Set(['global_message', 'in_app_notification',
 const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived']);
 const ESTIMATED_COST_PER_1K_TOKENS_USD = Number(process.env.ADMIN_ESTIMATED_COST_PER_1K_TOKENS_USD || 0.004);
 const ESTIMATED_FIXED_MONTHLY_COST_USD = Number(process.env.ADMIN_ESTIMATED_FIXED_MONTHLY_COST_USD || 0);
+const ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD = Number(process.env.ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD || 50);
+const ADMIN_TTS_MINI_COST_PER_1M_CHARS_USD = Number(process.env.ADMIN_TTS_MINI_COST_PER_1M_CHARS_USD || 25);
 const DEFAULT_MAINTENANCE_MESSAGE = 'Aviso importante: estaremos en mantenimiento durante 4 minutos para aplicar mejoras. Gracias por tu paciencia.';
 const DEFAULT_DEPLOY_NOTIFY_EMAIL = 'soporte@streamvoicer.com';
 
@@ -1132,7 +1134,7 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
     const limit = parseLimit(req.query.limit, 2000, 20000);
     const hours = parseHours(req.query.hours, 48);
 
-    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
+    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, streamRuntimeQ, voicesQ] = await Promise.all([
       pool.query(
         `SELECT id, email, plan, tokens, role, created_at, last_seen, is_suspended, suspended_until, suspension_reason
          FROM users WHERE id::text = $1::text`,
@@ -1170,6 +1172,15 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
       pool.query(
         `SELECT method, path, status_code, duration_ms, ip_address, error_message, created_at
          FROM api_request_logs
+         WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT stream_username, event_type, event_level, message, details, created_at
+         FROM stream_runtime_logs
          WHERE user_id::text = $1::text
            AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY created_at DESC
@@ -1198,6 +1209,7 @@ router.get('/users/:id/activity', requireAdmin, async (req, res) => {
         transactions: transactionsQ.rows,
         adminActions: adminActionsQ.rows,
         requestLogs: requestLogsQ.rows,
+        streamRuntime: streamRuntimeQ.rows,
         voices: voicesQ.rows,
       }
     });
@@ -1217,7 +1229,7 @@ router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
     const hours = parseHours(req.query.hours, 48);
     const format = String(req.query.format || 'json').toLowerCase();
 
-    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, voicesQ] = await Promise.all([
+    const [userQ, tokenLogsQ, transactionsQ, adminActionsQ, requestLogsQ, streamRuntimeQ, voicesQ] = await Promise.all([
       pool.query(
         `SELECT id, email, plan, tokens, role, created_at, last_seen, is_suspended, suspended_until, suspension_reason
          FROM users WHERE id::text = $1::text`,
@@ -1255,6 +1267,15 @@ router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
       pool.query(
         `SELECT method, path, status_code, duration_ms, ip_address, error_message, created_at
          FROM api_request_logs
+         WHERE user_id::text = $1::text
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [id, limit, hours]
+      ),
+      pool.query(
+        `SELECT stream_username, event_type, event_level, message, details, created_at
+         FROM stream_runtime_logs
          WHERE user_id::text = $1::text
            AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
          ORDER BY created_at DESC
@@ -1285,6 +1306,7 @@ router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
         transactions: transactionsQ.rows,
         adminActions: adminActionsQ.rows,
         requestLogs: requestLogsQ.rows,
+        streamRuntime: streamRuntimeQ.rows,
         voices: voicesQ.rows,
       }
     };
@@ -1327,6 +1349,15 @@ router.get('/users/:id/activity/export', requireAdmin, async (req, res) => {
           row.status_code ?? '',
           row.duration_ms ?? '',
           row.error_message || ''
+        ].map(csvEscape).join(',')),
+        ...streamRuntimeQ.rows.map((row) => [
+          'stream_runtime',
+          row.created_at || '',
+          row.stream_username || '',
+          row.event_type || '',
+          row.event_level || '',
+          row.message || '',
+          JSON.stringify(row.details || {})
         ].map(csvEscape).join(',')),
         ...voicesQ.rows.map((row) => [
           'voices',
@@ -1812,21 +1843,21 @@ router.put('/audio-cache/settings', requireAdmin, async (req, res) => {
     const payload = req.body || {};
     const updates = {
       enabled: payload.enabled !== undefined ? Boolean(payload.enabled) : true,
-      maxCacheableChars: parseIntRange(payload.maxCacheableChars, 120, 20, 500),
-      personalTtlSeconds: parseIntRange(payload.personalTtlSeconds, 86400, 60, 30 * 24 * 3600),
-      globalTtlSeconds: parseIntRange(payload.globalTtlSeconds, 604800, 300, 90 * 24 * 3600),
-      personalFreeTtlSeconds: parseIntRange(payload.personalFreeTtlSeconds, 172800, 60, 30 * 24 * 3600),
-      personalPaidTtlSeconds: parseIntRange(payload.personalPaidTtlSeconds, 604800, 300, 90 * 24 * 3600),
-      personalFreeMaxEntries: parseIntRange(payload.personalFreeMaxEntries, 200, 10, 5000),
-      personalPaidMaxEntries: parseIntRange(payload.personalPaidMaxEntries, 1000, 10, 50000),
-      globalMaxEntries: parseIntRange(payload.globalMaxEntries, 1500, 100, 50000),
-      globalInactiveDays: parseIntRange(payload.globalInactiveDays, 30, 1, 365),
-      globalLowUsageThreshold: parseIntRange(payload.globalLowUsageThreshold, 8, 0, 100000),
+      maxCacheableChars: parseIntRange(payload.maxCacheableChars, 600, 20, 5000),
+      personalTtlSeconds: parseIntRange(payload.personalTtlSeconds, 604800, 60, 120 * 24 * 3600),
+      globalTtlSeconds: parseIntRange(payload.globalTtlSeconds, 2592000, 300, 180 * 24 * 3600),
+      personalFreeTtlSeconds: parseIntRange(payload.personalFreeTtlSeconds, 604800, 60, 120 * 24 * 3600),
+      personalPaidTtlSeconds: parseIntRange(payload.personalPaidTtlSeconds, 2592000, 300, 180 * 24 * 3600),
+      personalFreeMaxEntries: parseIntRange(payload.personalFreeMaxEntries, 1500, 10, 50000),
+      personalPaidMaxEntries: parseIntRange(payload.personalPaidMaxEntries, 10000, 10, 200000),
+      globalMaxEntries: parseIntRange(payload.globalMaxEntries, 20000, 100, 200000),
+      globalInactiveDays: parseIntRange(payload.globalInactiveDays, 120, 1, 365),
+      globalLowUsageThreshold: parseIntRange(payload.globalLowUsageThreshold, 0, 0, 100000),
       subscriptionGraceDays: parseIntRange(payload.subscriptionGraceDays, 15, 1, 180),
       purgePersonalizationAfterGrace: payload.purgePersonalizationAfterGrace === true,
-      hotCacheMaxEntries: parseIntRange(payload.hotCacheMaxEntries, 1500, 100, 50000),
-      globalRepeatThreshold: parseIntRange(payload.globalRepeatThreshold, 4, 2, 100),
-      lookupTimeoutMs: parseIntRange(payload.lookupTimeoutMs, 35, 5, 250),
+      hotCacheMaxEntries: parseIntRange(payload.hotCacheMaxEntries, 12000, 100, 200000),
+      globalRepeatThreshold: parseIntRange(payload.globalRepeatThreshold, 1, 1, 100),
+      lookupTimeoutMs: parseIntRange(payload.lookupTimeoutMs, 60, 5, 1000),
     };
 
     await pool.query(
@@ -1896,7 +1927,7 @@ router.put('/audio-cache/settings', requireAdmin, async (req, res) => {
  */
 router.get('/audio-cache/stats', requireAdmin, async (req, res) => {
   try {
-    const [scopeRows, topRows, phraseRows, runtimeRows] = await Promise.all([
+    const [scopeRows, topRows, phraseRows, runtimeRows, cacheSavingsRows, monthSavingsRows] = await Promise.all([
       pool.query(`
         SELECT scope,
                COUNT(*)::int AS entries,
@@ -1925,6 +1956,42 @@ router.get('/audio-cache/stats', requireAdmin, async (req, res) => {
         FROM audio_cache_runtime_stats
         WHERE id = 1
       `),
+      pool.query(`
+        WITH day_series AS (
+          SELECT generate_series(
+            date_trunc('day', NOW()) - INTERVAL '29 days',
+            date_trunc('day', NOW()),
+            INTERVAL '1 day'
+          )::date AS day
+        ),
+        cache_events AS (
+          SELECT
+            (timestamp AT TIME ZONE 'America/Mexico_City')::date AS day,
+            COALESCE(SUM(tokens_used), 0)::bigint AS tokens_saved,
+            COALESCE(SUM(characters_count), 0)::bigint AS chars_saved,
+            COUNT(*)::bigint AS events_count
+          FROM token_logs
+          WHERE action LIKE '%\\_cache' ESCAPE '\\'
+          GROUP BY 1
+        )
+        SELECT
+          ds.day,
+          COALESCE(ce.tokens_saved, 0)::bigint AS tokens_saved,
+          COALESCE(ce.chars_saved, 0)::bigint AS chars_saved,
+          COALESCE(ce.events_count, 0)::bigint AS events_count
+        FROM day_series ds
+        LEFT JOIN cache_events ce ON ce.day = ds.day
+        ORDER BY ds.day ASC
+      `),
+      pool.query(`
+        SELECT
+          COALESCE(SUM(tokens_used), 0)::bigint AS tokens_saved_month,
+          COALESCE(SUM(characters_count), 0)::bigint AS chars_saved_month,
+          COUNT(*)::bigint AS events_month
+        FROM token_logs
+        WHERE action LIKE '%\\_cache' ESCAPE '\\'
+          AND timestamp >= date_trunc('month', NOW())
+      `),
     ]);
 
     const byScope = { personal: { entries: 0, totalChars: 0, totalHits: 0 }, global: { entries: 0, totalChars: 0, totalHits: 0 } };
@@ -1952,6 +2019,36 @@ router.get('/audio-cache/stats', requireAdmin, async (req, res) => {
     const totalHits = Number(runtime.hot_hits || 0) + Number(runtime.persistent_hits || 0);
     const totalRequests = Number(runtime.total_requests || 0);
     const hitRate = totalRequests > 0 ? Number(((totalHits / totalRequests) * 100).toFixed(2)) : 0;
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
+    const dailySeries = cacheSavingsRows.rows.map((row) => ({
+      day: row.day,
+      tokensSaved: Number(row.tokens_saved || 0),
+      charsSaved: Number(row.chars_saved || 0),
+      eventsCount: Number(row.events_count || 0),
+    }));
+    const last24h = dailySeries[dailySeries.length - 1] || { tokensSaved: 0, charsSaved: 0, eventsCount: 0 };
+    const last7d = dailySeries.slice(-7);
+    const last30d = dailySeries.slice(-30);
+    const sumBy = (arr, field) => arr.reduce((acc, item) => acc + Number(item?.[field] || 0), 0);
+    const tokensSaved7d = sumBy(last7d, 'tokensSaved');
+    const charsSaved7d = sumBy(last7d, 'charsSaved');
+    const events7d = sumBy(last7d, 'eventsCount');
+    const tokensSaved30d = sumBy(last30d, 'tokensSaved');
+    const charsSaved30d = sumBy(last30d, 'charsSaved');
+    const events30d = sumBy(last30d, 'eventsCount');
+    const monthSaved = monthSavingsRows.rows[0] || { tokens_saved_month: 0, chars_saved_month: 0, events_month: 0 };
+    const tokensSavedMonth = Number(monthSaved.tokens_saved_month || 0);
+    const charsSavedMonth = Number(monthSaved.chars_saved_month || 0);
+    const eventsMonth = Number(monthSaved.events_month || 0);
+    const projectedTokensMonth = dayOfMonth > 0 ? Math.round((tokensSavedMonth / dayOfMonth) * daysInMonth) : tokensSavedMonth;
+    const projectedCharsMonth = dayOfMonth > 0 ? Math.round((charsSavedMonth / dayOfMonth) * daysInMonth) : charsSavedMonth;
+    const savedUsdMax24h = Number(((Number(last24h.tokensSaved || 0) / 1000000) * ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD).toFixed(4));
+    const savedUsdMax30d = Number(((tokensSaved30d / 1000000) * ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD).toFixed(4));
+    const savedUsdMaxMonth = Number(((tokensSavedMonth / 1000000) * ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD).toFixed(4));
+    const projectedSavedUsdMaxMonth = Number(((projectedTokensMonth / 1000000) * ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD).toFixed(4));
+    const savedUsdMini30d = Number(((tokensSaved30d / 1000000) * ADMIN_TTS_MINI_COST_PER_1M_CHARS_USD).toFixed(4));
 
     return res.json({
       success: true,
@@ -1963,6 +2060,33 @@ router.get('/audio-cache/stats', requireAdmin, async (req, res) => {
           total_requests: totalRequests,
           hit_rate_percent: hitRate,
           total_hits: totalHits
+        },
+        realSavings: {
+          tokensSaved24h: Number(last24h.tokensSaved || 0),
+          charsSaved24h: Number(last24h.charsSaved || 0),
+          cacheEvents24h: Number(last24h.eventsCount || 0),
+          tokensSaved7d,
+          charsSaved7d,
+          cacheEvents7d: events7d,
+          tokensSaved30d,
+          charsSaved30d,
+          cacheEvents30d: events30d,
+          tokensSavedMonth,
+          charsSavedMonth,
+          cacheEventsMonth: eventsMonth,
+          projectedTokensMonth: projectedTokensMonth,
+          projectedCharsMonth: projectedCharsMonth,
+          savedUsdMax24h,
+          savedUsdMax30d,
+          savedUsdMaxMonth,
+          projectedSavedUsdMaxMonth,
+          savedUsdMini30d,
+          pricing: {
+            maxPer1M: ADMIN_TTS_MAX_COST_PER_1M_CHARS_USD,
+            miniPer1M: ADMIN_TTS_MINI_COST_PER_1M_CHARS_USD,
+          },
+          dailySeries: dailySeries,
+          methodology: 'Basado en token_logs con action LIKE %_cache. Tokens/chars reales servidos desde cache.'
         },
         topEntries: topRows.rows,
         topPhrases: phraseRows.rows,
