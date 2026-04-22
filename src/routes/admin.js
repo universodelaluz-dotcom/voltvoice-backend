@@ -9,30 +9,26 @@ import { sendDeployReadyEmail } from '../services/mail.js';
 const router = Router();
 
 const normalizePlan = (value = 'free') => String(value || 'free').trim().toLowerCase();
-const PLAN_KEY_TO_BACKEND_PLAN = {
-  free: 'free',
-  start: 'pro',
-  creator: 'premium',
-  pro: 'elite',
-  admin: 'admin',
-};
-const BACKEND_PLAN_TO_PLAN_KEY = {
-  free: 'free',
-  pro: 'start',
-  premium: 'creator',
-  elite: 'pro',
-  on_demand: 'pro',
-  admin: 'admin',
+// New plan names stored directly in DB. Legacy DB values mapped on read.
+const LEGACY_DB_TO_PLAN = {
+  pro: 'base',
+  premium: 'pack_lite',
+  elite: 'pack_pro',
+  on_demand: 'pack_pro',
+  start: 'base',
+  creator: 'pack_lite',
 };
 const toBackendPlan = (value = 'free') => {
+  // New names pass through; legacy frontend keys get normalized
   const key = normalizePlan(value);
-  return PLAN_KEY_TO_BACKEND_PLAN[key] || key;
+  const legacy = { start: 'base', creator: 'pack_lite' };
+  return legacy[key] ?? key;
 };
 const toDisplayPlan = (value = 'free') => {
   const plan = normalizePlan(value);
-  return BACKEND_PLAN_TO_PLAN_KEY[plan] || plan;
+  return LEGACY_DB_TO_PLAN[plan] ?? plan;
 };
-const ALLOWED_PLANS = new Set(['free', 'start', 'creator', 'pro', 'admin']);
+const ALLOWED_PLANS = new Set(['free', 'base', 'pack_lite', 'pack_pro', 'pack_max', 'admin']);
 const ALLOWED_BROADCAST_KIND = new Set(['global_message', 'in_app_notification', 'maintenance_alert']);
 const ALLOWED_BROADCAST_STATUS = new Set(['draft', 'active', 'paused', 'archived']);
 const ESTIMATED_COST_PER_1K_TOKENS_USD = Number(process.env.ADMIN_ESTIMATED_COST_PER_1K_TOKENS_USD || 0.004);
