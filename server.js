@@ -91,7 +91,8 @@ const allowedOrigins = [
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.includes(origin)) {
+    const isNgrokOrigin = String(origin || '').includes('ngrok-free.dev')
+    if (!origin || allowedOrigins.includes(origin) || isNgrokOrigin) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -136,7 +137,8 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Handle preflight requests
 app.options('*', cors({
   origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
+    const safeOrigin = String(origin || '')
+    if (!origin || allowedOrigins.includes(origin) || safeOrigin.includes('vercel.app') || safeOrigin.includes('ngrok-free.dev')) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));

@@ -5,10 +5,10 @@ import { config } from '../../config.js';
 
 const router = Router();
 const TEST_USERS = [
-  { slot: 1, email: 'test.user1@streamvoicer.local' },
-  { slot: 2, email: 'test.user2@streamvoicer.local' },
-  { slot: 3, email: 'test.user3@streamvoicer.local' },
-  { slot: 4, email: 'test.user4@streamvoicer.local' },
+  { slot: 1, email: 'test.user1@streamvoicer.local', plan: 'free' },
+  { slot: 2, email: 'test.user2@streamvoicer.local', plan: 'base' },
+  { slot: 3, email: 'test.user3@streamvoicer.local', plan: 'pack_pro' },
+  { slot: 4, email: 'test.user4@streamvoicer.local', plan: 'pack_max' },
 ];
 const DUMMY_PASSWORD_HASH = '$2b$10$u3aX0QhMkg4QvOFc6U5vQe7qzjK1xN6l1P2Qz6x8mU9pL0sW1a2bC';
 
@@ -32,7 +32,15 @@ const ensureTestUsers = async () => {
       `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
       [spec.email]
     );
-    if (exists.rows.length) continue;
+    if (exists.rows.length) {
+      await pool.query(
+        `UPDATE users
+         SET plan = $2, updated_at = NOW()
+         WHERE LOWER(email) = LOWER($1)`,
+        [spec.email, spec.plan]
+      );
+      continue;
+    }
 
     let inserted = false;
 
@@ -40,8 +48,8 @@ const ensureTestUsers = async () => {
     try {
       await pool.query(
         `INSERT INTO users (email, password_hash, plan, tokens, role, email_verified)
-         VALUES ($1, $2, 'free', 0, 'user', TRUE)`,
-        [spec.email, DUMMY_PASSWORD_HASH]
+         VALUES ($1, $2, $3, 0, 'user', TRUE)`,
+        [spec.email, DUMMY_PASSWORD_HASH, spec.plan]
       );
       inserted = true;
     } catch (_) {}
@@ -51,8 +59,8 @@ const ensureTestUsers = async () => {
       try {
         await pool.query(
           `INSERT INTO users (email, password_hash, plan, tokens)
-           VALUES ($1, $2, 'free', 0)`,
-          [spec.email, DUMMY_PASSWORD_HASH]
+           VALUES ($1, $2, $3, 0)`,
+          [spec.email, DUMMY_PASSWORD_HASH, spec.plan]
         );
         inserted = true;
       } catch (_) {}
@@ -62,8 +70,8 @@ const ensureTestUsers = async () => {
     if (!inserted) {
       await pool.query(
         `INSERT INTO users (email, plan, tokens)
-         VALUES ($1, 'free', 0)`,
-        [spec.email]
+         VALUES ($1, $2, 0)`,
+        [spec.email, spec.plan]
       );
     }
   }
@@ -122,6 +130,8 @@ const getUserById = async (userId) => {
 
 const isAllowedTestUser = (email = '') =>
   TEST_USERS.some((u) => u.email.toLowerCase() === String(email || '').toLowerCase());
+const getTestSpecByEmail = (email = '') =>
+  TEST_USERS.find((u) => u.email.toLowerCase() === String(email || '').toLowerCase()) || null;
 
 // GET /api/test-lab/users
 router.get('/users', async (_req, res) => {
@@ -208,6 +218,51 @@ router.post('/users/:id/reset', async (req, res) => {
   }
 });
 
+// POST /api/test-lab/users/:id/reset-tokens
+router.post('/users/:id/reset-tokens', async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return res.status(400).json({ error: 'ID de usuario inválido.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const verifyUser = await client.query('SELECT id, email, plan FROM users WHERE id = $1 LIMIT 1', [userId]);
+    const row = verifyUser.rows?.[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+    if (!isAllowedTestUser(row.email)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Solo usuarios de prueba permitidos.' });
+    }
+
+    await client.query(
+      `UPDATE users
+       SET tokens = 0, updated_at = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+    await client.query('DELETE FROM token_logs WHERE user_id::text = $1::text', [String(userId)]);
+    await client.query('COMMIT');
+
+    const users = await getTestUsers();
+    return res.json({
+      success: true,
+      message: `Tokens reiniciados para usuario ${userId}. Plan actual preservado.`,
+      users,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[TEST_LAB] reset tokens error:', error.message);
+    return res.status(500).json({ error: 'No se pudieron reiniciar los tokens del usuario de prueba.' });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/test-lab/users/:id/assume
 router.post('/users/:id/assume', async (req, res) => {
   const userId = Number(req.params.id);
@@ -216,12 +271,24 @@ router.post('/users/:id/assume', async (req, res) => {
   }
 
   try {
-    const row = await getUserById(userId);
+    let row = await getUserById(userId);
     if (!row) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
     if (!isAllowedTestUser(row.email)) {
       return res.status(403).json({ error: 'Solo usuarios de prueba permitidos.' });
+    }
+    const testSpec = getTestSpecByEmail(row.email);
+    const expectedPlan = String(testSpec?.plan || 'free').toLowerCase();
+    const currentPlan = String(row.plan || 'free').toLowerCase();
+    if (expectedPlan && currentPlan !== expectedPlan) {
+      await pool.query(
+        `UPDATE users
+         SET plan = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [userId, expectedPlan]
+      );
+      row = await getUserById(userId);
     }
 
     const token = jwt.sign(

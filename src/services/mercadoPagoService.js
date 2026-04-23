@@ -81,6 +81,19 @@ const isPublicHttpsUrl = (urlValue) => {
   }
 };
 
+const resolveReturnBaseUrl = (candidateUrl) => {
+  const fallback = String(config.FRONTEND_URL || '').trim();
+  try {
+    const parsed = new URL(String(candidateUrl || '').trim());
+    const host = String(parsed.hostname || '').toLowerCase();
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+    const isHttps = parsed.protocol === 'https:';
+    const isLocalHttp = isLocalHost && parsed.protocol === 'http:';
+    if (isHttps || isLocalHttp) return `${parsed.protocol}//${parsed.host}`;
+  } catch {}
+  return fallback;
+};
+
 class MercadoPagoService {
   constructor() {
     this.apiUrl = 'https://api.mercadopago.com/checkout/preferences';
@@ -288,7 +301,13 @@ class MercadoPagoService {
         `[MERCADO_PAGO] Preference amount -> usd_base=${roundMoney(chargedPrice)} ${checkoutAmount.currency}_sent=${checkoutAmount.amount}`
       );
 
-      const payer = await this.getPayerData(userId);
+      const tokenLooksTest = String(this.token || '').startsWith('TEST-');
+      const payer = tokenLooksTest ? {} : await this.getPayerData(userId);
+
+      const returnBaseUrl = resolveReturnBaseUrl(payload?.returnUrlBase || payload?.requestOrigin);
+      const successUrl = `${returnBaseUrl}?payment=success&provider=mercadopago`;
+      const failureUrl = `${returnBaseUrl}?payment=failed&provider=mercadopago`;
+      const pendingUrl = `${returnBaseUrl}?payment=pending&provider=mercadopago`;
 
       const preferenceData = {
         items: [
@@ -307,23 +326,27 @@ class MercadoPagoService {
         ],
         payer,
         back_urls: {
-          success: `${config.FRONTEND_URL}?payment=success`,
-          failure: `${config.FRONTEND_URL}?payment=failed`,
-          pending: `${config.FRONTEND_URL}?payment=pending`
+          success: successUrl,
+          failure: failureUrl,
+          pending: pendingUrl
         },
         notification_url: `${config.BACKEND_URL}/api/mercadopago/webhook`,
         external_reference: externalReference,
         currency_id: checkoutAmount.currency
       };
 
-      if (isPublicHttpsUrl(config.FRONTEND_URL)) {
+      const frontendUrlLower = String(returnBaseUrl || '').toLowerCase();
+      const isValidUrl = frontendUrlLower.startsWith('http');
+      const isProduction = !frontendUrlLower.includes('localhost') && !frontendUrlLower.includes('127.0.0.1');
+      const shouldTryAutoReturn = isValidUrl && (isProduction || config.isDevelopment);
+      if (shouldTryAutoReturn) {
         preferenceData.auto_return = 'approved';
       }
 
       // En entorno de pruebas/local, forzar flujo con tarjeta para reducir
       // errores de procesamiento en medios alternativos.
       const forceCardFlow =
-        this.token?.startsWith('TEST-') ||
+        tokenLooksTest ||
         (config.isDevelopment && item.kind === 'tokens');
       if (forceCardFlow) {
         preferenceData.payment_methods = {
@@ -360,16 +383,16 @@ class MercadoPagoService {
             apiMessage.includes('auto_return')
           );
 
-        const shouldRetryTokensWithoutPayer = status === 403 && item.kind === 'tokens';
+        const shouldRetryWithoutPayer = (status === 401 || status === 403);
 
-        if (!shouldRetryWithoutAutoReturn && !shouldRetryTokensWithoutPayer) throw initialError;
+        if (!shouldRetryWithoutAutoReturn && !shouldRetryWithoutPayer) throw initialError;
 
         if (shouldRetryWithoutAutoReturn) {
           console.warn('[MERCADO_PAGO] Retry create preference without auto_return due to invalid back_urls/auto_return');
           delete preferenceData.auto_return;
         }
-        if (shouldRetryTokensWithoutPayer) {
-          console.warn('[MERCADO_PAGO] Retry token preference without payer due to 403');
+        if (shouldRetryWithoutPayer) {
+          console.warn('[MERCADO_PAGO] Retry create preference without payer due to auth policy');
           delete preferenceData.payer;
         }
         response = await axios.post(this.apiUrl, preferenceData, { headers: requestHeaders });
