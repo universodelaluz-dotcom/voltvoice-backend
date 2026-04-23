@@ -15,6 +15,7 @@ const PLAN_CLONE_SLOTS = {
   pack_pro: 3,
   pack_max: 6,
 };
+const REPEATABLE_PACK_PLANS = new Set(['pack_lite', 'pack_pro', 'pack_max']);
 
 const BACKEND_PLAN_TO_PLAN_KEY = {
   free: 'free',
@@ -233,6 +234,19 @@ class SubscriptionService {
       };
     }
 
+    // Regla comercial:
+    // - BASE no se puede comprar doble en el mismo ciclo.
+    // - PACKs (lite/pro/max) sí se pueden recomprar y se acumulan.
+    if (target.planKey === current.planKey && REPEATABLE_PACK_PLANS.has(target.planKey)) {
+      return {
+        action: 'pack_repurchase',
+        payableAmountUsd: roundCurrency(targetPrice),
+        prorationCreditUsd: 0,
+        remainingMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - now.getTime()),
+        totalMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - (sub.periodStart?.getTime() || 0)),
+      };
+    }
+
     if (target.tier > current.tier) {
       // Regla comercial simplificada: upgrades cobran precio completo del plan destino.
       // Evita cobros parciales/confusos cuando hay estados de suscripción inconsistentes.
@@ -376,6 +390,12 @@ class SubscriptionService {
         // Al pagar un plan, conservar saldo actual y sumar cupo del plan comprado.
         tokenIncrement = targetPlan.tokens;
         nextSlotBonus = 0;
+      } else if (quote.action === 'pack_repurchase') {
+        // Recompra de PACK activo: suma beneficios sin bloquear el checkout.
+        // Mantiene periodo/ciclo actual.
+        tokenIncrement = targetPlan.tokens;
+        nextCycle = sub.billingCycle || nextCycle;
+        nextSlotBonus = currentSlotBonus + currentPlanSlots;
       } else if (quote.action === 'upgrade_immediate') {
         // Upgrade pagado en ciclo activo: conservar saldo y sumar el cupo del plan objetivo.
         tokenIncrement = targetPlan.tokens;
