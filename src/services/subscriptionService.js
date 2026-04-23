@@ -10,7 +10,12 @@ const PLAN_CATALOG = {
 
 const BACKEND_PLAN_TO_PLAN_KEY = {
   free: 'free',
+  start: 'base',
   base: 'base',
+  creator: 'pack_lite',
+  premium: 'pack_lite',
+  pro: 'pack_pro',
+  elite: 'pack_max',
   pack_lite: 'pack_lite',
   pack_pro: 'pack_pro',
   pack_max: 'pack_max',

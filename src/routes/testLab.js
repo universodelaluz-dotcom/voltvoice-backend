@@ -297,24 +297,12 @@ router.post('/users/:id/assume', async (req, res) => {
   }
 
   try {
-    let row = await getUserById(userId);
+    const row = await getUserById(userId);
     if (!row) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
     if (!isAllowedTestUser(row.email)) {
       return res.status(403).json({ error: 'Solo usuarios de prueba permitidos.' });
-    }
-    const testSpec = getTestSpecByEmail(row.email);
-    const expectedPlan = String(testSpec?.plan || 'free').toLowerCase();
-    const currentPlan = String(row.plan || 'free').toLowerCase();
-    if (expectedPlan && currentPlan !== expectedPlan) {
-      await pool.query(
-        `UPDATE users
-         SET plan = $2, updated_at = NOW()
-         WHERE id = $1`,
-        [userId, expectedPlan]
-      );
-      row = await getUserById(userId);
     }
 
     const token = jwt.sign(

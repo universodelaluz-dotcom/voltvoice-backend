@@ -56,7 +56,12 @@ const clearAuthCookie = () => {
 
 const BACKEND_PLAN_TO_PUBLIC_PLAN = {
   free: 'free',
+  start: 'base',
   base: 'base',
+  creator: 'pack_lite',
+  premium: 'pack_lite',
+  pro: 'pack_pro',
+  elite: 'pack_max',
   pack_lite: 'pack_lite',
   pack_pro: 'pack_pro',
   pack_max: 'pack_max',
