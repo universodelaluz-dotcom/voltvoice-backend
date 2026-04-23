@@ -7,8 +7,9 @@ const router = Router();
 const TEST_USERS = [
   { slot: 1, email: 'test.user1@streamvoicer.local', plan: 'free' },
   { slot: 2, email: 'test.user2@streamvoicer.local', plan: 'base' },
-  { slot: 3, email: 'test.user3@streamvoicer.local', plan: 'pack_pro' },
-  { slot: 4, email: 'test.user4@streamvoicer.local', plan: 'pack_max' },
+  { slot: 3, email: 'test.user3@streamvoicer.local', plan: 'pack_lite' },
+  { slot: 4, email: 'test.user4@streamvoicer.local', plan: 'pack_pro' },
+  { slot: 5, email: 'test.user5@streamvoicer.local', plan: 'pack_max' },
 ];
 const DUMMY_PASSWORD_HASH = '$2b$10$u3aX0QhMkg4QvOFc6U5vQe7qzjK1xN6l1P2Qz6x8mU9pL0sW1a2bC';
 
