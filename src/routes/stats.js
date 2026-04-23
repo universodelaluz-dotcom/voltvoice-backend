@@ -4,6 +4,24 @@ import { verifyToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 
+const CLONED_VOICE_LIMITS = {
+  free: 0,
+  base: 0,
+  pack_lite: 1,
+  pack_pro: 3,
+  pack_max: 6,
+  admin: 999,
+};
+
+const resolveCloneVoiceLimit = (planValue, slotBonus = 0) => {
+  const plan = String(planValue || 'free').trim().toLowerCase();
+  if (plan === 'admin') return 999;
+  if (plan === 'free' || plan === 'base') return 0;
+  const base = Number(CLONED_VOICE_LIMITS[plan] ?? 0);
+  const bonus = Math.max(0, Number(slotBonus || 0));
+  return base + bonus;
+};
+
 const BUILTIN_VOICE_LABELS = {
   'es-ES': 'Voz Local Espanol (ilimitada)',
   'en-US': 'Voz Local Ingles (ilimitada)',
@@ -76,7 +94,10 @@ router.get('/stats', verifyToken, async (req, res) => {
     const userId = req.user.userId; // Token tiene 'userId', no 'id'
 
     // Obtener plan del usuario y límites de tokens
-    const userRes = await db.query('SELECT plan, tokens, created_at FROM users WHERE id = $1', [userId]);
+    const userRes = await db.query(
+      'SELECT plan, tokens, created_at, voice_clone_slots_bonus FROM users WHERE id = $1',
+      [userId]
+    );
     if (userRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     }
@@ -90,8 +111,7 @@ router.get('/stats', verifyToken, async (req, res) => {
     const voicesClonesUsed = parseInt(voicesRes.rows[0].count);
 
     // Límites de voces según plan
-    const planLimits = { free: 0, start: 1, creator: 2, pro: 5, admin: 999 };
-    const voiceCloneLimit = planLimits[user.plan] || 4;
+    const voiceCloneLimit = resolveCloneVoiceLimit(user.plan, user.voice_clone_slots_bonus);
 
     // Límites de tokens según plan
     const tokenLimits = { free: 1000, start: 1000, creator: 5000, pro: 10000, admin: 999999999 };

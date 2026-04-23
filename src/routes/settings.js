@@ -28,6 +28,32 @@ const CLONED_VOICE_LIMITS = {
   admin: 999
 };
 
+const computeCloneVoiceLimit = (userPlan, userRole = 'user', slotBonus = 0) => {
+  if (String(userRole || '').toLowerCase() === 'admin') return 999;
+  const normalizedPlan = toPublicPlan(userPlan || 'free');
+  if (normalizedPlan === 'free' || normalizedPlan === 'base') return 0;
+
+  const baseLimit = Number(CLONED_VOICE_LIMITS[normalizedPlan] ?? 0);
+  const bonus = Math.max(0, Number(slotBonus || 0));
+  return baseLimit + bonus;
+};
+
+let voiceCloneBonusColumnReady = false;
+const ensureVoiceCloneBonusColumn = async () => {
+  if (voiceCloneBonusColumnReady) return;
+  try {
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_clone_slots_bonus INT DEFAULT 0");
+    voiceCloneBonusColumnReady = true;
+  } catch (error) {
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('already exists') || error?.code === '42701') {
+      voiceCloneBonusColumnReady = true;
+      return;
+    }
+    throw error;
+  }
+};
+
 const normalizeStoredConfig = (rawConfig) => {
   if (!rawConfig) return {};
   if (typeof rawConfig === 'string') {
@@ -216,9 +242,11 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.get('/voices', verifyToken, async (req, res) => {
   try {
-    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    await ensureVoiceCloneBonusColumn();
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
-    const maxVoices = CLONED_VOICE_LIMITS[userPlan] ?? 0;
+    const userRole = userResult.rows[0]?.role || 'user';
+    const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
 
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
@@ -306,7 +334,8 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
     const isCountedVoiceType = ['inworld-cloned', 'inworld-generated', 'inworld'].includes(String(provider || '').toLowerCase());
 
     // Límite diario de eliminaciones por plan
-    const userPlanResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
+    await ensureVoiceCloneBonusColumn();
+    const userPlanResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userPlanResult.rows[0]?.plan || 'free');
     const userRole = userPlanResult.rows[0]?.role || 'user';
     if (isCountedVoiceType && userRole !== 'admin') {
@@ -398,12 +427,13 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     admin: 'Admin'
   };
   try {
-    const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
+    await ensureVoiceCloneBonusColumn();
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
 
     if (userRole !== 'admin') {
-      const maxVoices = CLONED_VOICE_LIMITS[userPlan] ?? 0;
+      const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
       const planLabel = PLAN_NAMES[userPlan] || userPlan;
 
       // Contar solo voces clonadas activas
@@ -486,11 +516,12 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   }
 
   // Límite de voces generadas según plan del usuario
-  const voiceLimits = { free: 0, base: 0, pack_lite: 1, pack_pro: 3, pack_max: 6, admin: 999 };
-  try {
-    const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
+    try {
+    await ensureVoiceCloneBonusColumn();
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
-    const maxVoices = voiceLimits[userPlan] || 0;
+    const userRole = userResult.rows[0]?.role || 'user';
+    const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
 
     if (maxVoices === 0) {
       return res.status(403).json({ error: 'Tu plan Free no incluye generación de voces. Mejora tu plan para desbloquear esta función.' });

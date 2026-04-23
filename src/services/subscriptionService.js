@@ -8,6 +8,14 @@ const PLAN_CATALOG = {
   pack_max: { planKey: 'pack_max', backendPlan: 'pack_max', tier: 4, monthlyPrice: 49.99, annualPrice: 499.0, tokens: 500000 },
 };
 
+const PLAN_CLONE_SLOTS = {
+  free: 0,
+  base: 0,
+  pack_lite: 1,
+  pack_pro: 3,
+  pack_max: 6,
+};
+
 const BACKEND_PLAN_TO_PLAN_KEY = {
   free: 'free',
   start: 'base',
@@ -80,12 +88,14 @@ class SubscriptionService {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_plan_key VARCHAR(20);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_billing_cycle VARCHAR(20);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_effective_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_clone_slots_bonus INT DEFAULT 0;
     `);
   }
 
   async getUserRow(client, userId, forUpdate = false) {
     const sql = `
       SELECT id, plan, tokens,
+             voice_clone_slots_bonus,
              subscription_billing_cycle,
              subscription_current_period_start,
              subscription_current_period_end,
@@ -112,6 +122,7 @@ class SubscriptionService {
       await client.query(
         `UPDATE users
          SET plan = 'free',
+             voice_clone_slots_bonus = 0,
              subscription_current_period_start = NULL,
              subscription_current_period_end = NULL,
              subscription_cancel_at_period_end = FALSE,
@@ -131,7 +142,7 @@ class SubscriptionService {
       const nextStart = sub.periodEnd;
       const nextEnd = addBillingCycle(nextStart, nextCycle);
       await client.query(
-        `UPDATE users
+       `UPDATE users
          SET plan = $2,
              tokens = GREATEST(tokens, $3),
              subscription_billing_cycle = $4,
@@ -150,6 +161,7 @@ class SubscriptionService {
     await client.query(
       `UPDATE users
        SET plan = 'free',
+           voice_clone_slots_bonus = 0,
            subscription_current_period_start = NULL,
            subscription_current_period_end = NULL,
            subscription_cancel_at_period_end = FALSE,
@@ -354,16 +366,22 @@ class SubscriptionService {
       let nextEnd = sub.periodEnd;
       let nextCycle = normalizeCycle(billingCycle);
       let tokenIncrement = 0;
+      const currentPlanSlots = Number(PLAN_CLONE_SLOTS[sub.currentPlanKey] || 0);
+      const currentSlotBonus = Math.max(0, Number(normalizedRow.voice_clone_slots_bonus || 0));
+      let nextSlotBonus = currentSlotBonus;
 
       if (quote.action === 'immediate_purchase') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
         // Al pagar un plan, conservar saldo actual y sumar cupo del plan comprado.
         tokenIncrement = targetPlan.tokens;
+        nextSlotBonus = 0;
       } else if (quote.action === 'upgrade_immediate') {
         // Upgrade pagado en ciclo activo: conservar saldo y sumar el cupo del plan objetivo.
         tokenIncrement = targetPlan.tokens;
         nextCycle = sub.billingCycle || nextCycle;
+        // Acumular slots comprados solo mientras el plan siga activo.
+        nextSlotBonus = currentSlotBonus + currentPlanSlots;
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
@@ -392,9 +410,10 @@ class SubscriptionService {
         `UPDATE users
          SET plan = $2,
              tokens = tokens + $3,
-             subscription_billing_cycle = $4,
-             subscription_current_period_start = $5,
-             subscription_current_period_end = $6,
+             voice_clone_slots_bonus = $4,
+             subscription_billing_cycle = $5,
+             subscription_current_period_start = $6,
+             subscription_current_period_end = $7,
              subscription_cancel_at_period_end = FALSE,
              subscription_cancelled_at = NULL,
              subscription_pending_plan_key = NULL,
@@ -405,6 +424,7 @@ class SubscriptionService {
           userId,
           targetPlan.backendPlan,
           tokenIncrement,
+          nextSlotBonus,
           nextCycle,
           nextStart,
           nextEnd,
@@ -436,6 +456,7 @@ class SubscriptionService {
         await client.query(
           `UPDATE users
            SET plan = 'free',
+               voice_clone_slots_bonus = 0,
                subscription_current_period_start = NULL,
                subscription_current_period_end = NULL,
                subscription_cancel_at_period_end = FALSE,

@@ -170,6 +170,7 @@ router.post('/users/:id/reset', async (req, res) => {
        SET
          plan = $2,
          tokens = 0,
+         voice_clone_slots_bonus = 0,
          subscription_billing_cycle = 'monthly',
          subscription_current_period_start = NULL,
          subscription_current_period_end = NULL,
@@ -243,6 +244,7 @@ router.post('/users/:id/reset-tokens', async (req, res) => {
        SET
          plan = $2,
          tokens = 0,
+         voice_clone_slots_bonus = 0,
          subscription_billing_cycle = 'monthly',
          subscription_current_period_start = NULL,
          subscription_current_period_end = NULL,
