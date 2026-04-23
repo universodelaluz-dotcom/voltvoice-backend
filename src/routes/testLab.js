@@ -176,7 +176,7 @@ router.post('/users/:id/reset', async (req, res) => {
     await client.query(
       `UPDATE users
        SET
-         plan = 'free',
+         plan = $2,
          tokens = 0,
          subscription_billing_cycle = 'monthly',
          subscription_current_period_start = NULL,
@@ -188,7 +188,7 @@ router.post('/users/:id/reset', async (req, res) => {
          subscription_pending_effective_at = NULL,
          updated_at = NOW()
        WHERE id = $1`,
-      [userId]
+      [userId, String(getTestSpecByEmail(verifyUser.rows?.[0]?.email)?.plan || 'free').toLowerCase()]
     );
 
     await client.query('DELETE FROM transactions WHERE user_id = $1', [userId]);
@@ -206,7 +206,7 @@ router.post('/users/:id/reset', async (req, res) => {
     const users = await getTestUsers();
     return res.json({
       success: true,
-      message: `Usuario ${userId} reiniciado: tokens=0, plan=free, pagos borrados.`,
+      message: `Usuario ${userId} reiniciado: tokens=0 y plan restaurado al del slot.`,
       users,
     });
   } catch (error) {
@@ -239,19 +239,45 @@ router.post('/users/:id/reset-tokens', async (req, res) => {
       return res.status(403).json({ error: 'Solo usuarios de prueba permitidos.' });
     }
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS test_lab_user_resets (
+        user_id INT PRIMARY KEY,
+        reset_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
     await client.query(
       `UPDATE users
-       SET tokens = 0, updated_at = NOW()
+       SET
+         plan = $2,
+         tokens = 0,
+         subscription_billing_cycle = 'monthly',
+         subscription_current_period_start = NULL,
+         subscription_current_period_end = NULL,
+         subscription_cancel_at_period_end = FALSE,
+         subscription_cancelled_at = NULL,
+         subscription_pending_plan_key = NULL,
+         subscription_pending_billing_cycle = NULL,
+         subscription_pending_effective_at = NULL,
+         updated_at = NOW()
        WHERE id = $1`,
+      [userId, String(getTestSpecByEmail(row.email)?.plan || 'free').toLowerCase()]
+    );
+    await client.query('DELETE FROM transactions WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM token_logs WHERE user_id::text = $1::text', [String(userId)]);
+    await client.query(
+      `INSERT INTO test_lab_user_resets (user_id, reset_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET reset_at = EXCLUDED.reset_at`,
       [userId]
     );
-    await client.query('DELETE FROM token_logs WHERE user_id::text = $1::text', [String(userId)]);
     await client.query('COMMIT');
 
     const users = await getTestUsers();
     return res.json({
       success: true,
-      message: `Tokens reiniciados para usuario ${userId}. Plan actual preservado.`,
+      message: `Usuario ${userId} reiniciado: tokens=0 y plan restaurado al del slot.`,
       users,
     });
   } catch (error) {

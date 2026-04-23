@@ -431,13 +431,40 @@ class MercadoPagoService {
   }
 
   async handlePaymentNotification(paymentData) {
+    let paymentId = '';
+    let lockAcquired = false;
     try {
-      const paymentId = paymentData.data.id;
+      paymentId = String(paymentData?.data?.id || '').trim();
+      if (!paymentId) {
+        throw new Error('Invalid payment id');
+      }
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS payment_processing_locks (
+          provider VARCHAR(40) NOT NULL,
+          payment_id VARCHAR(120) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (provider, payment_id)
+        )
+      `);
+
+      const lockResult = await db.query(
+        `INSERT INTO payment_processing_locks (provider, payment_id, created_at)
+         VALUES ('mercadopago', $1, NOW())
+         ON CONFLICT (provider, payment_id) DO NOTHING
+         RETURNING payment_id`,
+        [paymentId]
+      );
+      lockAcquired = lockResult.rows.length > 0;
+      if (!lockAcquired) {
+        console.log(`[MERCADO_PAGO] Pago ${paymentId} ya está en proceso o procesado, ignorando.`);
+        return { success: true, status: 'already_processed' };
+      }
 
       // Idempotencia: no procesar el mismo pago dos veces
       const existing = await db.query(
         'SELECT id FROM transactions WHERE stripe_payment_id = $1',
-        [String(paymentId)]
+        [paymentId]
       );
       if (existing.rows.length > 0) {
         console.log(`[MERCADO_PAGO] Pago ${paymentId} ya fue procesado, ignorando.`);
@@ -593,6 +620,15 @@ class MercadoPagoService {
         newBalance: result.rows[0].tokens
       };
     } catch (error) {
+      if (lockAcquired && paymentId) {
+        try {
+          await db.query(
+            `DELETE FROM payment_processing_locks
+             WHERE provider = 'mercadopago' AND payment_id = $1`,
+            [paymentId]
+          );
+        } catch (_) {}
+      }
       console.error('[MERCADO_PAGO] Error processing payment:', error.response?.data || error.message);
       throw error;
     }
@@ -686,5 +722,4 @@ class MercadoPagoService {
 }
 
 export default new MercadoPagoService();
-
 
