@@ -32,15 +32,7 @@ const ensureTestUsers = async () => {
       `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
       [spec.email]
     );
-    if (exists.rows.length) {
-      await pool.query(
-        `UPDATE users
-         SET plan = $2, updated_at = NOW()
-         WHERE LOWER(email) = LOWER($1)`,
-        [spec.email, spec.plan]
-      );
-      continue;
-    }
+    if (exists.rows.length) continue;
 
     let inserted = false;
 
