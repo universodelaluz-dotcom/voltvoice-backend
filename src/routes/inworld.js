@@ -140,14 +140,29 @@ function streamInworldAudio({ apiKey, text, mappedVoice, modelId, temperature = 
             return reject(new Error('No audioContent in Inworld response'));
           }
 
+          console.log(`[Inworld TTS] audioContent fields found: ${allMatches.length}`);
+
           const audioChunks = [];
-          for (const match of allMatches) {
-            const contentMatch = match.match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/);
-            if (!contentMatch?.[1]) continue;
-            audioChunks.push(Buffer.from(contentMatch[1], 'base64'));
+          let totalDecodedBytes = 0;
+          for (let i = 0; i < allMatches.length; i++) {
+            const contentMatch = allMatches[i].match(/"audioContent"\s*:\s*"([^"]*(?:\\.[^"]*)*?)"/);
+            if (!contentMatch?.[1]) {
+              console.log(`[Inworld TTS] Chunk ${i}: Extraction failed`);
+              continue;
+            }
+            try {
+              const decodedChunk = Buffer.from(contentMatch[1], 'base64');
+              console.log(`[Inworld TTS] Chunk ${i}: ${decodedChunk.length} bytes`);
+              audioChunks.push(decodedChunk);
+              totalDecodedBytes += decodedChunk.length;
+            } catch (decodeErr) {
+              console.warn(`[Inworld TTS] Chunk ${i}: Base64 decode failed -`, decodeErr.message);
+            }
           }
 
           const audioBuffer = Buffer.concat(audioChunks);
+          console.log(`[Inworld TTS] Audio combined: ${audioBuffer.length} bytes from ${audioChunks.length} chunks`);
+
           if (!audioBuffer.length) {
             return reject(new Error('Decoded audio buffer is empty'));
           }

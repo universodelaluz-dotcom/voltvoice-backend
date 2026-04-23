@@ -56,12 +56,10 @@ const clearAuthCookie = () => {
 
 const BACKEND_PLAN_TO_PUBLIC_PLAN = {
   free: 'free',
-  pro: 'start',
-  premium: 'creator',
-  elite: 'pro',
-  on_demand: 'free',
-  start: 'start',
-  creator: 'creator',
+  base: 'base',
+  pack_lite: 'pack_lite',
+  pack_pro: 'pack_pro',
+  pack_max: 'pack_max',
   admin: 'admin',
 };
 
@@ -829,12 +827,15 @@ router.get('/me', verifyToken, async (req, res) => {
     }
 
     const user = result.rows[0];
+    const resolvedPlan = toPublicPlan(user.plan);
     return res.status(200).json({
       success: true,
       user: {
         id: user.id,
         email: user.email,
-        plan: subscription.currentPlanKey || toPublicPlan(user.plan),
+        plan: resolvedPlan === 'free'
+          ? (toPublicPlan(subscription.currentPlanKey) || resolvedPlan)
+          : resolvedPlan,
         tokens: user.role === 'admin' ? 999999999 : user.tokens,
         role: user.role || 'user',
         created_at: user.created_at,
@@ -859,4 +860,3 @@ router.post('/logout', verifyToken, async (req, res) => {
 });
 
 export default router;
-

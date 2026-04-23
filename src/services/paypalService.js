@@ -16,17 +16,29 @@ const TOKEN_PACKAGES = {
 };
 
 const PLAN_PACKAGES = {
-  'start_monthly': { kind: 'plan', planKey: 'start', backendPlan: 'pro', price: 6.99, tokens: 200000, description: 'Plan Base Mensual' },
-  'start_annual': { kind: 'plan', planKey: 'start', backendPlan: 'pro', price: 59.00, tokens: 200000, description: 'Plan Base Anual' },
-  'creator_monthly': { kind: 'plan', planKey: 'creator', backendPlan: 'premium', price: 12.99, tokens: 500000, description: 'Plan Base + Pack Lite Mensual' },
-  'creator_annual': { kind: 'plan', planKey: 'creator', backendPlan: 'premium', price: 109.00, tokens: 500000, description: 'Plan Base + Pack Lite Anual' },
-  'pro_monthly': { kind: 'plan', planKey: 'pro', backendPlan: 'elite', price: 17.99, tokens: 800000, description: 'Plan Base + Pack Pro Mensual' },
-  'pro_annual': { kind: 'plan', planKey: 'pro', backendPlan: 'elite', price: 149.00, tokens: 800000, description: 'Plan Base + Pack Pro Anual' }
+  'base_monthly': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 9.99, tokens: 20000, description: 'Plan Base Mensual' },
+  'base_annual': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 99.00, tokens: 20000, description: 'Plan Base Anual' },
+  'pack_lite_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 9.99, tokens: 50000, description: 'Pack Lite Mensual' },
+  'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 99.00, tokens: 50000, description: 'Pack Lite Anual' },
+  'pack_pro_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 24.99, tokens: 250000, description: 'Pack Pro Mensual' },
+  'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 249.00, tokens: 250000, description: 'Pack Pro Anual' },
+  'pack_max_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 49.99, tokens: 500000, description: 'Pack Max Mensual' },
+  'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 499.00, tokens: 500000, description: 'Pack Max Anual' },
+};
+
+const LEGACY_PLAN_ID_ALIASES = {
+  start: 'base',
+  creator: 'pack_lite',
+  pro: 'pack_pro',
+  premium: 'pack_lite',
+  elite: 'pack_max',
 };
 
 function getCheckoutItem(payload = {}) {
   if (payload.itemType === 'plan' || payload.planId) {
-    const key = `${String(payload.planId || '').toLowerCase()}_${String(payload.billingCycle || 'monthly').toLowerCase()}`;
+    const rawPlanId = String(payload.planId || '').toLowerCase();
+    const normalizedPlanId = LEGACY_PLAN_ID_ALIASES[rawPlanId] || rawPlanId;
+    const key = `${normalizedPlanId}_${String(payload.billingCycle || 'monthly').toLowerCase()}`;
     return PLAN_PACKAGES[key] || null;
   }
 

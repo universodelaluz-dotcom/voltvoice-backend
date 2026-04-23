@@ -19,6 +19,42 @@ const INWORLD_TTS_TEMPERATURE = (() => {
 })();
 
 const normalizeUsername = (username = '') => String(username || '').trim().toLowerCase().replace(/^@+/, '');
+const RECENT_MESSAGE_DEDUPE_MS = 3000;
+const recentMessageRequests = new Map();
+
+const toBooleanFlag = (value) => value === true || value === 'true' || value === 1 || value === '1';
+const normalizeTextForDedupe = (text = '') => String(text || '')
+  .toLowerCase()
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const buildMessageDedupeKey = ({ username, messageUsername, messageText, voiceId }) => {
+  return [
+    normalizeUsername(username),
+    normalizeUsername(messageUsername || 'Usuario'),
+    normalizeTextForDedupe(messageText),
+    String(voiceId || 'es-ES').trim()
+  ].join('|');
+};
+
+const shouldSkipRecentDuplicate = (dedupeKey) => {
+  const now = Date.now();
+  const lastSeen = recentMessageRequests.get(dedupeKey);
+  const isDuplicate = Number.isFinite(lastSeen) && (now - lastSeen) < RECENT_MESSAGE_DEDUPE_MS;
+
+  recentMessageRequests.set(dedupeKey, now);
+
+  if (recentMessageRequests.size > 4000) {
+    const cutoff = now - RECENT_MESSAGE_DEDUPE_MS * 3;
+    for (const [key, seenAt] of recentMessageRequests) {
+      if (seenAt < cutoff) recentMessageRequests.delete(key);
+    }
+  }
+
+  return isDuplicate;
+};
 
 const sanitizeRuntimeDetails = (details = {}) => {
   try {
@@ -284,6 +320,7 @@ router.post('/connect', async (req, res) => {
  */
 router.post('/message', async (req, res) => {
   const { username, messageUsername, messageText, voiceId } = req.body;
+  const isPreGenerate = toBooleanFlag(req.body?.preGenerate);
   let runtimeUserId = null;
   let inFlightRender = null;
 
@@ -308,11 +345,24 @@ router.post('/message', async (req, res) => {
       processedText = unicodeCheck.text;
     }
 
-    // Agregar mensaje a la cola (no bloquear si no hay stream)
-    tiktokLiveService.addMessage(username, {
-      username: messageUsername || 'Usuario',
-      text: processedText
-    });
+    // Solo encolar en requests "reales"; pre-generación y duplicados recientes no deben duplicar lectura.
+    if (!isPreGenerate) {
+      const dedupeKey = buildMessageDedupeKey({
+        username,
+        messageUsername: messageUsername || 'Usuario',
+        messageText: processedText,
+        voiceId
+      });
+
+      if (shouldSkipRecentDuplicate(dedupeKey)) {
+        console.log(`[TikTok] Duplicado reciente omitido en cola: @${messageUsername || 'Usuario'}`);
+      } else {
+        tiktokLiveService.addMessage(username, {
+          username: messageUsername || 'Usuario',
+          text: processedText
+        });
+      }
+    }
 
     // Voces gratuitas usan Google TTS, el resto usa Inworld premium
     const freeVoices = { 'es-ES': 'es-MX', 'en-US': 'en-US' };

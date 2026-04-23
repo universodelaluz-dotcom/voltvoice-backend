@@ -2,18 +2,18 @@ import pool from '../db.js';
 
 const PLAN_CATALOG = {
   free: { planKey: 'free', backendPlan: 'free', tier: 0, monthlyPrice: 0, annualPrice: 0, tokens: 100 },
-  start: { planKey: 'start', backendPlan: 'pro', tier: 1, monthlyPrice: 6.99, annualPrice: 59.0, tokens: 200000 },
-  creator: { planKey: 'creator', backendPlan: 'premium', tier: 2, monthlyPrice: 12.99, annualPrice: 109.0, tokens: 500000 },
-  pro: { planKey: 'pro', backendPlan: 'elite', tier: 3, monthlyPrice: 17.99, annualPrice: 149.0, tokens: 800000 },
+  base: { planKey: 'base', backendPlan: 'base', tier: 1, monthlyPrice: 9.99, annualPrice: 99.0, tokens: 20000 },
+  pack_lite: { planKey: 'pack_lite', backendPlan: 'pack_lite', tier: 2, monthlyPrice: 9.99, annualPrice: 99.0, tokens: 50000 },
+  pack_pro: { planKey: 'pack_pro', backendPlan: 'pack_pro', tier: 3, monthlyPrice: 24.99, annualPrice: 249.0, tokens: 250000 },
+  pack_max: { planKey: 'pack_max', backendPlan: 'pack_max', tier: 4, monthlyPrice: 49.99, annualPrice: 499.0, tokens: 500000 },
 };
 
 const BACKEND_PLAN_TO_PLAN_KEY = {
   free: 'free',
-  pro: 'start',
-  premium: 'creator',
-  elite: 'pro',
-  // Legacy token-only users should behave as FREE for subscription upgrades.
-  on_demand: 'free',
+  base: 'base',
+  pack_lite: 'pack_lite',
+  pack_pro: 'pack_pro',
+  pack_max: 'pack_max',
 };
 
 const roundCurrency = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);

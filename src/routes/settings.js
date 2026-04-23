@@ -10,22 +10,21 @@ const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null
 const normalizePlan = (value = 'free') => String(value || 'free').trim().toLowerCase();
 const BACKEND_PLAN_TO_PUBLIC_PLAN = {
   free: 'free',
-  pro: 'start',
-  premium: 'creator',
-  elite: 'pro',
-  on_demand: 'free',
-  start: 'start',
-  creator: 'creator',
+  base: 'base',
+  pack_lite: 'pack_lite',
+  pack_pro: 'pack_pro',
+  pack_max: 'pack_max',
   admin: 'admin',
 };
 const toPublicPlan = (planValue) => BACKEND_PLAN_TO_PUBLIC_PLAN[normalizePlan(planValue)] || 'free';
 
-// "premium" y "elite" se mantienen como aliases internos de facturacion
+// L�mites por sistema de planes actual
 const CLONED_VOICE_LIMITS = {
   free: 0,
-  start: 1,
-  creator: 2,
-  pro: 5,
+  base: 0,
+  pack_lite: 1,
+  pack_pro: 3,
+  pack_max: 6,
   admin: 999
 };
 
@@ -127,9 +126,10 @@ const voiceTypeTranslations = {
 };
 
 const DAILY_VOICE_DELETE_LIMITS = {
-  start: 3,
-  creator: 6,
-  pro: 6,
+  base: 0,
+  pack_lite: 3,
+  pack_pro: 6,
+  pack_max: 6,
   admin: 999,
 };
 
@@ -389,7 +389,14 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 
   // Límite de voces clonadas según plan del usuario
   // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
-  const PLAN_NAMES = { free: 'Free', start: 'Start', creator: 'Creator', pro: 'Pro', admin: 'Admin' };
+  const PLAN_NAMES = {
+    free: 'Free',
+    base: 'Plan Base',
+    pack_lite: 'Pack Lite',
+    pack_pro: 'Pack Pro',
+    pack_max: 'Pack Max',
+    admin: 'Admin'
+  };
   try {
     const userResult = await pool.query('SELECT plan, role FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
@@ -479,7 +486,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   }
 
   // Límite de voces generadas según plan del usuario
-  const voiceLimits = { free: 0, start: 1, creator: 2, pro: 5, admin: 999 };
+  const voiceLimits = { free: 0, base: 0, pack_lite: 1, pack_pro: 3, pack_max: 6, admin: 999 };
   try {
     const userResult = await pool.query('SELECT plan FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
@@ -663,8 +670,8 @@ router.get('/plan', verifyToken, async (req, res) => {
 router.post('/plan', verifyToken, async (req, res) => {
   const { newPlan } = req.body;
 
-  if (!['free', 'pro', 'premium', 'elite', 'on_demand'].includes(newPlan)) {
-    return res.status(400).json({ error: 'Plan inválido. Use: free, pro, premium, elite, on_demand' });
+  if (!['free', 'base', 'pack_lite', 'pack_pro', 'pack_max', 'admin'].includes(newPlan)) {
+    return res.status(400).json({ error: 'Plan inv�lido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
   }
 
   try {
@@ -764,8 +771,8 @@ router.post('/plan/update-by-email', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'email y newPlan requeridos' });
   }
 
-  if (!['free', 'pro', 'premium', 'elite', 'on_demand'].includes(newPlan)) {
-    return res.status(400).json({ error: 'Plan inválido. Use: free, pro, premium, elite, on_demand' });
+  if (!['free', 'base', 'pack_lite', 'pack_pro', 'pack_max', 'admin'].includes(newPlan)) {
+    return res.status(400).json({ error: 'Plan inv�lido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
   }
 
   try {
@@ -845,3 +852,6 @@ router.post('/voices/add-to-user', async (req, res) => {
 });
 
 export default router;
+
+
+
