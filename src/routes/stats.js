@@ -13,13 +13,31 @@ const CLONED_VOICE_LIMITS = {
   admin: 999,
 };
 
-const resolveCloneVoiceLimit = (planValue, slotBonus = 0) => {
+const resolveCloneVoiceLimit = async ({ userId, planValue, slotBonus = 0, periodStart = null }) => {
   const plan = String(planValue || 'free').trim().toLowerCase();
   if (plan === 'admin') return 999;
   if (plan === 'free' || plan === 'base') return 0;
   const base = Number(CLONED_VOICE_LIMITS[plan] ?? 0);
   const bonus = Math.max(0, Number(slotBonus || 0));
-  return base + bonus;
+  if (bonus > 0) return base + bonus;
+  if (!userId || !periodStart) return base;
+
+  try {
+    const txRes = await db.query(
+      `SELECT DISTINCT tokens_purchased
+       FROM transactions
+       WHERE user_id = $1
+         AND status = 'completed'
+         AND created_at >= $2
+         AND tokens_purchased IN (20000, 50000, 250000, 500000)`,
+      [userId, periodStart]
+    );
+    const tokenToSlots = { 20000: 0, 50000: 1, 250000: 3, 500000: 6 };
+    const inferred = txRes.rows.reduce((acc, row) => acc + Number(tokenToSlots[Number(row.tokens_purchased || 0)] || 0), 0);
+    return Math.max(base, inferred);
+  } catch {
+    return base;
+  }
 };
 
 const BUILTIN_VOICE_LABELS = {
@@ -95,7 +113,7 @@ router.get('/stats', verifyToken, async (req, res) => {
 
     // Obtener plan del usuario y límites de tokens
     const userRes = await db.query(
-      'SELECT plan, tokens, created_at, voice_clone_slots_bonus FROM users WHERE id = $1',
+      'SELECT plan, tokens, created_at, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1',
       [userId]
     );
     if (userRes.rows.length === 0) {
@@ -111,7 +129,12 @@ router.get('/stats', verifyToken, async (req, res) => {
     const voicesClonesUsed = parseInt(voicesRes.rows[0].count);
 
     // Límites de voces según plan
-    const voiceCloneLimit = resolveCloneVoiceLimit(user.plan, user.voice_clone_slots_bonus);
+    const voiceCloneLimit = await resolveCloneVoiceLimit({
+      userId,
+      planValue: user.plan,
+      slotBonus: user.voice_clone_slots_bonus,
+      periodStart: user.subscription_current_period_start || null
+    });
 
     // Límites de tokens según plan
     const tokenLimits = { free: 1000, start: 1000, creator: 5000, pro: 10000, admin: 999999999 };

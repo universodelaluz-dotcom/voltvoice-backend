@@ -28,14 +28,38 @@ const CLONED_VOICE_LIMITS = {
   admin: 999
 };
 
-const computeCloneVoiceLimit = (userPlan, userRole = 'user', slotBonus = 0) => {
+const computeCloneVoiceLimit = async ({ userId, userPlan, userRole = 'user', slotBonus = 0, periodStart = null }) => {
   if (String(userRole || '').toLowerCase() === 'admin') return 999;
   const normalizedPlan = toPublicPlan(userPlan || 'free');
   if (normalizedPlan === 'free' || normalizedPlan === 'base') return 0;
 
   const baseLimit = Number(CLONED_VOICE_LIMITS[normalizedPlan] ?? 0);
   const bonus = Math.max(0, Number(slotBonus || 0));
-  return baseLimit + bonus;
+  if (bonus > 0) return baseLimit + bonus;
+
+  if (!userId || !periodStart) return baseLimit;
+
+  try {
+    const txResult = await pool.query(
+      `SELECT DISTINCT tokens_purchased
+       FROM transactions
+       WHERE user_id = $1
+         AND status = 'completed'
+         AND created_at >= $2
+         AND tokens_purchased IN (20000, 50000, 250000, 500000)`,
+      [userId, periodStart]
+    );
+
+    const tokenToSlots = { 20000: 0, 50000: 1, 250000: 3, 500000: 6 };
+    const inferred = txResult.rows.reduce((acc, row) => {
+      const purchased = Number(row.tokens_purchased || 0);
+      return acc + Number(tokenToSlots[purchased] || 0);
+    }, 0);
+
+    return Math.max(baseLimit, inferred);
+  } catch {
+    return baseLimit;
+  }
 };
 
 let voiceCloneBonusColumnReady = false;
@@ -243,10 +267,16 @@ router.post('/', verifyToken, async (req, res) => {
 router.get('/voices', verifyToken, async (req, res) => {
   try {
     await ensureVoiceCloneBonusColumn();
-    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
-    const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
+    const maxVoices = await computeCloneVoiceLimit({
+      userId: req.user.userId,
+      userPlan,
+      userRole,
+      slotBonus: userResult.rows[0]?.voice_clone_slots_bonus,
+      periodStart: userResult.rows[0]?.subscription_current_period_start
+    });
 
     const result = await pool.query(
       'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
@@ -335,7 +365,7 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
 
     // Límite diario de eliminaciones por plan
     await ensureVoiceCloneBonusColumn();
-    const userPlanResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
+    const userPlanResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userPlanResult.rows[0]?.plan || 'free');
     const userRole = userPlanResult.rows[0]?.role || 'user';
     if (isCountedVoiceType && userRole !== 'admin') {
@@ -428,12 +458,18 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   };
   try {
     await ensureVoiceCloneBonusColumn();
-    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
 
     if (userRole !== 'admin') {
-      const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
+      const maxVoices = await computeCloneVoiceLimit({
+      userId: req.user.userId,
+      userPlan,
+      userRole,
+      slotBonus: userResult.rows[0]?.voice_clone_slots_bonus,
+      periodStart: userResult.rows[0]?.subscription_current_period_start
+    });
       const planLabel = PLAN_NAMES[userPlan] || userPlan;
 
       // Contar solo voces clonadas activas
@@ -518,10 +554,16 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
   // Límite de voces generadas según plan del usuario
     try {
     await ensureVoiceCloneBonusColumn();
-    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
     const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
     const userRole = userResult.rows[0]?.role || 'user';
-    const maxVoices = computeCloneVoiceLimit(userPlan, userRole, userResult.rows[0]?.voice_clone_slots_bonus);
+    const maxVoices = await computeCloneVoiceLimit({
+      userId: req.user.userId,
+      userPlan,
+      userRole,
+      slotBonus: userResult.rows[0]?.voice_clone_slots_bonus,
+      periodStart: userResult.rows[0]?.subscription_current_period_start
+    });
 
     if (maxVoices === 0) {
       return res.status(403).json({ error: 'Tu plan Free no incluye generación de voces. Mejora tu plan para desbloquear esta función.' });
