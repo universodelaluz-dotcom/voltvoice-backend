@@ -30,6 +30,7 @@ const LEGACY_PLAN_ID_ALIASES = {
   premium: 'pack_lite',
   elite: 'pack_max',
 };
+const REPEATABLE_PACK_PLANS = new Set(['pack_lite', 'pack_pro', 'pack_max']);
 
 const roundMoney = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
 
@@ -224,12 +225,13 @@ class MercadoPagoService {
 
       if (item.kind === 'plan') {
         quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
+        const isRepeatablePackPurchase = REPEATABLE_PACK_PLANS.has(String(item.planKey || '').toLowerCase());
 
         const shouldChargeNowForScheduledChange =
           // Para evitar bloqueos antes de checkout: cambios programables cobran primero.
           ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quotedPlan.action);
 
-        if (quotedPlan.action === 'already_scheduled') {
+        if (quotedPlan.action === 'already_scheduled' && !isRepeatablePackPurchase) {
           return {
             success: true,
             action: quotedPlan.action,
@@ -239,7 +241,7 @@ class MercadoPagoService {
           };
         }
 
-        if (quotedPlan.action === 'pending_change_exists') {
+        if (quotedPlan.action === 'pending_change_exists' && !isRepeatablePackPurchase) {
           return {
             success: true,
             action: quotedPlan.action,
@@ -249,13 +251,22 @@ class MercadoPagoService {
           };
         }
 
-        if (quotedPlan.action === 'already_on_plan') {
+        if (quotedPlan.action === 'already_on_plan' && !isRepeatablePackPurchase) {
           return {
             success: true,
             action: quotedPlan.action,
             requiresPayment: false,
             message: 'Ya tienes este plan activo para el ciclo actual.',
             quote: quotedPlan
+          };
+        }
+
+        if (isRepeatablePackPurchase && ['already_scheduled', 'pending_change_exists', 'already_on_plan'].includes(quotedPlan.action)) {
+          quotedPlan = {
+            ...quotedPlan,
+            action: 'pack_repurchase',
+            payableAmountUsd: Number(item.price || 0),
+            prorationCreditUsd: 0
           };
         }
 

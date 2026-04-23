@@ -33,6 +33,7 @@ const LEGACY_PLAN_ID_ALIASES = {
   premium: 'pack_lite',
   elite: 'pack_max',
 };
+const REPEATABLE_PACK_PLANS = new Set(['pack_lite', 'pack_pro', 'pack_max']);
 
 function getCheckoutItem(payload = {}) {
   if (payload.itemType === 'plan' || payload.planId) {
@@ -154,9 +155,10 @@ export async function createPaypalOrder(userId, payload, options = {}) {
 
     if (item.kind === 'plan') {
       quote = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
+      const isRepeatablePackPurchase = REPEATABLE_PACK_PLANS.has(String(item.planKey || '').toLowerCase());
       const shouldChargeNowForScheduledChange =
         ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action);
-      if (quote.action === 'already_scheduled') {
+      if (quote.action === 'already_scheduled' && !isRepeatablePackPurchase) {
         return {
           action: quote.action,
           requiresPayment: false,
@@ -164,7 +166,7 @@ export async function createPaypalOrder(userId, payload, options = {}) {
           quote
         };
       }
-      if (quote.action === 'pending_change_exists') {
+      if (quote.action === 'pending_change_exists' && !isRepeatablePackPurchase) {
         return {
           action: quote.action,
           requiresPayment: false,
@@ -172,7 +174,7 @@ export async function createPaypalOrder(userId, payload, options = {}) {
           quote
         };
       }
-      if (quote.action === 'already_on_plan') {
+      if (quote.action === 'already_on_plan' && !isRepeatablePackPurchase) {
         return {
           action: quote.action,
           requiresPayment: false,
@@ -180,6 +182,15 @@ export async function createPaypalOrder(userId, payload, options = {}) {
           quote
         };
       }
+      if (isRepeatablePackPurchase && ['already_scheduled', 'pending_change_exists', 'already_on_plan'].includes(quote.action)) {
+        quote = {
+          ...quote,
+          action: 'pack_repurchase',
+          payableAmountUsd: Number(item.price || 0),
+          prorationCreditUsd: 0
+        };
+      }
+
       chargedPrice = quote.payableAmountUsd;
       if (shouldChargeNowForScheduledChange && chargedPrice <= 0) {
         chargedPrice = item.price;
