@@ -94,6 +94,32 @@ const resolveReturnBaseUrl = (candidateUrl) => {
   return fallback;
 };
 
+const parseCheckoutReference = (rawReference = '') => {
+  const parts = String(rawReference || '').split('_');
+  if (parts.length < 4 || parts[0] !== 'user') return null;
+
+  const userId = Number(parts[1]);
+  const kind = String(parts[2] || '').toLowerCase();
+  if (!Number.isFinite(userId) || userId <= 0 || !kind) return null;
+
+  if (kind === 'plan') {
+    if (parts.length < 5) return null;
+    const cycleRaw = String(parts[parts.length - 1] || '').toLowerCase();
+    const billingCycle = cycleRaw === 'annual' ? 'annual' : 'monthly';
+    const planId = String(parts.slice(3, parts.length - 1).join('_') || '').toLowerCase();
+    if (!planId) return null;
+    return { userId, kind, planId, billingCycle };
+  }
+
+  if (kind === 'tokens') {
+    const tokensPackage = Number.parseInt(parts[3], 10);
+    if (!Number.isFinite(tokensPackage) || tokensPackage <= 0) return null;
+    return { userId, kind, tokensPackage };
+  }
+
+  return null;
+};
+
 class MercadoPagoService {
   constructor() {
     this.apiUrl = 'https://api.mercadopago.com/checkout/preferences';
@@ -486,9 +512,9 @@ class MercadoPagoService {
       }
 
       const [baseReference, couponRawMeta = ''] = String(payment.external_reference || '').split('|', 2);
-      const referenceParts = String(baseReference || '').split('_');
-      const userId = referenceParts[1];
-      const kind = referenceParts[2];
+      const parsedReference = parseCheckoutReference(baseReference);
+      const userId = parsedReference?.userId;
+      const kind = parsedReference?.kind;
       const couponMeta = parseCouponMeta(couponRawMeta);
 
       if (!userId || !kind) {
@@ -512,8 +538,8 @@ class MercadoPagoService {
       if (kind === 'plan') {
         const item = this.getCheckoutItem({
           itemType: 'plan',
-          planId: referenceParts[3],
-          billingCycle: referenceParts[4]
+          planId: parsedReference.planId,
+          billingCycle: parsedReference.billingCycle
         });
 
         if (!item) {
@@ -523,7 +549,7 @@ class MercadoPagoService {
         const applied = await subscriptionService.applyPaidPlanChange({
           userId: Number(userId),
           planKey: item.planKey,
-          billingCycle: referenceParts[4]
+          billingCycle: parsedReference.billingCycle
         });
 
         const scheduledChange = ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(applied.quote?.action);
@@ -572,7 +598,7 @@ class MercadoPagoService {
         };
       }
 
-      const tokens = parseInt(referenceParts[3], 10);
+      const tokens = Number(parsedReference.tokensPackage || 0);
       const result = await db.query(
         `UPDATE users
          SET tokens = tokens + $1
@@ -722,4 +748,3 @@ class MercadoPagoService {
 }
 
 export default new MercadoPagoService();
-

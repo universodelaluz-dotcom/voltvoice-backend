@@ -111,6 +111,32 @@ const parseCouponMeta = (customId = '') => {
   return out;
 };
 
+const parseCheckoutReference = (rawReference = '') => {
+  const parts = String(rawReference || '').split('_');
+  if (parts.length < 4 || parts[0] !== 'user') return null;
+
+  const userId = Number(parts[1]);
+  const kind = String(parts[2] || '').toLowerCase();
+  if (!Number.isFinite(userId) || userId <= 0 || !kind) return null;
+
+  if (kind === 'plan') {
+    if (parts.length < 5) return null;
+    const cycleRaw = String(parts[parts.length - 1] || '').toLowerCase();
+    const billingCycle = cycleRaw === 'annual' ? 'annual' : 'monthly';
+    const planId = String(parts.slice(3, parts.length - 1).join('_') || '').toLowerCase();
+    if (!planId) return null;
+    return { userId, kind, planId, billingCycle };
+  }
+
+  if (kind === 'tokens') {
+    const tokensPackage = Number.parseInt(parts[3], 10);
+    if (!Number.isFinite(tokensPackage) || tokensPackage <= 0) return null;
+    return { userId, kind, tokensPackage };
+  }
+
+  return null;
+};
+
 export async function createPaypalOrder(userId, payload, options = {}) {
   const item = getCheckoutItem(payload);
   if (!item) throw new Error('Invalid checkout item');
@@ -261,9 +287,9 @@ export async function capturePaypalOrder(orderId, options = {}) {
     const capture = res.data;
     const purchaseUnit = capture?.purchase_units?.[0];
     const referenceId = String(purchaseUnit?.reference_id || '');
-    const parts = referenceId.split('_');
-    const userId = Number(parts[1]);
-    const kind = parts[2];
+    const parsedReference = parseCheckoutReference(referenceId);
+    const userId = Number(parsedReference?.userId || 0);
+    const kind = parsedReference?.kind;
 
     if (!userId || !kind) {
       throw new Error('Invalid PayPal reference_id');
@@ -276,15 +302,15 @@ export async function capturePaypalOrder(orderId, options = {}) {
     if (kind === 'plan') {
       const item = getCheckoutItem({
         itemType: 'plan',
-        planId: parts[3],
-        billingCycle: parts[4]
+        planId: parsedReference.planId,
+        billingCycle: parsedReference.billingCycle
       });
       if (!item) throw new Error('Invalid plan reference');
 
       const applied = await subscriptionService.applyPaidPlanChange({
         userId,
         planKey: item.planKey,
-        billingCycle: parts[4]
+        billingCycle: parsedReference.billingCycle
       });
 
       await db.query(
@@ -326,7 +352,7 @@ export async function capturePaypalOrder(orderId, options = {}) {
       };
     }
 
-    const tokens = parseInt(parts[3], 10);
+    const tokens = Number(parsedReference.tokensPackage || 0);
     const balance = await db.query(
       `UPDATE users
        SET tokens = tokens + $1
