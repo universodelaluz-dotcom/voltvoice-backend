@@ -318,12 +318,14 @@ class SubscriptionService {
       };
     }
 
-    // Blindaje: evitar que un pack mensual "monte" sobre una suscripcion anual activa.
-    // El modelo actual no soporta add-on mensual independiente sobre ciclo anual.
+    // Caso negocio: BASE anual + PACK mensual = addon mensual sin convertir plan/ciclo base.
     if (isPackPlan && billingCycle === 'monthly' && currentCycle === 'annual') {
       return {
-        action: 'invalid',
-        reason: 'monthly_pack_not_allowed_on_annual_subscription',
+        action: 'pack_addon_monthly_on_annual',
+        payableAmountUsd: roundCurrency(targetPrice),
+        prorationCreditUsd: 0,
+        remainingMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - now.getTime()),
+        totalMs: Math.max(0, (sub.periodEnd?.getTime() || 0) - (sub.periodStart?.getTime() || 0)),
       };
     }
 
@@ -469,6 +471,7 @@ class SubscriptionService {
       const targetKey = normalizePlanKey(planKey);
       const targetPlan = PLAN_CATALOG[targetKey];
       if (!targetPlan) throw new Error('Plan inválido');
+      let planToPersist = targetPlan.backendPlan;
       const purchasedTokens = getPlanTokensForPurchase(targetPlan.planKey, billingCycle, { monthlyBundleBasePack });
 
       const now = nowUtc();
@@ -517,6 +520,18 @@ class SubscriptionService {
         }
         // Acumular slots comprados solo mientras el plan siga activo.
         nextSlotBonus = currentSlotBonus + currentPlanSlots;
+      } else if (quote.action === 'pack_addon_monthly_on_annual') {
+        // Add-on mensual sobre BASE anual:
+        // - no cambia plan/ciclo base anual
+        // - suma tokens del pack comprado
+        // - suma slots bonus para habilitar capacidad adicional sin mutar plan base
+        tokenIncrement = purchasedTokens;
+        nextCycle = sub.billingCycle || nextCycle;
+        nextStart = sub.periodStart || now;
+        nextEnd = sub.periodEnd || addBillingCycle(now, nextCycle);
+        nextSlotBonus = currentSlotBonus + Number(PLAN_CLONE_SLOTS[targetPlan.planKey] || 0);
+        // Mantener plan base/corriente, no convertir a pack anual.
+        planToPersist = sub.backendPlan;
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
@@ -560,7 +575,7 @@ class SubscriptionService {
          WHERE id = $1`,
         [
           userId,
-          targetPlan.backendPlan,
+          planToPersist,
           tokenIncrement,
           nextSlotBonus,
           nextCycle,
@@ -672,3 +687,5 @@ class SubscriptionService {
 
 export const subscriptionCatalog = PLAN_CATALOG;
 export default new SubscriptionService();
+
+
