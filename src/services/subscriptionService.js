@@ -39,6 +39,17 @@ const toIsoOrNull = (value) => (value ? new Date(value).toISOString() : null);
 
 const normalizePlanKey = (value) => String(value || 'free').trim().toLowerCase();
 const normalizeCycle = (value) => (String(value || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly');
+const getPlanTokensForPurchase = (planKey, billingCycle, options = {}) => {
+  const normalizedPlanKey = normalizePlanKey(planKey);
+  const normalizedCycle = normalizeCycle(billingCycle);
+  const targetPlan = PLAN_CATALOG[normalizedPlanKey] || PLAN_CATALOG.free;
+  const baseTokens = Number(PLAN_CATALOG.base?.tokens || 0);
+  const includeBaseTokens =
+    normalizedPlanKey !== 'base' &&
+    (Boolean(options?.monthlyBundleBasePack) || normalizedCycle === 'annual');
+
+  return Number(targetPlan.tokens || 0) + (includeBaseTokens ? baseTokens : 0);
+};
 
 const addBillingCycle = (startDate, billingCycle) => {
   const next = new Date(startDate);
@@ -144,6 +155,7 @@ class SubscriptionService {
     if (sub.pendingPlanKey && PLAN_CATALOG[sub.pendingPlanKey]) {
       const nextPlan = PLAN_CATALOG[sub.pendingPlanKey];
       const nextCycle = sub.pendingBillingCycle || sub.billingCycle || 'monthly';
+      const nextPlanTokens = getPlanTokensForPurchase(nextPlan.planKey, nextCycle);
       const nextStart = sub.periodEnd;
       const nextEnd = addBillingCycle(nextStart, nextCycle);
       await client.query(
@@ -158,7 +170,7 @@ class SubscriptionService {
              subscription_pending_billing_cycle = NULL,
              subscription_pending_effective_at = NULL
          WHERE id = $1`,
-        [sub.userId, nextPlan.backendPlan, nextPlan.tokens, nextCycle, nextStart, nextEnd]
+        [sub.userId, nextPlan.backendPlan, nextPlanTokens, nextCycle, nextStart, nextEnd]
       );
       return this.getUserRow(client, sub.userId, false);
     }
@@ -400,6 +412,7 @@ class SubscriptionService {
       const targetKey = normalizePlanKey(planKey);
       const targetPlan = PLAN_CATALOG[targetKey];
       if (!targetPlan) throw new Error('Plan inválido');
+      const purchasedTokens = getPlanTokensForPurchase(targetPlan.planKey, billingCycle, { monthlyBundleBasePack });
 
       const now = nowUtc();
       let nextStart = sub.periodStart;
@@ -417,29 +430,25 @@ class SubscriptionService {
         // Primera compra desde FREE/ON_DEMAND: activar cupo base del plan sin sumar el saldo free de 100.
         // Si el usuario ya tenía más saldo por historial, se conserva el mayor.
         if (sub.currentPlanKey === 'free' || sub.currentPlanKey === 'on_demand') {
-          const baseBonusForBundle =
-            Boolean(monthlyBundleBasePack) && targetPlan.planKey !== 'base'
-              ? Number(PLAN_CATALOG.base?.tokens || 0)
-              : 0;
           tokenAbsolute = Math.max(
             Number(normalizedRow.tokens || 0),
-            Number(targetPlan.tokens || 0) + baseBonusForBundle
+            purchasedTokens
           );
           tokenIncrement = 0;
         } else {
           // Al pagar un plan en cuentas ya pagadas, conservar saldo actual y sumar cupo del plan comprado.
-          tokenIncrement = targetPlan.tokens;
+          tokenIncrement = purchasedTokens;
         }
         nextSlotBonus = 0;
       } else if (quote.action === 'pack_repurchase') {
         // Recompra de PACK activo: suma beneficios sin bloquear el checkout.
         // Mantiene periodo/ciclo actual.
-        tokenIncrement = targetPlan.tokens;
+        tokenIncrement = purchasedTokens;
         nextCycle = sub.billingCycle || nextCycle;
         nextSlotBonus = currentSlotBonus + currentPlanSlots;
       } else if (quote.action === 'upgrade_immediate') {
         // Upgrade pagado en ciclo activo: conservar saldo y sumar el cupo del plan objetivo.
-        tokenIncrement = targetPlan.tokens;
+        tokenIncrement = purchasedTokens;
         nextCycle = sub.billingCycle || nextCycle;
         // Acumular slots comprados solo mientras el plan siga activo.
         nextSlotBonus = currentSlotBonus + currentPlanSlots;
@@ -447,7 +456,7 @@ class SubscriptionService {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
         // Cambio de ciclo pagado (mensual -> anual): conservar saldo y sumar cupo anual.
-        tokenIncrement = targetPlan.tokens;
+        tokenIncrement = purchasedTokens;
       } else if (['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
         // Pago recibido para un cambio programado: conserva plan actual y agenda el cambio
         // al cierre del periodo vigente.

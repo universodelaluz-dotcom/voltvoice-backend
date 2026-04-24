@@ -20,13 +20,13 @@ const PLAN_PACKAGES = {
   'base_annual': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 99.90, tokens: 20000, description: 'Plan Base Anual (2 meses gratis)' },
   'pack_lite_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 9.99, tokens: 50000, description: 'Pack Lite Mensual' },
   'pack_lite_combo_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 19.98, tokens: 70000, description: 'Plan Base + Lite Mensual (1 transacción)', monthlyBundleBasePack: true },
-  'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 199.80, tokens: 50000, description: 'Plan Anual Base + Lite (2 meses gratis)' },
+  'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 199.80, tokens: 70000, description: 'Plan Anual Base + Lite (2 meses gratis)' },
   'pack_pro_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 24.99, tokens: 250000, description: 'Pack Pro Mensual' },
   'pack_pro_combo_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 34.98, tokens: 270000, description: 'Plan Base + Pro Mensual (1 transacción)', monthlyBundleBasePack: true },
-  'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 349.80, tokens: 250000, description: 'Plan Anual Base + Pro (2 meses gratis)' },
+  'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 349.80, tokens: 270000, description: 'Plan Anual Base + Pro (2 meses gratis)' },
   'pack_max_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 49.99, tokens: 500000, description: 'Pack Max Mensual' },
   'pack_max_combo_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 59.98, tokens: 520000, description: 'Plan Base + Max Mensual (1 transacción)', monthlyBundleBasePack: true },
-  'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 599.80, tokens: 500000, description: 'Plan Anual Base + Max (2 meses gratis)' },
+  'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 599.80, tokens: 520000, description: 'Plan Anual Base + Max (2 meses gratis)' },
 };
 
 const LEGACY_PLAN_ID_ALIASES = {
@@ -344,11 +344,13 @@ export async function capturePaypalOrder(orderId, options = {}) {
         billingCycle: parsedReference.billingCycle,
         monthlyBundleBasePack: Boolean(item.monthlyBundleBasePack),
       });
+      const scheduledChange = ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(applied.quote?.action);
+      const tokensPurchased = scheduledChange ? 0 : item.tokens;
 
       await db.query(
         `INSERT INTO transactions (user_id, tokens_purchased, amount_usd, stripe_payment_id, status)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, item.tokens, amountPaid, captureId, 'completed']
+        [userId, tokensPurchased, amountPaid, captureId, 'completed']
       );
 
       if (couponMeta.couponId > 0 && couponMeta.originalAmount > couponMeta.finalAmount) {
@@ -373,7 +375,8 @@ export async function capturePaypalOrder(orderId, options = {}) {
           itemDescription: item.description,
           amount: amountPaid,
           currency: purchaseUnit?.payments?.captures?.[0]?.amount?.currency_code || 'USD',
-          purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString()
+          purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString(),
+          tokensReceived: tokensPurchased
         }).catch(() => {});
       }
 
@@ -421,7 +424,8 @@ export async function capturePaypalOrder(orderId, options = {}) {
         itemDescription: `${tokens} tokens`,
         amount: amountPaid,
         currency: purchaseUnit?.payments?.captures?.[0]?.amount?.currency_code || 'USD',
-        purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString()
+        purchasedAt: capture?.update_time || capture?.create_time || new Date().toISOString(),
+        tokensReceived: tokens
       }).catch(() => {});
     }
 

@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+﻿import nodemailer from 'nodemailer';
 
 const transporter = nodemailer.createTransport({
   host: 'mail.privateemail.com',
@@ -21,6 +21,12 @@ const escapeHtml = (value = '') => String(value || '')
   .replace(/\"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
+const formatTokens = (value = 0) => {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return '0';
+  return Math.floor(num).toLocaleString('es-MX');
+};
+
 const emailWrapper = (content) => `
   <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#0f0f23;border-radius:16px;overflow:hidden;">
     <div style="background:#0f0f23;padding:32px 40px 16px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -30,7 +36,7 @@ const emailWrapper = (content) => `
       ${content}
     </div>
     <div style="padding:16px 40px 24px;text-align:center;border-top:1px solid rgba(255,255,255,0.08);">
-      <p style="color:#4b5563;font-size:12px;margin:0;">&copy; 2026 Stream Voicer � <a href="mailto:soporte@streamvoicer.com" style="color:#06b6d4;text-decoration:none;">soporte@streamvoicer.com</a></p>
+      <p style="color:#4b5563;font-size:12px;margin:0;">&copy; 2026 Stream Voicer - <a href="mailto:soporte@streamvoicer.com" style="color:#06b6d4;text-decoration:none;">soporte@streamvoicer.com</a></p>
     </div>
   </div>
 `;
@@ -200,7 +206,8 @@ export async function sendPaymentReceiptEmail({
   itemDescription = '',
   amount = 0,
   currency = 'USD',
-  purchasedAt = new Date().toISOString()
+  purchasedAt = new Date().toISOString(),
+  tokensReceived = 0
 }) {
   try {
     if (!hasMailCredentials() || !toEmail) return false;
@@ -211,6 +218,7 @@ export async function sendPaymentReceiptEmail({
     const safeAmount = Number(amount || 0).toFixed(2);
     const safeCurrency = escapeHtml(String(currency || 'USD').toUpperCase());
     const safeDate = escapeHtml(String(purchasedAt || new Date().toISOString()));
+    const safeTokens = escapeHtml(`${formatTokens(tokensReceived)} tokens`);
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
@@ -222,6 +230,7 @@ export async function sendPaymentReceiptEmail({
         <div style="margin:20px 0;padding:16px;border-radius:12px;background:#111a33;border:1px solid rgba(6,182,212,0.35);">
           <p style="margin:0 0 8px;"><strong>Concepto:</strong> ${safeItem}</p>
           <p style="margin:0 0 8px;"><strong>Monto:</strong> ${safeAmount} ${safeCurrency}</p>
+          <p style="margin:0 0 8px;"><strong>Tokens acreditados:</strong> ${safeTokens}</p>
           <p style="margin:0 0 8px;"><strong>Proveedor:</strong> ${safeProvider}</p>
           <p style="margin:0 0 8px;"><strong>ID de pago:</strong> ${safePaymentId}</p>
           <p style="margin:0;"><strong>Fecha:</strong> ${safeDate}</p>
@@ -238,3 +247,4 @@ export async function sendPaymentReceiptEmail({
     return false;
   }
 }
+
