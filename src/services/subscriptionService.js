@@ -203,7 +203,11 @@ class SubscriptionService {
     const billingCycle = normalizeCycle(targetBillingCycle);
     const targetPrice = billingCycle === 'annual' ? target.annualPrice : target.monthlyPrice;
     const current = sub.currentPlan;
-    const currentPaidActive = isPaidPlan(sub.currentPlanKey) && sub.periodEnd && sub.periodEnd.getTime() > now.getTime();
+    // Compatibilidad legacy/test:
+    // si el usuario ya es plan pagado pero no tiene periodo guardado, tratarlo como activo.
+    const currentPaidActive = isPaidPlan(sub.currentPlanKey) && (
+      !sub.periodEnd || sub.periodEnd.getTime() > now.getTime()
+    );
     const isPackPlan = REPEATABLE_PACK_PLANS.has(target.planKey);
     const hasPendingChange =
       Boolean(sub.pendingPlanKey) &&
@@ -445,11 +449,19 @@ class SubscriptionService {
         // Mantiene periodo/ciclo actual.
         tokenIncrement = purchasedTokens;
         nextCycle = sub.billingCycle || nextCycle;
+        if (!nextStart || !nextEnd) {
+          nextStart = now;
+          nextEnd = addBillingCycle(now, nextCycle);
+        }
         nextSlotBonus = currentSlotBonus + currentPlanSlots;
       } else if (quote.action === 'upgrade_immediate') {
         // Upgrade pagado en ciclo activo: conservar saldo y sumar el cupo del plan objetivo.
         tokenIncrement = purchasedTokens;
         nextCycle = sub.billingCycle || nextCycle;
+        if (!nextStart || !nextEnd) {
+          nextStart = now;
+          nextEnd = addBillingCycle(now, nextCycle);
+        }
         // Acumular slots comprados solo mientras el plan siga activo.
         nextSlotBonus = currentSlotBonus + currentPlanSlots;
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
