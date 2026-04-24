@@ -708,7 +708,9 @@ class SubscriptionService {
     return {
       userId: sub.userId,
       currentPlanKey: sub.currentPlanKey,
-      backendPlan: sub.backendPlan,
+      // Exponer clave canónica para evitar que aliases legacy (p.ej. on_demand)
+      // rompan el gating del frontend.
+      backendPlan: sub.currentPlanKey,
       billingCycle: sub.billingCycle,
       tokens: sub.tokens,
       active: isActive,
