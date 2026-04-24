@@ -394,6 +394,7 @@ class SubscriptionService {
       let nextEnd = sub.periodEnd;
       let nextCycle = normalizeCycle(billingCycle);
       let tokenIncrement = 0;
+      let tokenAbsolute = null;
       const currentPlanSlots = Number(PLAN_CLONE_SLOTS[sub.currentPlanKey] || 0);
       const currentSlotBonus = Math.max(0, Number(normalizedRow.voice_clone_slots_bonus || 0));
       let nextSlotBonus = currentSlotBonus;
@@ -401,8 +402,15 @@ class SubscriptionService {
       if (quote.action === 'immediate_purchase') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
-        // Al pagar un plan, conservar saldo actual y sumar cupo del plan comprado.
-        tokenIncrement = targetPlan.tokens;
+        // Primera compra desde FREE/ON_DEMAND: activar cupo base del plan sin sumar el saldo free de 100.
+        // Si el usuario ya tenía más saldo por historial, se conserva el mayor.
+        if (sub.currentPlanKey === 'free' || sub.currentPlanKey === 'on_demand') {
+          tokenAbsolute = Math.max(Number(normalizedRow.tokens || 0), Number(targetPlan.tokens || 0));
+          tokenIncrement = 0;
+        } else {
+          // Al pagar un plan en cuentas ya pagadas, conservar saldo actual y sumar cupo del plan comprado.
+          tokenIncrement = targetPlan.tokens;
+        }
         nextSlotBonus = 0;
       } else if (quote.action === 'pack_repurchase') {
         // Recompra de PACK activo: suma beneficios sin bloquear el checkout.
@@ -443,7 +451,10 @@ class SubscriptionService {
       await client.query(
         `UPDATE users
          SET plan = $2,
-             tokens = tokens + $3,
+             tokens = CASE
+               WHEN $8::int IS NULL THEN tokens + $3
+               ELSE $8
+             END,
              voice_clone_slots_bonus = $4,
              subscription_billing_cycle = $5,
              subscription_current_period_start = $6,
@@ -462,6 +473,7 @@ class SubscriptionService {
           nextCycle,
           nextStart,
           nextEnd,
+          tokenAbsolute,
         ]
       );
 
