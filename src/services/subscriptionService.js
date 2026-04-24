@@ -23,15 +23,58 @@ const REPEATABLE_PACK_PLANS = new Set(['pack_lite', 'pack_pro', 'pack_max']);
 
 const BACKEND_PLAN_TO_PLAN_KEY = {
   free: 'free',
+  plan_free: 'free',
+  free_plan: 'free',
+  free_monthly: 'free',
+  on_demand: 'free',
+  ondemand: 'free',
   start: 'base',
+  start_monthly: 'base',
+  start_annual: 'base',
+  plan_start: 'base',
   base: 'base',
+  plan_base: 'base',
+  base_monthly: 'base',
+  base_annual: 'base',
   creator: 'pack_lite',
+  creator_monthly: 'pack_lite',
+  creator_annual: 'pack_lite',
   premium: 'pack_lite',
+  plan_premium: 'pack_lite',
   pro: 'pack_pro',
+  pro_monthly: 'pack_pro',
+  pro_annual: 'pack_pro',
+  plan_pro: 'pack_pro',
   elite: 'pack_max',
+  plan_elite: 'pack_max',
   pack_lite: 'pack_lite',
+  pack_lite_monthly: 'pack_lite',
+  pack_lite_annual: 'pack_lite',
   pack_pro: 'pack_pro',
+  pack_pro_monthly: 'pack_pro',
+  pack_pro_annual: 'pack_pro',
   pack_max: 'pack_max',
+  pack_max_monthly: 'pack_max',
+  pack_max_annual: 'pack_max',
+  admin: 'admin',
+};
+
+const backendPlanToPlanKey = (rawValue = 'free') => {
+  const normalized = String(rawValue || 'free')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!normalized) return 'free';
+  const direct = BACKEND_PLAN_TO_PLAN_KEY[normalized];
+  if (direct) return direct;
+
+  if (normalized.includes('pack_max') || normalized.includes('max')) return 'pack_max';
+  if (normalized.includes('pack_pro') || normalized === 'pro') return 'pack_pro';
+  if (normalized.includes('pack_lite') || normalized.includes('lite') || normalized.includes('creator') || normalized.includes('premium')) return 'pack_lite';
+  if (normalized.includes('base') || normalized.includes('start')) return 'base';
+  if (normalized.includes('admin')) return 'admin';
+  if (normalized.includes('free') || normalized.includes('demand')) return 'free';
+  return 'free';
 };
 
 const roundCurrency = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
@@ -64,7 +107,7 @@ const addBillingCycle = (startDate, billingCycle) => {
 const nowUtc = () => new Date();
 
 const fromUserRow = (row) => {
-  const currentPlanKey = BACKEND_PLAN_TO_PLAN_KEY[String(row.plan || 'free').toLowerCase()] || 'free';
+  const currentPlanKey = backendPlanToPlanKey(row.plan || 'free');
   return {
     userId: row.id,
     backendPlan: String(row.plan || 'free').toLowerCase(),
