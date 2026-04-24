@@ -5,7 +5,7 @@ import { config } from '../../config.js';
 
 const router = Router();
 const TEST_USERS = [
-  { slot: 1, email: 'test.user1@streamvoicer.local', plan: 'free' },
+  { slot: 1, email: 'alainvolt@hotmail.com', plan: 'free' },
   { slot: 2, email: 'test.user2@streamvoicer.local', plan: 'base' },
   { slot: 3, email: 'test.user3@streamvoicer.local', plan: 'pack_lite' },
   { slot: 4, email: 'test.user4@streamvoicer.local', plan: 'pack_pro' },
