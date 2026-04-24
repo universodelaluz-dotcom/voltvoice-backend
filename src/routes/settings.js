@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import pool from '../db.js';
 import { verifyToken, requireAdmin } from '../../middleware/auth.js';
 import inworldTtsService from '../services/inworldTtsService.js';
@@ -18,7 +18,7 @@ const BACKEND_PLAN_TO_PUBLIC_PLAN = {
 };
 const toPublicPlan = (planValue) => BACKEND_PLAN_TO_PUBLIC_PLAN[normalizePlan(planValue)] || 'free';
 
-// L�mites por sistema de planes actual
+// Límites por sistema de planes actual
 const CLONED_VOICE_LIMITS = {
   free: 0,
   base: 0,
@@ -92,7 +92,7 @@ const normalizeStoredConfig = (rawConfig) => {
 };
 
 /**
- * Mapeo de idiomas a códigos válidos de Inworld
+ * Mapeo de idiomas a cÃ³digos vÃ¡lidos de Inworld
  */
 const languageCodeMap = {
   'en': 'EN_US',
@@ -132,43 +132,43 @@ const languageCodeMap = {
 };
 
 /**
- * Convertir código de idioma a formato Inworld válido
+ * Convertir cÃ³digo de idioma a formato Inworld vÃ¡lido
  */
 const mapLanguageCodeToInworld = (languageCode) => {
   return languageCodeMap[languageCode] || 'EN_US'; // Default a EN_US si no se encuentra
 };
 
 /**
- * Traducir texto al inglés para Inworld
- * En producción devolvemos el texto original para evitar dependencia insegura.
+ * Traducir texto al inglÃ©s para Inworld
+ * En producciÃ³n devolvemos el texto original para evitar dependencia insegura.
  */
 const translateToEnglish = async (text, language = 'es') => {
   if (!text || text.trim().length === 0) return text;
 
   try {
-    // Si ya está en inglés, retornar tal cual
+    // Si ya estÃ¡ en inglÃ©s, retornar tal cual
     if (language === 'en' || language === 'en-US' || language === 'en-GB') {
       return text;
     }
 
-    console.log(`[Translate] Traducción externa deshabilitada, usando texto original para idioma: ${language}`);
+    console.log(`[Translate] TraducciÃ³n externa deshabilitada, usando texto original para idioma: ${language}`);
     return text;
   } catch (error) {
     console.warn(`[Translate] No se pudo traducir, usando texto original: ${error.message}`);
-    // Si falla la traducción, retornar el texto original
+    // Si falla la traducciÃ³n, retornar el texto original
     return text;
   }
 };
 
 /**
- * Mapeo de tipos de voz a inglés
+ * Mapeo de tipos de voz a inglÃ©s
  */
 const voiceTypeTranslations = {
   'Narrador': 'Narrator',
   'Agente de Soporte': 'Support Agent',
-  'Compañero': 'Companion',
-  'Instructor de Meditación': 'Meditation Instructor',
-  // Ya en inglés
+  'CompaÃ±ero': 'Companion',
+  'Instructor de MeditaciÃ³n': 'Meditation Instructor',
+  // Ya en inglÃ©s
   'Narrator': 'Narrator',
   'Support Agent': 'Support Agent',
   'Companion': 'Companion',
@@ -218,7 +218,7 @@ router.get('/', verifyToken, async (req, res) => {
     return res.json({ success: true, config: normalizeStoredConfig(result.rows[0].config) });
   } catch (error) {
     console.error('[Settings] Error cargando:', error.message);
-    return res.status(500).json({ error: 'Error cargando configuración' });
+    return res.status(500).json({ error: 'Error cargando configuraciÃ³n' });
   }
 });
 
@@ -243,7 +243,7 @@ router.post('/', verifyToken, async (req, res) => {
   }
 
   if (!parsedConfig || typeof parsedConfig !== 'object' || Array.isArray(parsedConfig)) {
-    return res.status(400).json({ error: 'Config inválido' });
+    return res.status(400).json({ error: 'Config invÃ¡lido' });
   }
 
   try {
@@ -257,7 +257,7 @@ router.post('/', verifyToken, async (req, res) => {
     return res.json({ success: true, config: parsedConfig });
   } catch (error) {
     console.error('[Settings] Error guardando:', error.message);
-    return res.status(500).json({ error: 'Error guardando configuración' });
+    return res.status(500).json({ error: 'Error guardando configuraciÃ³n' });
   }
 });
 
@@ -268,7 +268,8 @@ router.get('/voices', verifyToken, async (req, res) => {
   try {
     await ensureVoiceCloneBonusColumn();
     const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
+    const userPlan = String(subscription?.effectiveFeaturePlanKey || toPublicPlan(userResult.rows[0]?.plan || 'free')).toLowerCase();
     const userRole = userResult.rows[0]?.role || 'user';
     const maxVoices = await computeCloneVoiceLimit({
       userId: req.user.userId,
@@ -283,7 +284,7 @@ router.get('/voices', verifyToken, async (req, res) => {
       [req.user.userId]
     );
 
-    return res.json({ success: true, voices: result.rows, plan: userPlan, maxVoices, used: result.rows.length });
+    return res.json({ success: true, voices: result.rows, plan: userPlan, maxVoices, used: result.rows.length, addonPack: subscription?.addonPack || null });
   } catch (error) {
     console.error('[Settings] Error listando voces:', error.message);
     return res.status(500).json({ error: 'Error listando voces' });
@@ -346,7 +347,7 @@ router.patch('/voices/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * DELETE /api/settings/voices/:id - Eliminar voz clonada (también de Inworld)
+ * DELETE /api/settings/voices/:id - Eliminar voz clonada (tambiÃ©n de Inworld)
  */
 router.delete('/voices/:id', verifyToken, async (req, res) => {
   try {
@@ -363,10 +364,11 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
     const { voice_id, voice_name, provider } = voiceResult.rows[0];
     const isCountedVoiceType = ['inworld-cloned', 'inworld-generated', 'inworld'].includes(String(provider || '').toLowerCase());
 
-    // Límite diario de eliminaciones por plan
+    // LÃ­mite diario de eliminaciones por plan
     await ensureVoiceCloneBonusColumn();
     const userPlanResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = toPublicPlan(userPlanResult.rows[0]?.plan || 'free');
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
+    const userPlan = String(subscription?.effectiveFeaturePlanKey || toPublicPlan(userPlanResult.rows[0]?.plan || 'free')).toLowerCase();
     const userRole = userPlanResult.rows[0]?.role || 'user';
     if (isCountedVoiceType && userRole !== 'admin') {
       await ensureVoiceDeleteEventsTable();
@@ -384,16 +386,16 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
       const usedToday = Number(deleteCountResult.rows[0]?.total || 0);
       if (usedToday >= dailyLimit) {
         return res.status(429).json({
-          error: `Límite diario de eliminaciones alcanzado para plan ${userPlan}: ${dailyLimit} por día.`
+          error: `LÃ­mite diario de eliminaciones alcanzado para plan ${userPlan}: ${dailyLimit} por dÃ­a.`
         });
       }
     }
 
-    // Si es una voz clonada, eliminarla también de Inworld
+    // Si es una voz clonada, eliminarla tambiÃ©n de Inworld
     if (provider === 'inworld-cloned' || provider === 'inworld-generated') {
       try {
         await inworldTtsService.deleteVoice(voice_id);
-        console.log(`[Delete] ✓ Voz "${voice_name}" (${voice_id}) eliminada de Inworld`);
+        console.log(`[Delete] âœ“ Voz "${voice_name}" (${voice_id}) eliminada de Inworld`);
       } catch (inworldError) {
         console.warn(`[Delete] Advertencia eliminando de Inworld: ${inworldError.message}`);
         // No rechazamos la solicitud si Inworld falla, pero lo registramos
@@ -414,11 +416,11 @@ router.delete('/voices/:id', verifyToken, async (req, res) => {
           [req.user.userId, voice_name]
         );
       } catch (eventErr) {
-        console.warn('[Delete] No se pudo registrar evento de eliminación:', eventErr.message);
+        console.warn('[Delete] No se pudo registrar evento de eliminaciÃ³n:', eventErr.message);
       }
     }
 
-    console.log(`[Delete] ✓ Voz "${voice_name}" eliminada de la base de datos`);
+    console.log(`[Delete] âœ“ Voz "${voice_name}" eliminada de la base de datos`);
 
     return res.json({ success: true, message: `Voz "${voice_name}" eliminada exitosamente` });
   } catch (error) {
@@ -438,7 +440,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'voiceName y base64Audio son requeridos' });
   }
 
-  // Convertir código de idioma a formato Inworld válido
+  // Convertir cÃ³digo de idioma a formato Inworld vÃ¡lido
   let finalLangCode = 'ES_ES'; // default
   if (language) {
     finalLangCode = mapLanguageCodeToInworld(language);
@@ -446,8 +448,8 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
     finalLangCode = mapLanguageCodeToInworld(langCode);
   }
 
-  // Límite de voces clonadas según plan del usuario
-  // Clonar es GRATIS — solo se limita cuántas puede tener activas a la vez (puede eliminar y re-clonar libremente)
+  // LÃ­mite de voces clonadas segÃºn plan del usuario
+  // Clonar es GRATIS â€” solo se limita cuÃ¡ntas puede tener activas a la vez (puede eliminar y re-clonar libremente)
   const PLAN_NAMES = {
     free: 'Free',
     base: 'Plan Base',
@@ -459,7 +461,8 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
   try {
     await ensureVoiceCloneBonusColumn();
     const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
+    const userPlan = String(subscription?.effectiveFeaturePlanKey || toPublicPlan(userResult.rows[0]?.plan || 'free')).toLowerCase();
     const userRole = userResult.rows[0]?.role || 'user';
 
     if (userRole !== 'admin') {
@@ -482,12 +485,12 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       );
       if (parseInt(countResult.rows[0].total) >= maxVoices) {
         return res.status(400).json({
-          error: `Tu plan ${planLabel} permite máximo ${maxVoices} ${maxVoices === 1 ? 'voz clonada' : 'voces clonadas'} activas. Elimina una para crear otra.`
+          error: `Tu plan ${planLabel} permite mÃ¡ximo ${maxVoices} ${maxVoices === 1 ? 'voz clonada' : 'voces clonadas'} activas. Elimina una para crear otra.`
         });
       }
     }
   } catch (err) {
-    console.error('[Clone] Error verificando límite:', err);
+    console.error('[Clone] Error verificando lÃ­mite:', err);
   }
 
   try {
@@ -524,7 +527,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
       [req.user.userId, voiceName, finalVoiceId, 'inworld-cloned']
     );
 
-    console.log(`[Clone] ✓ Voz "${voiceName}" clonada y guardada para usuario ${req.user.userId}`);
+    console.log(`[Clone] âœ“ Voz "${voiceName}" clonada y guardada para usuario ${req.user.userId}`);
 
     return res.status(201).json({
       success: true,
@@ -541,7 +544,7 @@ router.post('/voices/clone', verifyToken, async (req, res) => {
 });
 
 /**
- * POST /api/settings/voices/generate - Generar voz personalizada con descripción
+ * POST /api/settings/voices/generate - Generar voz personalizada con descripciÃ³n
  * Body: { description, voiceType, language, scriptMode, script? }
  */
 router.post('/voices/generate', verifyToken, async (req, res) => {
@@ -551,11 +554,12 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'description, voiceType y language son requeridos' });
   }
 
-  // Límite de voces generadas según plan del usuario
+  // LÃ­mite de voces generadas segÃºn plan del usuario
     try {
     await ensureVoiceCloneBonusColumn();
     const userResult = await pool.query('SELECT plan, role, voice_clone_slots_bonus, subscription_current_period_start FROM users WHERE id = $1', [req.user.userId]);
-    const userPlan = toPublicPlan(userResult.rows[0]?.plan || 'free');
+    const subscription = await subscriptionService.getSubscription(req.user.userId);
+    const userPlan = String(subscription?.effectiveFeaturePlanKey || toPublicPlan(userResult.rows[0]?.plan || 'free')).toLowerCase();
     const userRole = userResult.rows[0]?.role || 'user';
     const maxVoices = await computeCloneVoiceLimit({
       userId: req.user.userId,
@@ -566,7 +570,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     });
 
     if (maxVoices === 0) {
-      return res.status(403).json({ error: 'Tu plan Free no incluye generación de voces. Mejora tu plan para desbloquear esta función.' });
+      return res.status(403).json({ error: 'Tu plan Free no incluye generaciÃ³n de voces. Mejora tu plan para desbloquear esta funciÃ³n.' });
     }
 
     const countResult = await pool.query(
@@ -574,40 +578,40 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
       [req.user.userId]
     );
     if (parseInt(countResult.rows[0].total) >= maxVoices) {
-      return res.status(400).json({ error: `Tu plan ${userPlan} permite máximo ${maxVoices} voces generadas. Elimina una o mejora tu plan.` });
+      return res.status(400).json({ error: `Tu plan ${userPlan} permite mÃ¡ximo ${maxVoices} voces generadas. Elimina una o mejora tu plan.` });
     }
   } catch (err) {
-    console.error('[Generate] Error verificando límite:', err);
+    console.error('[Generate] Error verificando lÃ­mite:', err);
   }
 
   try {
     console.log(`[Generate] Usuario ${req.user.userId} generando voz: "${description.substring(0, 50)}..."`);
 
-    // Mapear el código de idioma a uno válido de Inworld
+    // Mapear el cÃ³digo de idioma a uno vÃ¡lido de Inworld
     const langCode = mapLanguageCodeToInworld(language);
-    console.log(`[Generate] Language mapping: ${language} → ${langCode}`);
+    console.log(`[Generate] Language mapping: ${language} â†’ ${langCode}`);
 
-    // Traducir descripción al inglés (Inworld lo requiere)
+    // Traducir descripciÃ³n al inglÃ©s (Inworld lo requiere)
     const languageCode = language.split('-')[0]; // es, pt, en, etc
     const descriptionEnglish = await translateToEnglish(description, languageCode);
     const voiceTypeEnglish = voiceTypeTranslations[voiceType] || voiceType;
 
-    // Construir el prompt para Inworld (en inglés)
+    // Construir el prompt para Inworld (en inglÃ©s)
     const designPrompt = `${descriptionEnglish}. Voice type: ${voiceTypeEnglish}`;
     const previewText = script && scriptMode === 'custom'
       ? await translateToEnglish(script, languageCode)
-      : descriptionEnglish; // Usar la descripción como preview para que sea más representativo
+      : descriptionEnglish; // Usar la descripciÃ³n como preview para que sea mÃ¡s representativo
 
     console.log(`[Generate] Design prompt: "${designPrompt.substring(0, 80)}..."`);
 
-    // Llamar a Inworld para diseñar la voz
+    // Llamar a Inworld para diseÃ±ar la voz
     const result = await inworldTtsService.designVoice(
       designPrompt,
       langCode,
       previewText
     );
 
-    console.log(`[Generate] Voz diseñada: ${result.voiceId}, publicando...`);
+    console.log(`[Generate] Voz diseÃ±ada: ${result.voiceId}, publicando...`);
 
     // Generar un nombre amigable para la voz (puede ser editado por el usuario)
     const defaultVoiceName = `Voz ${voiceType} - ${new Date().toLocaleDateString()}`;
@@ -617,10 +621,10 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
     try {
       const publishResult = await inworldTtsService.publishVoice(result.voiceId, defaultVoiceName);
       publishedVoiceId = publishResult.voiceId;
-      console.log(`[Generate] ✓ Voz publicada exitosamente: ${publishedVoiceId}`);
+      console.log(`[Generate] âœ“ Voz publicada exitosamente: ${publishedVoiceId}`);
     } catch (publishErr) {
       console.warn(`[Generate] Advertencia al publicar voz: ${publishErr.message}`);
-      // Continuar de todas formas - la voz ya está generada
+      // Continuar de todas formas - la voz ya estÃ¡ generada
     }
 
     // Guardar en la base de datos del usuario (usar voiceId publicado)
@@ -631,7 +635,7 @@ router.post('/voices/generate', verifyToken, async (req, res) => {
       [req.user.userId, defaultVoiceName, publishedVoiceId, 'inworld-generated']
     );
 
-    console.log(`[Generate] ✓ Voz generada y guardada para usuario ${req.user.userId}`);
+    console.log(`[Generate] âœ“ Voz generada y guardada para usuario ${req.user.userId}`);
 
     // Convertir preview audio a data URL si existe
     let previewAudioUrl = null;
@@ -670,7 +674,7 @@ router.post('/voices/migrate', verifyToken, async (req, res) => {
     const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.userId]);
     const email = userResult.rows[0]?.email;
 
-    // Limpiar voces problemáticas primero
+    // Limpiar voces problemÃ¡ticas primero
     await pool.query(
       `DELETE FROM user_voices WHERE user_id = $1 AND LOWER(voice_name) = 'arno'`,
       [req.user.userId]
@@ -744,7 +748,7 @@ router.post('/plan', verifyToken, async (req, res) => {
   const { newPlan } = req.body;
 
   if (!['free', 'base', 'pack_lite', 'pack_pro', 'pack_max', 'admin'].includes(newPlan)) {
-    return res.status(400).json({ error: 'Plan inv�lido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
+    return res.status(400).json({ error: 'Plan inválido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
   }
 
   try {
@@ -772,7 +776,7 @@ router.post('/plan', verifyToken, async (req, res) => {
 });
 
 /**
- * GET /api/settings/subscription - Estado de suscripción del usuario
+ * GET /api/settings/subscription - Estado de suscripciÃ³n del usuario
  */
 router.get('/subscription', verifyToken, async (req, res) => {
   try {
@@ -780,7 +784,7 @@ router.get('/subscription', verifyToken, async (req, res) => {
     return res.json({ success: true, subscription });
   } catch (error) {
     console.error('[Subscription] Error leyendo estado:', error.message);
-    return res.status(500).json({ error: 'Error obteniendo suscripción' });
+    return res.status(500).json({ error: 'Error obteniendo suscripciÃ³n' });
   }
 });
 
@@ -792,12 +796,12 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
     const subscription = await subscriptionService.cancelAtPeriodEnd(req.user.userId);
     return res.json({
       success: true,
-      message: 'Cancelación programada. El acceso se mantiene hasta el final del periodo actual.',
+      message: 'CancelaciÃ³n programada. El acceso se mantiene hasta el final del periodo actual.',
       subscription
     });
   } catch (error) {
     console.error('[Subscription] Error cancelando:', error.message);
-    return res.status(500).json({ error: 'No se pudo cancelar la suscripción' });
+    return res.status(500).json({ error: 'No se pudo cancelar la suscripciÃ³n' });
   }
 });
 
@@ -845,7 +849,7 @@ router.post('/plan/update-by-email', requireAdmin, async (req, res) => {
   }
 
   if (!['free', 'base', 'pack_lite', 'pack_pro', 'pack_max', 'admin'].includes(newPlan)) {
-    return res.status(400).json({ error: 'Plan inv�lido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
+    return res.status(400).json({ error: 'Plan inválido. Use: free, base, pack_lite, pack_pro, pack_max, admin' });
   }
 
   try {
@@ -872,7 +876,7 @@ router.post('/plan/update-by-email', requireAdmin, async (req, res) => {
 });
 
 /**
- * PRIVADO: POST /api/settings/voices/add-to-user - Agregar voz a usuario específico
+ * PRIVADO: POST /api/settings/voices/add-to-user - Agregar voz a usuario especÃ­fico
  * Solo funciona con API key privada, no se expone en frontend
  * Body: { email, voiceName, voiceId }
  */
@@ -911,7 +915,7 @@ router.post('/voices/add-to-user', async (req, res) => {
       [userId, voiceName, voiceId, 'inworld']
     );
 
-    console.log(`[Admin] ✓ Voz "${voiceName}" agregada a ${email} (${userId})`);
+    console.log(`[Admin] âœ“ Voz "${voiceName}" agregada a ${email} (${userId})`);
 
     return res.status(201).json({
       success: true,
@@ -925,6 +929,7 @@ router.post('/voices/add-to-user', async (req, res) => {
 });
 
 export default router;
+
 
 
 

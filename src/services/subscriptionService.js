@@ -103,11 +103,24 @@ const addBillingCycle = (startDate, billingCycle) => {
   }
   return next;
 };
+const addDays = (startDate, days) => {
+  const next = new Date(startDate);
+  next.setDate(next.getDate() + Math.max(0, Number(days) || 0));
+  return next;
+};
 
 const nowUtc = () => new Date();
 
 const fromUserRow = (row) => {
   const currentPlanKey = backendPlanToPlanKey(row.plan || 'free');
+  const addonPlanKey = row.feature_addon_plan_key ? normalizePlanKey(row.feature_addon_plan_key) : null;
+  const addonExpiresAt = row.feature_addon_expires_at ? new Date(row.feature_addon_expires_at) : null;
+  const addonActive = Boolean(
+    addonPlanKey &&
+    REPEATABLE_PACK_PLANS.has(addonPlanKey) &&
+    addonExpiresAt &&
+    addonExpiresAt.getTime() > Date.now()
+  );
   return {
     userId: row.id,
     backendPlan: String(row.plan || 'free').toLowerCase(),
@@ -120,6 +133,9 @@ const fromUserRow = (row) => {
     pendingPlanKey: row.subscription_pending_plan_key ? normalizePlanKey(row.subscription_pending_plan_key) : null,
     pendingBillingCycle: row.subscription_pending_billing_cycle ? normalizeCycle(row.subscription_pending_billing_cycle) : null,
     pendingEffectiveAt: row.subscription_pending_effective_at ? new Date(row.subscription_pending_effective_at) : null,
+    addonPlanKey,
+    addonExpiresAt,
+    addonActive,
     tokens: Number(row.tokens || 0),
   };
 };
@@ -148,6 +164,8 @@ class SubscriptionService {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_billing_cycle VARCHAR(20);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_pending_effective_at TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_clone_slots_bonus INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS feature_addon_plan_key VARCHAR(20);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS feature_addon_expires_at TIMESTAMP;
     `);
   }
 
@@ -162,7 +180,9 @@ class SubscriptionService {
              subscription_cancelled_at,
              subscription_pending_plan_key,
              subscription_pending_billing_cycle,
-             subscription_pending_effective_at
+             subscription_pending_effective_at,
+             feature_addon_plan_key,
+             feature_addon_expires_at
       FROM users
       WHERE id = $1
       ${forUpdate ? 'FOR UPDATE' : ''}
@@ -188,7 +208,9 @@ class SubscriptionService {
              subscription_cancelled_at = COALESCE(subscription_cancelled_at, NOW()),
              subscription_pending_plan_key = NULL,
              subscription_pending_billing_cycle = NULL,
-             subscription_pending_effective_at = NULL
+             subscription_pending_effective_at = NULL,
+             feature_addon_plan_key = NULL,
+             feature_addon_expires_at = NULL
          WHERE id = $1`,
         [sub.userId]
       );
@@ -211,7 +233,9 @@ class SubscriptionService {
              subscription_cancel_at_period_end = FALSE,
              subscription_pending_plan_key = NULL,
              subscription_pending_billing_cycle = NULL,
-             subscription_pending_effective_at = NULL
+             subscription_pending_effective_at = NULL,
+             feature_addon_plan_key = NULL,
+             feature_addon_expires_at = NULL
          WHERE id = $1`,
         [sub.userId, nextPlan.backendPlan, nextPlanTokens, nextCycle, nextStart, nextEnd]
       );
@@ -227,7 +251,9 @@ class SubscriptionService {
            subscription_cancel_at_period_end = FALSE,
            subscription_pending_plan_key = NULL,
            subscription_pending_billing_cycle = NULL,
-           subscription_pending_effective_at = NULL
+           subscription_pending_effective_at = NULL,
+           feature_addon_plan_key = NULL,
+           feature_addon_expires_at = NULL
        WHERE id = $1`,
       [sub.userId]
     );
@@ -480,6 +506,8 @@ class SubscriptionService {
       let nextCycle = normalizeCycle(billingCycle);
       let tokenIncrement = 0;
       let tokenAbsolute = null;
+      let addonPlanToPersist = null;
+      let addonExpiresAtToPersist = null;
       const currentPlanSlots = Number(PLAN_CLONE_SLOTS[sub.currentPlanKey] || 0);
       const currentSlotBonus = Math.max(0, Number(normalizedRow.voice_clone_slots_bonus || 0));
       let nextSlotBonus = currentSlotBonus;
@@ -529,9 +557,14 @@ class SubscriptionService {
         nextCycle = sub.billingCycle || nextCycle;
         nextStart = sub.periodStart || now;
         nextEnd = sub.periodEnd || addBillingCycle(now, nextCycle);
-        nextSlotBonus = currentSlotBonus + Number(PLAN_CLONE_SLOTS[targetPlan.planKey] || 0);
+        nextSlotBonus = currentSlotBonus;
         // Mantener plan base/corriente, no convertir a pack anual.
         planToPersist = sub.backendPlan;
+        const addonBase = sub.addonExpiresAt && sub.addonExpiresAt.getTime() > now.getTime()
+          ? sub.addonExpiresAt
+          : now;
+        addonPlanToPersist = targetPlan.planKey;
+        addonExpiresAtToPersist = addDays(addonBase, 31);
       } else if (quote.action === 'billing_cycle_upgrade_immediate') {
         nextStart = now;
         nextEnd = addBillingCycle(now, nextCycle);
@@ -571,7 +604,9 @@ class SubscriptionService {
              subscription_cancelled_at = NULL,
              subscription_pending_plan_key = NULL,
              subscription_pending_billing_cycle = NULL,
-             subscription_pending_effective_at = NULL
+             subscription_pending_effective_at = NULL,
+             feature_addon_plan_key = $9,
+             feature_addon_expires_at = $10
          WHERE id = $1`,
         [
           userId,
@@ -582,6 +617,8 @@ class SubscriptionService {
           nextStart,
           nextEnd,
           tokenAbsolute,
+          addonPlanToPersist,
+          addonExpiresAtToPersist,
         ]
       );
 
@@ -667,6 +704,7 @@ class SubscriptionService {
     const sub = fromUserRow(userRow);
     const now = nowUtc();
     const isActive = Boolean(sub.periodEnd && sub.periodEnd.getTime() > now.getTime() && isPaidPlan(sub.currentPlanKey));
+    const effectiveFeaturePlanKey = sub.addonActive ? sub.addonPlanKey : sub.currentPlanKey;
     return {
       userId: sub.userId,
       currentPlanKey: sub.currentPlanKey,
@@ -681,6 +719,12 @@ class SubscriptionService {
       pendingPlanKey: sub.pendingPlanKey,
       pendingBillingCycle: sub.pendingBillingCycle,
       pendingEffectiveAt: toIsoOrNull(sub.pendingEffectiveAt),
+      effectiveFeaturePlanKey,
+      addonPack: {
+        active: sub.addonActive,
+        planKey: sub.addonPlanKey,
+        expiresAt: toIsoOrNull(sub.addonExpiresAt),
+      },
     };
   }
 }
