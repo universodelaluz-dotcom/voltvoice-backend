@@ -166,6 +166,8 @@ export async function createPaypalOrder(userId, payload, options = {}) {
         const err = new Error(
           quote.reason === 'pack_requires_active_base_monthly'
             ? 'Para comprar un pack mensual primero debes activar el Plan Base.'
+            : quote.reason === 'monthly_pack_not_allowed_on_annual_subscription'
+              ? 'Con una suscripción anual activa no puedes comprar packs mensuales. Elige la versión anual del pack.'
             : 'No se pudo procesar el plan solicitado.'
         );
         err.statusCode = 400;

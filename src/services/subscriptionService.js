@@ -246,6 +246,7 @@ class SubscriptionService {
     const billingCycle = normalizeCycle(targetBillingCycle);
     const targetPrice = billingCycle === 'annual' ? target.annualPrice : target.monthlyPrice;
     const current = sub.currentPlan;
+    const currentCycle = normalizeCycle(sub.billingCycle || 'monthly');
     // Compatibilidad legacy/test:
     // si el usuario ya es plan pagado pero no tiene periodo guardado, tratarlo como activo.
     const currentPaidActive = isPaidPlan(sub.currentPlanKey) && (
@@ -314,6 +315,15 @@ class SubscriptionService {
         prorationCreditUsd: 0,
         remainingMs: 0,
         totalMs: 0,
+      };
+    }
+
+    // Blindaje: evitar que un pack mensual "monte" sobre una suscripcion anual activa.
+    // El modelo actual no soporta add-on mensual independiente sobre ciclo anual.
+    if (isPackPlan && billingCycle === 'monthly' && currentCycle === 'annual') {
+      return {
+        action: 'invalid',
+        reason: 'monthly_pack_not_allowed_on_annual_subscription',
       };
     }
 
