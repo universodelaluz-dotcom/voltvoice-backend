@@ -179,7 +179,7 @@ class SubscriptionService {
     return this.getUserRow(client, sub.userId, false);
   }
 
-  buildPlanQuote(userRow, targetPlanKey, targetBillingCycle) {
+  buildPlanQuote(userRow, targetPlanKey, targetBillingCycle, options = {}) {
     const now = nowUtc();
     const sub = fromUserRow(userRow);
     const targetKey = normalizePlanKey(targetPlanKey);
@@ -234,6 +234,16 @@ class SubscriptionService {
       // - Desde FREE (o plan vencido) no se pueden comprar PACKs mensuales.
       // - Sí se permite BASE mensual o suscripciones anuales (BASE y combos BASE+PACK).
       if (isPackPlan && billingCycle === 'monthly') {
+        const allowPackFromFreeMonthly = Boolean(options?.allowPackFromFreeMonthly);
+        if (allowPackFromFreeMonthly) {
+          return {
+            action: 'immediate_purchase',
+            payableAmountUsd: roundCurrency(targetPrice),
+            prorationCreditUsd: 0,
+            remainingMs: 0,
+            totalMs: 0,
+          };
+        }
         return {
           action: 'invalid',
           reason: 'pack_requires_active_base_monthly',
@@ -325,20 +335,20 @@ class SubscriptionService {
     };
   }
 
-  async quotePlanChange(userId, targetPlanKey, targetBillingCycle) {
+  async quotePlanChange(userId, targetPlanKey, targetBillingCycle, options = {}) {
     await this.ensureColumns();
     const client = await pool.connect();
     try {
       const row = await this.getUserRow(client, userId, false);
       if (!row) throw new Error('Usuario no encontrado');
-      const quote = this.buildPlanQuote(row, targetPlanKey, targetBillingCycle);
+      const quote = this.buildPlanQuote(row, targetPlanKey, targetBillingCycle, options);
       return quote;
     } finally {
       client.release();
     }
   }
 
-  async schedulePlanChange(userId, targetPlanKey, targetBillingCycle) {
+  async schedulePlanChange(userId, targetPlanKey, targetBillingCycle, options = {}) {
     await this.ensureColumns();
     const client = await pool.connect();
     try {
@@ -346,7 +356,7 @@ class SubscriptionService {
       const row = await this.getUserRow(client, userId, true);
       if (!row) throw new Error('Usuario no encontrado');
       const normalizedRow = await this.applyPeriodBoundaryTransitions(client, row);
-      const quote = this.buildPlanQuote(normalizedRow, targetPlanKey, targetBillingCycle);
+      const quote = this.buildPlanQuote(normalizedRow, targetPlanKey, targetBillingCycle, options);
 
       if (!['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action)) {
         await client.query('ROLLBACK');
@@ -375,7 +385,7 @@ class SubscriptionService {
     }
   }
 
-  async applyPaidPlanChange({ userId, planKey, billingCycle }) {
+  async applyPaidPlanChange({ userId, planKey, billingCycle, monthlyBundleBasePack = false }) {
     await this.ensureColumns();
     const client = await pool.connect();
     try {
@@ -384,7 +394,9 @@ class SubscriptionService {
       if (!row) throw new Error('Usuario no encontrado');
       const normalizedRow = await this.applyPeriodBoundaryTransitions(client, row);
       const sub = fromUserRow(normalizedRow);
-      const quote = this.buildPlanQuote(normalizedRow, planKey, billingCycle);
+      const quote = this.buildPlanQuote(normalizedRow, planKey, billingCycle, {
+        allowPackFromFreeMonthly: Boolean(monthlyBundleBasePack),
+      });
       const targetKey = normalizePlanKey(planKey);
       const targetPlan = PLAN_CATALOG[targetKey];
       if (!targetPlan) throw new Error('Plan inválido');
@@ -405,7 +417,14 @@ class SubscriptionService {
         // Primera compra desde FREE/ON_DEMAND: activar cupo base del plan sin sumar el saldo free de 100.
         // Si el usuario ya tenía más saldo por historial, se conserva el mayor.
         if (sub.currentPlanKey === 'free' || sub.currentPlanKey === 'on_demand') {
-          tokenAbsolute = Math.max(Number(normalizedRow.tokens || 0), Number(targetPlan.tokens || 0));
+          const baseBonusForBundle =
+            Boolean(monthlyBundleBasePack) && targetPlan.planKey !== 'base'
+              ? Number(PLAN_CATALOG.base?.tokens || 0)
+              : 0;
+          tokenAbsolute = Math.max(
+            Number(normalizedRow.tokens || 0),
+            Number(targetPlan.tokens || 0) + baseBonusForBundle
+          );
           tokenIncrement = 0;
         } else {
           // Al pagar un plan en cuentas ya pagadas, conservar saldo actual y sumar cupo del plan comprado.

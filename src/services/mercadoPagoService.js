@@ -16,10 +16,13 @@ const PLAN_PACKAGES = {
   'base_monthly': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 9.99, tokens: 20000, description: 'Plan Base Mensual' },
   'base_annual': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 99.90, tokens: 20000, description: 'Plan Base Anual (2 meses gratis)' },
   'pack_lite_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 9.99, tokens: 50000, description: 'Pack Lite Mensual' },
+  'pack_lite_combo_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 19.98, tokens: 70000, description: 'Plan Base + Lite Mensual (1 transacción)', monthlyBundleBasePack: true },
   'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 199.80, tokens: 50000, description: 'Plan Anual Base + Lite (2 meses gratis)' },
   'pack_pro_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 24.99, tokens: 250000, description: 'Pack Pro Mensual' },
+  'pack_pro_combo_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 34.98, tokens: 270000, description: 'Plan Base + Pro Mensual (1 transacción)', monthlyBundleBasePack: true },
   'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 349.80, tokens: 250000, description: 'Plan Anual Base + Pro (2 meses gratis)' },
   'pack_max_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 49.99, tokens: 500000, description: 'Pack Max Mensual' },
+  'pack_max_combo_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 59.98, tokens: 520000, description: 'Plan Base + Max Mensual (1 transacción)', monthlyBundleBasePack: true },
   'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 599.80, tokens: 500000, description: 'Plan Anual Base + Max (2 meses gratis)' },
 };
 
@@ -139,7 +142,8 @@ class MercadoPagoService {
       const rawPlanId = String(payload.planId || '').toLowerCase();
       const normalizedPlanId = LEGACY_PLAN_ID_ALIASES[rawPlanId] || rawPlanId;
       const key = `${normalizedPlanId}_${String(payload.billingCycle || 'monthly').toLowerCase()}`;
-      return PLAN_PACKAGES[key] || null;
+      const item = PLAN_PACKAGES[key];
+      return item ? { ...item, checkoutPlanId: normalizedPlanId } : null;
     }
 
     return TOKEN_PACKAGES[payload.tokensPackage] || null;
@@ -224,7 +228,9 @@ class MercadoPagoService {
       let couponMeta = null;
 
       if (item.kind === 'plan') {
-        quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
+        quotedPlan = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle, {
+          allowPackFromFreeMonthly: Boolean(item.monthlyBundleBasePack),
+        });
         const isRepeatablePackPurchase = REPEATABLE_PACK_PLANS.has(String(item.planKey || '').toLowerCase());
         if (quotedPlan.action === 'invalid') {
           const err = new Error(
@@ -320,7 +326,7 @@ class MercadoPagoService {
       }
 
       const baseExternalReference = item.kind === 'plan'
-        ? `user_${userId}_plan_${item.planKey}_${billingCycle}`
+        ? `user_${userId}_plan_${item.checkoutPlanId || item.planKey}_${billingCycle}`
         : `user_${userId}_tokens_${payload.tokensPackage}_${Date.now()}`;
       const externalReference = couponMeta
         ? `${baseExternalReference}|${buildCouponMeta(couponMeta)}`
@@ -359,7 +365,7 @@ class MercadoPagoService {
         items: [
           {
             id: item.kind === 'plan'
-              ? `plan_${item.planKey}_${billingCycle}`
+              ? `plan_${item.checkoutPlanId || item.planKey}_${billingCycle}`
               : `tokens_${payload.tokensPackage}`,
             title: `Streamvoicer - ${item.description}`,
             description: item.kind === 'plan'
@@ -569,7 +575,8 @@ class MercadoPagoService {
         const applied = await subscriptionService.applyPaidPlanChange({
           userId: Number(userId),
           planKey: item.planKey,
-          billingCycle: parsedReference.billingCycle
+          billingCycle: parsedReference.billingCycle,
+          monthlyBundleBasePack: Boolean(item.monthlyBundleBasePack),
         });
 
         const scheduledChange = ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(applied.quote?.action);
@@ -703,9 +710,9 @@ class MercadoPagoService {
 
     const candidateRefs = [];
     for (const key of Object.keys(PLAN_PACKAGES)) {
-      const item = PLAN_PACKAGES[key];
       const cycle = key.endsWith('_annual') ? 'annual' : 'monthly';
-      candidateRefs.push(`user_${numericUserId}_plan_${item.planKey}_${cycle}`);
+      const checkoutPlanId = key.replace(/_(monthly|annual)$/i, '');
+      candidateRefs.push(`user_${numericUserId}_plan_${checkoutPlanId}_${cycle}`);
     }
     for (const tokenAmount of Object.keys(TOKEN_PACKAGES)) {
       candidateRefs.push(`user_${numericUserId}_tokens_${tokenAmount}`);
