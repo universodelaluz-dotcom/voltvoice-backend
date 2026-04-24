@@ -256,8 +256,12 @@ export async function createPaypalOrder(userId, payload, options = {}) {
     }
 
     const backendBaseUrl = String(options.backendBaseUrl || config.BACKEND_URL || '').trim().replace(/\/+$/, '');
+    const frontendBaseUrl = String(options.frontendOrigin || config.FRONTEND_URL || '').trim().replace(/\/+$/, '');
     if (!backendBaseUrl) {
       throw new Error('BACKEND_URL not configured for PayPal return URL');
+    }
+    if (!frontendBaseUrl) {
+      throw new Error('FRONTEND_URL not configured for PayPal cancel URL');
     }
 
     const res = await axios.post(
@@ -275,8 +279,8 @@ export async function createPaypalOrder(userId, payload, options = {}) {
         }],
         application_context: {
           brand_name: 'Streamvoicer',
-          return_url: `${backendBaseUrl}/api/paypal/return`,
-          cancel_url: `${config.FRONTEND_URL}?payment=cancelled`,
+          return_url: `${backendBaseUrl}/api/paypal/return?front_origin=${encodeURIComponent(frontendBaseUrl)}`,
+          cancel_url: `${frontendBaseUrl}?payment=cancelled&provider=paypal`,
           user_action: 'PAY_NOW'
         }
       },

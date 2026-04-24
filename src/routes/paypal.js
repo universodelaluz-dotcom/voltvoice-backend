@@ -7,6 +7,29 @@ import monitoring from '../services/monitoring.js';
 
 const router = express.Router();
 
+const getAllowedFrontendHosts = () => {
+  const hosts = new Set(['streamvoicer.com', 'www.streamvoicer.com', 'voltvoice-frontend.vercel.app', 'localhost', '127.0.0.1']);
+  try {
+    const configuredHost = new URL(String(config.FRONTEND_URL || '').trim()).host;
+    if (configuredHost) hosts.add(configuredHost);
+  } catch (_) {}
+  return hosts;
+};
+
+const resolveFrontendBaseUrl = (rawOrigin = '') => {
+  const fallback = String(config.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  const value = String(rawOrigin || '').trim();
+  if (!value) return fallback;
+  try {
+    const parsed = new URL(value);
+    if (!['https:', 'http:'].includes(parsed.protocol)) return fallback;
+    if (!getAllowedFrontendHosts().has(parsed.host)) return fallback;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch (_) {
+    return fallback;
+  }
+};
+
 const resolvePublicBackendBaseUrl = (req) => {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
@@ -62,13 +85,14 @@ router.get('/client-id', (req, res) => {
 // Return URL desde PayPal: captura server-side y redirige al frontend
 router.get('/return', async (req, res) => {
   const orderId = String(req.query?.token || req.query?.orderId || '').trim();
+  const frontendBaseUrl = resolveFrontendBaseUrl(req.query?.front_origin || req.query?.frontend_origin || '');
   if (!orderId) {
-    return res.redirect(`${config.FRONTEND_URL}?payment=error&provider=paypal&reason=missing_order`);
+    return res.redirect(`${frontendBaseUrl}?payment=error&provider=paypal&reason=missing_order`);
   }
 
   try {
     await capturePaypalOrder(orderId);
-    return res.redirect(`${config.FRONTEND_URL}?payment=success&provider=paypal&captured=1&token=${encodeURIComponent(orderId)}`);
+    return res.redirect(`${frontendBaseUrl}?payment=success&provider=paypal&captured=1&token=${encodeURIComponent(orderId)}`);
   } catch (error) {
     console.error('[PAYPAL] Return capture error:', error.message);
     monitoring.recordPaymentFailure({
@@ -76,14 +100,14 @@ router.get('/return', async (req, res) => {
       action: 'return_capture',
       errorMessage: error.message,
     });
-    return res.redirect(`${config.FRONTEND_URL}?payment=error&provider=paypal&reason=capture_failed`);
+    return res.redirect(`${frontendBaseUrl}?payment=error&provider=paypal&reason=capture_failed`);
   }
 });
 
 // Crear orden de PayPal (el frontend la crea via SDK popup)
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId, frontendOrigin } = req.body;
     if (!tokensPackage && !planId) return res.status(400).json({ error: 'Missing checkout item' });
 
     const backendBaseUrl = resolvePublicBackendBaseUrl(req);
@@ -92,7 +116,7 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     const result = await createPaypalOrder(
       req.userId,
       { tokensPackage, planId, billingCycle, itemType, couponCode, couponId },
-      { backendBaseUrl, clientIp, userAgent }
+      { backendBaseUrl, clientIp, userAgent, frontendOrigin: resolveFrontendBaseUrl(frontendOrigin) }
     );
     if (result.requiresPayment === false) {
       return res.json({
