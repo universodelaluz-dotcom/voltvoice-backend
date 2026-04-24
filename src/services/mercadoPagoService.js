@@ -286,6 +286,11 @@ class MercadoPagoService {
         }
 
         chargedPrice = quotedPlan.payableAmountUsd;
+        // En combos mensuales Base + Pack, el cobro debe respetar el precio combo
+        // (no el precio individual del pack retornado por la cotización base del plan).
+        if (item.monthlyBundleBasePack) {
+          chargedPrice = Number(item.price || 0);
+        }
         if (shouldChargeNowForScheduledChange && chargedPrice <= 0) {
           chargedPrice = item.price;
         }

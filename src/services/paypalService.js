@@ -207,6 +207,11 @@ export async function createPaypalOrder(userId, payload, options = {}) {
       }
 
       chargedPrice = quote.payableAmountUsd;
+      // En combos mensuales Base + Pack, el cobro debe usar el precio combo
+      // definido para checkout, no el precio individual del pack.
+      if (item.monthlyBundleBasePack) {
+        chargedPrice = Number(item.price || 0);
+      }
       if (shouldChargeNowForScheduledChange && chargedPrice <= 0) {
         chargedPrice = item.price;
       }
