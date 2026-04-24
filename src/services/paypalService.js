@@ -17,13 +17,13 @@ const TOKEN_PACKAGES = {
 
 const PLAN_PACKAGES = {
   'base_monthly': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 9.99, tokens: 20000, description: 'Plan Base Mensual' },
-  'base_annual': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 99.00, tokens: 20000, description: 'Plan Base Anual' },
+  'base_annual': { kind: 'plan', planKey: 'base', backendPlan: 'base', price: 99.90, tokens: 20000, description: 'Plan Base Anual (2 meses gratis)' },
   'pack_lite_monthly': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 9.99, tokens: 50000, description: 'Pack Lite Mensual' },
-  'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 99.00, tokens: 50000, description: 'Pack Lite Anual' },
+  'pack_lite_annual': { kind: 'plan', planKey: 'pack_lite', backendPlan: 'pack_lite', price: 199.80, tokens: 50000, description: 'Plan Anual Base + Lite (2 meses gratis)' },
   'pack_pro_monthly': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 24.99, tokens: 250000, description: 'Pack Pro Mensual' },
-  'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 249.00, tokens: 250000, description: 'Pack Pro Anual' },
+  'pack_pro_annual': { kind: 'plan', planKey: 'pack_pro', backendPlan: 'pack_pro', price: 349.80, tokens: 250000, description: 'Plan Anual Base + Pro (2 meses gratis)' },
   'pack_max_monthly': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 49.99, tokens: 500000, description: 'Pack Max Mensual' },
-  'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 499.00, tokens: 500000, description: 'Pack Max Anual' },
+  'pack_max_annual': { kind: 'plan', planKey: 'pack_max', backendPlan: 'pack_max', price: 599.80, tokens: 500000, description: 'Plan Anual Base + Max (2 meses gratis)' },
 };
 
 const LEGACY_PLAN_ID_ALIASES = {
@@ -156,6 +156,15 @@ export async function createPaypalOrder(userId, payload, options = {}) {
     if (item.kind === 'plan') {
       quote = await subscriptionService.quotePlanChange(Number(userId), item.planKey, billingCycle);
       const isRepeatablePackPurchase = REPEATABLE_PACK_PLANS.has(String(item.planKey || '').toLowerCase());
+      if (quote.action === 'invalid') {
+        const err = new Error(
+          quote.reason === 'pack_requires_active_base_monthly'
+            ? 'Para comprar un pack mensual primero debes activar el Plan Base.'
+            : 'No se pudo procesar el plan solicitado.'
+        );
+        err.statusCode = 400;
+        throw err;
+      }
       const shouldChargeNowForScheduledChange =
         ['downgrade_next_cycle', 'billing_cycle_next_cycle'].includes(quote.action);
       if (quote.action === 'already_scheduled' && !isRepeatablePackPurchase) {

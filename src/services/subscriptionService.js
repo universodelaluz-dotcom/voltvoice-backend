@@ -2,10 +2,14 @@ import pool from '../db.js';
 
 const PLAN_CATALOG = {
   free: { planKey: 'free', backendPlan: 'free', tier: 0, monthlyPrice: 0, annualPrice: 0, tokens: 100 },
-  base: { planKey: 'base', backendPlan: 'base', tier: 1, monthlyPrice: 9.99, annualPrice: 99.0, tokens: 20000 },
-  pack_lite: { planKey: 'pack_lite', backendPlan: 'pack_lite', tier: 2, monthlyPrice: 9.99, annualPrice: 99.0, tokens: 50000 },
-  pack_pro: { planKey: 'pack_pro', backendPlan: 'pack_pro', tier: 3, monthlyPrice: 24.99, annualPrice: 249.0, tokens: 250000 },
-  pack_max: { planKey: 'pack_max', backendPlan: 'pack_max', tier: 4, monthlyPrice: 49.99, annualPrice: 499.0, tokens: 500000 },
+  base: { planKey: 'base', backendPlan: 'base', tier: 1, monthlyPrice: 9.99, annualPrice: 99.9, tokens: 20000 },
+  // Anuales con promo de 2 meses gratis (pago de 10 meses):
+  // BASE+LITE: (9.99 + 9.99) * 10 = 199.80
+  // BASE+PRO : (9.99 + 24.99) * 10 = 349.80
+  // BASE+MAX : (9.99 + 49.99) * 10 = 599.80
+  pack_lite: { planKey: 'pack_lite', backendPlan: 'pack_lite', tier: 2, monthlyPrice: 9.99, annualPrice: 199.8, tokens: 50000 },
+  pack_pro: { planKey: 'pack_pro', backendPlan: 'pack_pro', tier: 3, monthlyPrice: 24.99, annualPrice: 349.8, tokens: 250000 },
+  pack_max: { planKey: 'pack_max', backendPlan: 'pack_max', tier: 4, monthlyPrice: 49.99, annualPrice: 599.8, tokens: 500000 },
 };
 
 const PLAN_CLONE_SLOTS = {
@@ -188,6 +192,7 @@ class SubscriptionService {
     const targetPrice = billingCycle === 'annual' ? target.annualPrice : target.monthlyPrice;
     const current = sub.currentPlan;
     const currentPaidActive = isPaidPlan(sub.currentPlanKey) && sub.periodEnd && sub.periodEnd.getTime() > now.getTime();
+    const isPackPlan = REPEATABLE_PACK_PLANS.has(target.planKey);
     const hasPendingChange =
       Boolean(sub.pendingPlanKey) &&
       Boolean(sub.pendingEffectiveAt) &&
@@ -225,6 +230,15 @@ class SubscriptionService {
     }
 
     if (!currentPaidActive) {
+      // Regla comercial:
+      // - Desde FREE (o plan vencido) no se pueden comprar PACKs mensuales.
+      // - Sí se permite BASE mensual o suscripciones anuales (BASE y combos BASE+PACK).
+      if (isPackPlan && billingCycle === 'monthly') {
+        return {
+          action: 'invalid',
+          reason: 'pack_requires_active_base_monthly',
+        };
+      }
       return {
         action: 'immediate_purchase',
         payableAmountUsd: roundCurrency(targetPrice),
