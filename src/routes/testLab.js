@@ -67,6 +67,18 @@ const ensureTestUsers = async () => {
         [spec.email, spec.plan]
       );
     }
+
+    // Blindaje de laboratorio: los usuarios de prueba siempre son "user", nunca admin.
+    try {
+      await pool.query(
+        `UPDATE users
+         SET role = 'user'
+         WHERE LOWER(email) = LOWER($1)`,
+        [spec.email]
+      );
+    } catch (_) {
+      // Esquema legacy sin columna role: ignorar.
+    }
   }
 };
 
@@ -170,6 +182,7 @@ router.post('/users/:id/reset', async (req, res) => {
       `UPDATE users
        SET
          plan = $2,
+         role = 'user',
          tokens = 0,
          voice_clone_slots_bonus = 0,
          subscription_billing_cycle = 'monthly',
@@ -180,6 +193,8 @@ router.post('/users/:id/reset', async (req, res) => {
          subscription_pending_plan_key = NULL,
          subscription_pending_billing_cycle = NULL,
          subscription_pending_effective_at = NULL,
+         feature_addon_plan_key = NULL,
+         feature_addon_expires_at = NULL,
          updated_at = NOW()
        WHERE id = $1`,
       [userId, String(getTestSpecByEmail(verifyUser.rows?.[0]?.email)?.plan || 'free').toLowerCase()]
@@ -244,6 +259,7 @@ router.post('/users/:id/reset-tokens', async (req, res) => {
       `UPDATE users
        SET
          plan = $2,
+         role = 'user',
          tokens = 0,
          voice_clone_slots_bonus = 0,
          subscription_billing_cycle = 'monthly',
@@ -254,6 +270,8 @@ router.post('/users/:id/reset-tokens', async (req, res) => {
          subscription_pending_plan_key = NULL,
          subscription_pending_billing_cycle = NULL,
          subscription_pending_effective_at = NULL,
+         feature_addon_plan_key = NULL,
+         feature_addon_expires_at = NULL,
          updated_at = NOW()
        WHERE id = $1`,
       [userId, String(getTestSpecByEmail(row.email)?.plan || 'free').toLowerCase()]
