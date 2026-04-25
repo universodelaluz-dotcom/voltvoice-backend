@@ -30,6 +30,35 @@ const resolveFrontendBaseUrl = (rawOrigin = '') => {
   }
 };
 
+const resolveFrontendReturnUrl = (rawUrl = '') => {
+  const fallbackBase = resolveFrontendBaseUrl('');
+  const fallback = `${fallbackBase}/`;
+  const value = String(rawUrl || '').trim();
+  if (!value) return fallback;
+  try {
+    const parsed = new URL(value);
+    if (!['https:', 'http:'].includes(parsed.protocol)) return fallback;
+    if (!getAllowedFrontendHosts().has(parsed.host)) return fallback;
+    const safePath = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    return `${parsed.protocol}//${parsed.host}${safePath}`;
+  } catch (_) {
+    return fallback;
+  }
+};
+
+const appendQueryParams = (baseUrl, params = {}) => {
+  try {
+    const target = new URL(baseUrl);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      target.searchParams.set(String(key), String(value));
+    });
+    return target.toString();
+  } catch (_) {
+    return baseUrl;
+  }
+};
+
 const resolvePublicBackendBaseUrl = (req) => {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
@@ -85,14 +114,23 @@ router.get('/client-id', (req, res) => {
 // Return URL desde PayPal: captura server-side y redirige al frontend
 router.get('/return', async (req, res) => {
   const orderId = String(req.query?.token || req.query?.orderId || '').trim();
-  const frontendBaseUrl = resolveFrontendBaseUrl(req.query?.front_origin || req.query?.frontend_origin || '');
+  const frontendReturnUrl = resolveFrontendReturnUrl(req.query?.front_return || req.query?.frontend_return || '');
   if (!orderId) {
-    return res.redirect(`${frontendBaseUrl}?payment=error&provider=paypal&reason=missing_order`);
+    return res.redirect(appendQueryParams(frontendReturnUrl, {
+      payment: 'error',
+      provider: 'paypal',
+      reason: 'missing_order',
+    }));
   }
 
   try {
     await capturePaypalOrder(orderId);
-    return res.redirect(`${frontendBaseUrl}?payment=success&provider=paypal&captured=1&token=${encodeURIComponent(orderId)}`);
+    return res.redirect(appendQueryParams(frontendReturnUrl, {
+      payment: 'success',
+      provider: 'paypal',
+      captured: '1',
+      token: orderId,
+    }));
   } catch (error) {
     console.error('[PAYPAL] Return capture error:', error.message);
     monitoring.recordPaymentFailure({
@@ -100,14 +138,18 @@ router.get('/return', async (req, res) => {
       action: 'return_capture',
       errorMessage: error.message,
     });
-    return res.redirect(`${frontendBaseUrl}?payment=error&provider=paypal&reason=capture_failed`);
+    return res.redirect(appendQueryParams(frontendReturnUrl, {
+      payment: 'error',
+      provider: 'paypal',
+      reason: 'capture_failed',
+    }));
   }
 });
 
 // Crear orden de PayPal (el frontend la crea via SDK popup)
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId, frontendOrigin } = req.body;
+    const { tokensPackage, planId, billingCycle, itemType, couponCode, couponId, frontendOrigin, frontendReturnUrl, returnUrlBase } = req.body;
     if (!tokensPackage && !planId) return res.status(400).json({ error: 'Missing checkout item' });
 
     const backendBaseUrl = resolvePublicBackendBaseUrl(req);
@@ -116,7 +158,13 @@ router.post('/create-order', authMiddleware, async (req, res) => {
     const result = await createPaypalOrder(
       req.userId,
       { tokensPackage, planId, billingCycle, itemType, couponCode, couponId },
-      { backendBaseUrl, clientIp, userAgent, frontendOrigin: resolveFrontendBaseUrl(frontendOrigin) }
+      {
+        backendBaseUrl,
+        clientIp,
+        userAgent,
+        frontendOrigin: resolveFrontendBaseUrl(frontendOrigin || returnUrlBase),
+        frontendReturnUrl: resolveFrontendReturnUrl(frontendReturnUrl || returnUrlBase),
+      }
     );
     if (result.requiresPayment === false) {
       return res.json({
