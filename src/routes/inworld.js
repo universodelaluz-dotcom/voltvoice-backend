@@ -360,16 +360,27 @@ router.post('/tts', async (req, res) => {
     audioCacheService.trackMetric({ rendered_requests: 1 });
     console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
+    const streamArgs = { apiKey, text: String(text), mappedVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
+    const isAnomalousAudio = (buf) => Buffer.isBuffer(buf) && buf.length / Math.max(1, String(text).length) > 4000;
+
     let audioBuffer;
     const renderOwner = inFlight.isOwner ? inFlight : null;
     try {
-      audioBuffer = await streamInworldAudio({
-        apiKey,
-        text: String(text),
-        mappedVoice,
-        modelId: resolvedModelId,
-        temperature: resolvedTemperature,
-      });
+      audioBuffer = await streamInworldAudio(streamArgs);
+
+      if (isAnomalousAudio(audioBuffer)) {
+        const ratio = Math.round(audioBuffer.length / Math.max(1, String(text).length));
+        console.warn(`[Inworld TTS] Audio anormal detectado (${ratio} bytes/char, ${audioBuffer.length} bytes). Reintentando...`);
+        try {
+          const retryBuffer = await streamInworldAudio(streamArgs);
+          const retryRatio = Math.round(retryBuffer.length / Math.max(1, String(text).length));
+          console.log(`[Inworld TTS] Retry completado (${retryRatio} bytes/char, ${retryBuffer.length} bytes)`);
+          audioBuffer = retryBuffer;
+        } catch (retryErr) {
+          console.warn(`[Inworld TTS] Retry falló (${retryErr.message}), usando audio original`);
+        }
+      }
+
       if (renderOwner) renderOwner.release();
     } catch (streamErr) {
       if (renderOwner) renderOwner.release(streamErr);

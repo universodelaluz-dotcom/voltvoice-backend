@@ -28,10 +28,16 @@ class InworldTtsService {
     return true;
   }
 
+  _isAnomalousAudio(text, audioBuffer) {
+    if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) return false;
+    const ratio = audioBuffer.length / Math.max(1, text.length);
+    return ratio > 4000;
+  }
+
   /**
    * Sintetizar texto a voz - COPIA EXACTA del local speakInworld()
    */
-  async synthesize(text, voiceId = 'Diego') {
+  async _synthesizeOnce(text, voiceId = 'Diego') {
     if (!text || text.length === 0) {
       throw new Error('Text cannot be empty');
     }
@@ -162,6 +168,26 @@ class InworldTtsService {
       req.write(requestBody);
       req.end();
     });
+  }
+
+  async synthesize(text, voiceId = 'Diego') {
+    const result = await this._synthesizeOnce(text, voiceId);
+
+    if (this._isAnomalousAudio(text, result.audio)) {
+      const ratio = Math.round(result.audio.length / Math.max(1, text.length));
+      console.warn(`[Inworld TTS] Audio anormal detectado (${ratio} bytes/char, ${result.audio.length} bytes). Reintentando...`);
+      try {
+        const retry = await this._synthesizeOnce(text, voiceId);
+        const retryRatio = Math.round(retry.audio.length / Math.max(1, text.length));
+        console.log(`[Inworld TTS] Retry completado (${retryRatio} bytes/char, ${retry.audio.length} bytes)`);
+        return retry;
+      } catch (retryErr) {
+        console.warn(`[Inworld TTS] Retry falló (${retryErr.message}), usando audio original`);
+        return result;
+      }
+    }
+
+    return result;
   }
 
   /**
