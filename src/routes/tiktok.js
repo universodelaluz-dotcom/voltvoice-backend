@@ -324,14 +324,13 @@ router.post('/message', verifyToken, async (req, res) => {
   const isAdmin = userRow.rows[0]?.role === 'admin';
   const runtimeUserId = userId;
 
+  const { username, messageUsername, messageText, voiceId } = req.body;
+
   // Log authentication status at start
-  const { voiceId } = req.body;
   const isGoogleVoice = voiceId && (voiceId === 'es-ES' || voiceId === 'en-US');
   if (!isGoogleVoice && userId) {
     console.log(`[TikTok] AUTH OK - userId: ${userId}, voiceId: ${voiceId}, isAdmin: ${isAdmin}`);
   }
-
-  const { username, messageUsername, messageText, voiceId } = req.body;
   const isPreGenerate = toBooleanFlag(req.body?.preGenerate);
   let inFlightRender = null;
 
