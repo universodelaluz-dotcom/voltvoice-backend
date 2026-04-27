@@ -3,7 +3,7 @@ import https from 'https';
 import jwt from 'jsonwebtoken';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
-import { requireAdmin } from '../../middleware/auth.js';
+import { requireAdmin, verifyToken } from '../../middleware/auth.js';
 import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
 import tokenService from '../services/tokenService.js';
 import audioCacheService from '../services/audioCacheService.js';
