@@ -318,10 +318,14 @@ router.post('/connect', async (req, res) => {
 /**
  * POST /api/tiktok/message - Procesar y sintetizar mensaje manualmente
  */
-router.post('/message', async (req, res) => {
+router.post('/message', verifyToken, async (req, res) => {
+  const userId = req.user.userId;
+  const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+  const isAdmin = userRow.rows[0]?.role === 'admin';
+  const runtimeUserId = userId;
+
   const { username, messageUsername, messageText, voiceId } = req.body;
   const isPreGenerate = toBooleanFlag(req.body?.preGenerate);
-  let runtimeUserId = null;
   let inFlightRender = null;
 
   if (!username || !messageText) {
@@ -368,8 +372,6 @@ router.post('/message', async (req, res) => {
     const freeVoices = { 'es-ES': 'es-MX', 'en-US': 'en-US' };
     const selectedVoiceId = voiceId || 'es-ES';
     const isGoogleVoice = freeVoices.hasOwnProperty(selectedVoiceId);
-    const { userId, isAdmin } = await resolveOptionalAuthUser(req);
-    runtimeUserId = userId;
 
     let fallbackToLocal = false;
     let fallbackReason = null;
@@ -377,10 +379,7 @@ router.post('/message', async (req, res) => {
     let cacheContext = null;
 
     if (!isGoogleVoice) {
-      if (!userId) {
-        fallbackToLocal = true;
-        fallbackReason = 'missing_auth';
-      } else if (!isAdmin) {
+      if (!isAdmin) {
         tokensNeeded = tokenService.calculateTokensCost(String(processedText).length);
         const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
         if (!hasEnough) {
@@ -408,14 +407,20 @@ router.post('/message', async (req, res) => {
 
       const cacheHit = await audioCacheService.lookup(cacheContext);
       if (cacheHit.hit) {
-        if (!isGoogleVoice && userId && !isAdmin && tokensNeeded > 0) {
-          await tokenService.deductTokens(
-            userId,
-            tokensNeeded,
-            String(processedText).length,
-            selectedVoiceId,
-            'tiktok_live_cache'
-          );
+        if (!isGoogleVoice && tokensNeeded > 0) {
+          if (userId && !isAdmin) {
+            console.log(`[TikTok] CACHE HIT - DEDUCIENDO TOKENS - userId: ${userId}, tokens: ${tokensNeeded}`);
+            await tokenService.deductTokens(
+              userId,
+              tokensNeeded,
+              String(processedText).length,
+              selectedVoiceId,
+              'tiktok_live_cache'
+            );
+            console.log(`[TikTok] CACHE HIT - TOKENS DEDUCIDOS EXITOSAMENTE`);
+          } else if (!userId) {
+            console.warn(`[TikTok] ⚠️ CACHE HIT - NO USERID PARA DEDUCIR TOKENS (voiceId: ${selectedVoiceId}, tokensNeeded: ${tokensNeeded})`);
+          }
         }
 
         const base64Audio = cacheHit.audioBuffer.toString('base64');
@@ -457,14 +462,20 @@ router.post('/message', async (req, res) => {
 
         const postWaitHit = await audioCacheService.lookup(cacheContext);
         if (postWaitHit.hit) {
-          if (!isGoogleVoice && userId && !isAdmin && tokensNeeded > 0) {
-            await tokenService.deductTokens(
-              userId,
-              tokensNeeded,
-              String(processedText).length,
-              selectedVoiceId,
-              'tiktok_live_cache'
-            );
+          if (!isGoogleVoice && tokensNeeded > 0) {
+            if (userId && !isAdmin) {
+              console.log(`[TikTok] POST-WAIT CACHE HIT - DEDUCIENDO TOKENS - userId: ${userId}, tokens: ${tokensNeeded}`);
+              await tokenService.deductTokens(
+                userId,
+                tokensNeeded,
+                String(processedText).length,
+                selectedVoiceId,
+                'tiktok_live_cache'
+              );
+              console.log(`[TikTok] POST-WAIT CACHE HIT - TOKENS DEDUCIDOS EXITOSAMENTE`);
+            } else if (!userId) {
+              console.warn(`[TikTok] ⚠️ POST-WAIT CACHE HIT - NO USERID PARA DEDUCIR TOKENS (voiceId: ${selectedVoiceId}, tokensNeeded: ${tokensNeeded})`);
+            }
           }
 
           const base64Audio = postWaitHit.audioBuffer.toString('base64');
@@ -513,10 +524,11 @@ router.post('/message', async (req, res) => {
     } else {
       audioCacheService.trackMetric({ rendered_requests: 1 });
       // Inworld premium TTS
-      console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}`);
+      console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}, userId: ${userId}, isAdmin: ${isAdmin}, tokensNeeded: ${tokensNeeded}`);
       synthesisResult = await inworldTtsService.synthesize(processedText, selectedVoiceId);
 
       if (userId && !isAdmin && tokensNeeded > 0) {
+        console.log(`[TikTok] DEDUCIENDO TOKENS - userId: ${userId}, tokens: ${tokensNeeded}, texto length: ${String(processedText).length}`);
         await tokenService.deductTokens(
           userId,
           tokensNeeded,
@@ -524,6 +536,9 @@ router.post('/message', async (req, res) => {
           selectedVoiceId,
           'tiktok_live'
         );
+        console.log(`[TikTok] TOKENS DEDUCIDOS EXITOSAMENTE`);
+      } else {
+        console.warn(`[TikTok] ⚠️ NO SE DEDUJERON TOKENS - userId: ${userId}, isAdmin: ${isAdmin}, tokensNeeded: ${tokensNeeded}`);
       }
     }
 

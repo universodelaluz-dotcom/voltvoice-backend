@@ -186,8 +186,9 @@ function streamInworldAudio({ apiKey, text, mappedVoice, modelId, temperature = 
  * 1) hot memory cache
  * 2) persistent cache with timeout guard
  * 3) render immediately on miss/slow lookup
+ * REQUIRES: Authentication (Bearer token)
  */
-router.post('/tts', async (req, res) => {
+router.post('/tts', verifyToken, async (req, res) => {
   try {
     const {
       text,
@@ -232,20 +233,9 @@ router.post('/tts', async (req, res) => {
       ` requestedModel="${requestedModelId || modelVersion || 'none'}" requestedTemp="${requestedTemperature ?? 'none'}"`
     );
 
-    let userId = null;
-    let isAdmin = false;
-    const authHeader = req.headers.authorization || '';
-    if (authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      try {
-        const decoded = jwt.verify(token, config.JWT_SECRET);
-        userId = decoded.userId;
-        const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
-        isAdmin = userRow.rows[0]?.role === 'admin';
-      } catch (err) {
-        console.warn('[Inworld TTS] Invalid token provided, continuing as guest.');
-      }
-    }
+    const userId = req.user.userId;
+    const userRow = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const isAdmin = userRow.rows[0]?.role === 'admin';
 
     const cacheContext = await audioCacheService.prepareContext({
       provider: 'inworld',
@@ -263,11 +253,11 @@ router.post('/tts', async (req, res) => {
       }
     });
 
-    const tokensNeeded = userId && !isAdmin
+    const tokensNeeded = !isAdmin
       ? tokenService.calculateTokensCost(String(text).length)
       : 0;
 
-    if (userId && !isAdmin) {
+    if (!isAdmin) {
       const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
       if (!hasEnough) {
         return res.status(402).json({
@@ -281,7 +271,7 @@ router.post('/tts', async (req, res) => {
     if (cacheHit.hit) {
       console.log(`[Inworld TTS] Cache HIT -> model="${resolvedModelId}" temp="${resolvedTemperature}" key="${cacheContext.cacheKey}"`);
       let remainingTokens = undefined;
-      if (userId && !isAdmin && tokensNeeded > 0) {
+      if (!isAdmin && tokensNeeded > 0) {
         const deduction = await tokenService.deductTokens(
           userId,
           tokensNeeded,
@@ -298,7 +288,7 @@ router.post('/tts', async (req, res) => {
         audioSize: cacheHit.audioBuffer.length,
         voiceId,
         characters: String(text).length,
-        tokensUsed: userId && !isAdmin ? tokensNeeded : 0,
+        tokensUsed: !isAdmin ? tokensNeeded : 0,
         ...(Number.isFinite(remainingTokens) ? { remainingTokens } : {}),
         cache: {
           hit: true,
@@ -345,7 +335,7 @@ router.post('/tts', async (req, res) => {
           audioSize: postWaitHit.audioBuffer.length,
           voiceId,
           characters: String(text).length,
-          tokensUsed: userId && !isAdmin ? tokensNeeded : 0,
+          tokensUsed: !isAdmin ? tokensNeeded : 0,
           ...(Number.isFinite(remainingTokens) ? { remainingTokens } : {}),
           cache: {
             hit: true,
@@ -395,7 +385,7 @@ router.post('/tts', async (req, res) => {
     const base64Audio = audioBuffer.toString('base64');
     audioCacheService.storeAfterRender(cacheContext, audioBuffer, 'audio/mpeg').catch(() => {});
 
-    if (userId && !isAdmin) {
+    if (!isAdmin) {
       const deduction = await tokenService.deductTokens(
         userId,
         tokensNeeded,
