@@ -13,8 +13,19 @@ const CLONED_VOICE_LIMITS = {
   admin: 999,
 };
 
+const normalizePublicPlan = (planValue = 'free') => {
+  const normalized = String(planValue || 'free').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!normalized) return 'free';
+  if (['admin'].includes(normalized) || normalized.includes('admin')) return 'admin';
+  if (['pack_max', 'pack_max_monthly', 'pack_max_annual', 'elite', 'plan_elite', 'max', 'maxx'].includes(normalized) || normalized.includes('pack_max') || normalized.includes('max')) return 'pack_max';
+  if (['pack_pro', 'pack_pro_monthly', 'pack_pro_annual', 'pro', 'plan_pro'].includes(normalized) || normalized.includes('pack_pro')) return 'pack_pro';
+  if (['pack_lite', 'pack_lite_monthly', 'pack_lite_annual', 'lite', 'creator', 'creator_monthly', 'creator_annual', 'premium', 'plan_premium'].includes(normalized) || normalized.includes('pack_lite') || normalized.includes('lite') || normalized.includes('creator') || normalized.includes('premium')) return 'pack_lite';
+  if (['base', 'base_monthly', 'base_annual', 'start', 'start_monthly', 'start_annual', 'plan_base', 'plan_start'].includes(normalized) || normalized.includes('base') || normalized.includes('start')) return 'base';
+  return 'free';
+};
+
 const resolveCloneVoiceLimit = async ({ userId, planValue, slotBonus = 0, periodStart = null }) => {
-  const plan = String(planValue || 'free').trim().toLowerCase();
+  const plan = normalizePublicPlan(planValue);
   if (plan === 'admin') return 999;
   if (plan === 'free' || plan === 'base') return 0;
   const base = Number(CLONED_VOICE_LIMITS[plan] ?? 0);
