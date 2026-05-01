@@ -27,6 +27,7 @@ import opsRoutes from './src/routes/ops.js';
 import supportRoutes from './src/routes/support.js';
 import testLabRoutes from './src/routes/testLab.js';
 import couponRoutes from './src/routes/coupons.js';
+import youtubeRoutes from './src/routes/youtube.js';
 
 // WebSocket
 import websocketServer from './src/services/websocketServer.js';
@@ -691,6 +692,21 @@ import pool from './src/db.js';
       );
       CREATE INDEX IF NOT EXISTS idx_coupon_failed_attempts_ip ON coupon_failed_attempts(ip_address);
       CREATE INDEX IF NOT EXISTS idx_coupon_failed_attempts_user ON coupon_failed_attempts(user_id);
+
+      CREATE TABLE IF NOT EXISTS youtube_oauth_connections (
+        id SERIAL PRIMARY KEY,
+        user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel_id VARCHAR(120),
+        channel_title VARCHAR(255),
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        token_type VARCHAR(50),
+        scope TEXT,
+        expiry_date TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_youtube_oauth_connections_user ON youtube_oauth_connections(user_id);
+      CREATE INDEX IF NOT EXISTS idx_youtube_oauth_connections_channel ON youtube_oauth_connections(channel_id);
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
@@ -732,6 +748,7 @@ try {
   app.use('/api/ops', opsRoutes);
   console.log('[STARTUP] ✓ Ops routes loaded');
   app.use('/api/support', supportRoutes);
+  app.use('/api/youtube', youtubeRoutes);
   console.log('[STARTUP] ✓ Support routes loaded');
   app.use('/api/test-lab', testLabRoutes);
   app.use('/api/coupons', couponRoutes);

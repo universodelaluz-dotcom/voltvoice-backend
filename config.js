@@ -36,6 +36,9 @@ export const config = {
     process.env.YOUTUBE_API_KEY_3,
     process.env.YOUTUBE_API_KEY_4,
   ].filter(Boolean),
+  YOUTUBE_OAUTH_REDIRECT_URI: process.env.YOUTUBE_OAUTH_REDIRECT_URI || 'http://localhost:3000/api/youtube/auth/callback',
+  YOUTUBE_FRONTEND_SUCCESS_URL: process.env.YOUTUBE_FRONTEND_SUCCESS_URL || 'http://localhost:5173/youtube/',
+  YOUTUBE_FRONTEND_ERROR_URL: process.env.YOUTUBE_FRONTEND_ERROR_URL || 'http://localhost:5173/youtube/',
 
   // Stripe
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,

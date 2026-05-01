@@ -442,7 +442,8 @@ router.get('/chat/messages', async (req, res) => {
       let text = String(item?.snippet?.displayMessage || '').trim();
       if (!text && isDonationEvent) {
         const donationLabel = messageType === 'superStickerEvent' ? 'Super Sticker' : 'Super Chat';
-        text = donationAmount ? `${donationLabel} ${donationAmount}` : donationLabel;
+        // No incluir monto en el texto leído por voz: solo etiqueta del evento.
+        text = donationLabel;
       }
       const publishedAt = item?.snippet?.publishedAt ? Date.parse(item.snippet.publishedAt) : Date.now();
       return {
