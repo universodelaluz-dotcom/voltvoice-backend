@@ -303,6 +303,10 @@ router.get('/auth/callback', async (req, res) => {
     const failUrl = new URL(returnUrl || fallbackErrorUrl);
     failUrl.searchParams.set('youtube_auth', 'error');
     failUrl.searchParams.set('reason', 'oauth_callback_failed');
+    failUrl.searchParams.set(
+      'reason_detail',
+      String(callbackErr?.message || callbackErr || 'unknown_oauth_error').slice(0, 120)
+    );
     return res.redirect(failUrl.toString());
   }
 });
