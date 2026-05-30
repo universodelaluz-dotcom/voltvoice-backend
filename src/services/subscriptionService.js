@@ -14,7 +14,7 @@ const PLAN_CATALOG = {
 
 const PLAN_CLONE_SLOTS = {
   free: 0,
-  base: 0,
+  base: 1,
   pack_lite: 1,
   pack_pro: 3,
   pack_max: 6,

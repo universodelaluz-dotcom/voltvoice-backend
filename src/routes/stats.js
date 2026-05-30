@@ -6,7 +6,7 @@ const router = express.Router();
 
 const CLONED_VOICE_LIMITS = {
   free: 0,
-  base: 0,
+  base: 1,
   pack_lite: 1,
   pack_pro: 3,
   pack_max: 6,
@@ -27,7 +27,7 @@ const normalizePublicPlan = (planValue = 'free') => {
 const resolveCloneVoiceLimit = async ({ userId, planValue, slotBonus = 0, periodStart = null }) => {
   const plan = normalizePublicPlan(planValue);
   if (plan === 'admin') return 999;
-  if (plan === 'free' || plan === 'base') return 0;
+  if (plan === 'free') return 0;
   const base = Number(CLONED_VOICE_LIMITS[plan] ?? 0);
   const bonus = Math.max(0, Number(slotBonus || 0));
   if (bonus > 0) return base + bonus;
