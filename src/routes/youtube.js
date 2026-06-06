@@ -408,8 +408,10 @@ router.post('/chat/connect', async (req, res) => {
       channelTitle: String(video?.snippet?.channelTitle || oauthRow?.channel_title || ''),
     });
   } catch (connectErr) {
-    console.error('[YouTube Chat] connect error:', connectErr?.message || connectErr);
-    return res.status(500).json({ success: false, error: 'No se pudo conectar al chat de YouTube' });
+    const ytMsg = connectErr?.response?.data?.error?.message || connectErr?.message || String(connectErr);
+    const ytCode = connectErr?.response?.data?.error?.code || connectErr?.response?.status || 500;
+    console.error('[YouTube Chat] connect error:', ytMsg, '| code:', ytCode);
+    return res.status(500).json({ success: false, error: `YouTube API: ${ytMsg}` });
   }
 });
 
