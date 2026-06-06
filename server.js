@@ -707,6 +707,13 @@ import pool from './src/db.js';
       );
       CREATE INDEX IF NOT EXISTS idx_youtube_oauth_connections_user ON youtube_oauth_connections(user_id);
       CREATE INDEX IF NOT EXISTS idx_youtube_oauth_connections_channel ON youtube_oauth_connections(channel_id);
+      DO $$ BEGIN
+        BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_chat_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+        BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_video_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+        BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_stream_url TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+        BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_next_page_token TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+        BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_connected_at TIMESTAMP; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      END $$;
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {

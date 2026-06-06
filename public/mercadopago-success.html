@@ -1,0 +1,47 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Completando pago...</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f0f23; color: white; }
+        .container { text-align: center; }
+        .spinner { width: 50px; height: 50px; border: 4px solid rgba(34,211,238,0.2); border-top: 4px solid #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>Completando tu pago...</h2>
+        <p>Un momento, estamos procesando tu compra</p>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const preferenceId = params.get('preference_id') || params.get('preapproval_id') || '';
+        const isFailure = params.get('status') === 'failure' ||
+                         params.get('status') === 'pending' ||
+                         (params.has('external_reference') && params.get('status') === 'rejected');
+        const status = isFailure ? 'failure' : 'success';
+
+        const nextRaw = params.get('next') || '/';
+        let nextPath = '/';
+        try {
+            const parsedNext = new URL(nextRaw, window.location.origin);
+            if (parsedNext.origin === window.location.origin) nextPath = parsedNext.pathname || '/';
+        } catch (_) {
+            if (String(nextRaw || '').startsWith('/')) nextPath = String(nextRaw);
+        }
+
+        const cleanPath = nextPath.replace(/\/+$/, '') || '/';
+        const basePath = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
+        const redirectUrl = `${basePath}?payment=${status}&provider=mercadopago&preference_id=${encodeURIComponent(preferenceId)}`;
+
+        setTimeout(() => {
+            window.location.href = redirectUrl;
+        }, 500);
+    </script>
+</body>
+</html>

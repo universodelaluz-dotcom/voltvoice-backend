@@ -1,0 +1,983 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script>
+    (function () {
+      const key = 'voltvoice-theme';
+      const saved = localStorage.getItem(key);
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <title>Precios StreamVoicer | Plan Base + Packs de Voces IA para TikTok LIVE</title>
+  <meta name="description" content="Plan Base $9.99 USD/mes con voces esenciales y premium. Amplia con Packs de voces clonadas por IA: Lite $9.99, Pro $24.99 y Max $49.99 USD.">
+  <link rel="canonical" href="https://streamvoicer.com/precios/">
+  <meta name="robots" content="index,follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Precios StreamVoicer | Plan Base + Packs de Voces IA">
+  <meta property="og:description" content="Plan Base $9.99/mes + Packs de voces clonadas para TikTok LIVE. Lite, Pro y Max disponibles.">
+  <meta property="og:url" content="https://streamvoicer.com/precios/">
+  <meta property="og:image" content="https://streamvoicer.com/images/web1.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg: #070b16;
+      --panel: #0f172a;
+      --line: #27324b;
+      --text: #e5e7eb;
+      --muted: #a5b4cc;
+      --c1: #22d3ee;
+      --c2: #60a5fa;
+      --c3: #f59e0b;
+      --ok: #34d399;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(1100px 500px at 15% -15%, #112f3f 0%, transparent 60%),
+        radial-gradient(900px 420px at 95% 0%, #331b49 0%, transparent 50%),
+        var(--bg);
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 1220px; margin: 0 auto; padding: 36px 24px 90px; }
+    .nav {
+      display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;
+      background: rgba(15, 23, 42, .65); border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+      backdrop-filter: blur(6px);
+    }
+    .nav a {
+      color: #dbeafe; text-decoration: none; font-weight: 700; font-size: .95rem;
+      padding: 8px 12px; border-radius: 9px; border: 1px solid transparent;
+    }
+    .nav a:hover { border-color: #335582; background: #0c1a31; }
+    .hero {
+      border: 1px solid var(--line); border-radius: 20px; padding: 26px;
+      background: linear-gradient(140deg, rgba(13,28,54,.95), rgba(15,23,42,.95));
+      margin-bottom: 42px;
+    }
+    .badge {
+      display: inline-block; font-size: .8rem; font-weight: 800; letter-spacing: .4px;
+      color: #041723; background: linear-gradient(90deg, var(--c1), var(--c2));
+      padding: 6px 10px; border-radius: 999px; margin-bottom: 12px;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(1.9rem, 3.7vw, 2.8rem); }
+    .sub { margin: 0; color: var(--muted); max-width: 900px; }
+    .home-btn {
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 14px;
+      padding: 10px 14px; border-radius: 10px; font-weight: 800; text-decoration: none;
+      color: #041723; background: linear-gradient(90deg, var(--c1), var(--c2));
+      border: 1px solid #7dd3fc;
+    }
+    .home-btn:hover { filter: brightness(1.05); text-decoration: none; }
+    h2 { margin: 36px 0 18px; font-size: 1.35rem; color: #dbeafe; }
+    #section-base-title { margin-top: 10px; margin-bottom: 16px; font-size: 2rem; }
+    #section-packs-title { margin-top: 54px; margin-bottom: 10px; font-size: 2rem; }
+    #section-packs-desc { margin-bottom: 22px !important; font-size: 1.05rem; line-height: 1.75; max-width: 960px; }
+    #section-compare-title { margin-top: 56px; margin-bottom: 18px; font-size: 1.9rem; }
+    .page-cycle-wrap { display: flex; justify-content: center; margin: 24px 0 34px; }
+    .page-cycle {
+      display: inline-flex;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 16px;
+      border: 1px solid #334155;
+      background: rgba(15, 23, 42, .72);
+      backdrop-filter: blur(6px);
+    }
+    .page-cycle button {
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: transparent;
+      color: #cbd5e1;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: .2px;
+      cursor: pointer;
+      min-width: 220px;
+      min-height: 50px;
+    }
+    .page-cycle button.active {
+      color: #fff;
+      background: linear-gradient(90deg, #06b6d4, #2563eb);
+      box-shadow: 0 10px 24px rgba(37, 99, 235, .28);
+      border-color: rgba(56, 189, 248, .45);
+      animation: glowPulse 2.2s ease-in-out infinite;
+    }
+    .theme-toggle {
+      margin-left: auto;
+      border: 1px solid #3a4c6b;
+      background: #0d1b33;
+      color: #dbeafe;
+      border-radius: 9px;
+      padding: 8px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .theme-toggle:hover { background: #11254a; }
+
+    /* Base Plan */
+    .base-plan {
+      border: 2px solid var(--c1);
+      border-radius: 20px; padding: 30px;
+      background: linear-gradient(140deg, rgba(13,28,54,.95), rgba(15,23,42,.98));
+      margin-bottom: 34px;
+      position: relative;
+      animation: floatSoft 5s ease-in-out infinite;
+    }
+    .popular-badge {
+      position: absolute; top: -14px; left: 28px;
+      font-size: .78rem; font-weight: 900;
+      color: #041723; background: linear-gradient(90deg, var(--c1), var(--c2));
+      padding: 5px 14px; border-radius: 999px;
+    }
+    .price-big { font-size: 2.65rem; font-weight: 900; color: var(--c1); margin: 10px 0 4px; }
+    .price-period { font-size: 1.06rem; color: var(--muted); }
+    .feature-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 18px 0;
+    }
+    .feature-item {
+      display: flex; align-items: center; gap: 8px; font-size: 1.02rem;
+    }
+    .check { color: var(--ok); font-weight: 900; }
+    .tokens-box {
+      display: inline-block; background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.3);
+      border-radius: 10px; padding: 10px 18px; margin: 12px 0;
+      font-size: 1.02rem; font-weight: 800; color: var(--c1);
+    }
+    .func-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px;
+    }
+    .func-item {
+      background: rgba(255,255,255,.05); border-radius: 8px; padding: 10px 8px;
+      text-align: center; font-size: .92rem;
+    }
+    .cta-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      border-radius: 11px;
+      padding: 13px 16px;
+      font-weight: 900;
+      font-size: 1.02rem;
+      text-decoration: none;
+      color: #fff;
+      border: 1px solid transparent;
+      margin-top: 16px;
+      transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+    }
+    .cta-btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    .cta-base { background: linear-gradient(90deg, #0891b2, #2563eb); box-shadow: 0 8px 20px rgba(37,99,235,.28); }
+    .cta-lite { background: linear-gradient(90deg, #06b6d4, #3b82f6); box-shadow: 0 8px 20px rgba(59,130,246,.28); }
+    .cta-pro { background: linear-gradient(90deg, #ec4899, #f43f5e); box-shadow: 0 8px 20px rgba(244,63,94,.28); }
+    .cta-max { background: linear-gradient(90deg, #f97316, #ef4444); box-shadow: 0 8px 20px rgba(239,68,68,.28); }
+
+    /* Packs */
+    .packs-grid {
+      display: grid; grid-template-columns: repeat(1, 1fr); gap: 22px;
+      margin-bottom: 40px;
+    }
+    .pack {
+      border: 1px solid var(--line); border-radius: 16px; padding: 28px;
+      background: linear-gradient(180deg, #111827, #0b1428);
+      position: relative;
+      min-height: 620px;
+      display: flex;
+      flex-direction: column;
+      animation: floatSoft 5.4s ease-in-out infinite;
+    }
+    .pack.recommended {
+      border-color: #ec4899;
+      box-shadow: 0 0 0 1px #9d174d, 0 8px 30px rgba(236,72,153,.2);
+      animation: glowPulsePink 2.4s ease-in-out infinite;
+    }
+    .rec-badge {
+      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+      font-size: .75rem; font-weight: 900; white-space: nowrap;
+      color: #fff; background: linear-gradient(90deg, #ec4899, #f43f5e);
+      padding: 4px 14px; border-radius: 999px;
+    }
+    .pack-name { font-size: 1.9rem; font-weight: 900; margin-bottom: 12px; line-height: 1.05; }
+    .pack-price { font-size: 3.6rem; font-weight: 900; margin: 12px 0 16px; letter-spacing: -.9px; line-height: .95; }
+    .pack-price span { font-size: inherit; font-weight: inherit; color: inherit; letter-spacing: inherit; }
+    .pack-price span:last-child { font-size: 1.24rem; font-weight: 800; color: #dbeafe; letter-spacing: 0; margin-left: 8px; }
+    #pack-lite-price { color: #30d8ff; text-shadow: 0 8px 24px rgba(48, 216, 255, .28); }
+    #pack-pro-price { color: #ff5ca9; text-shadow: 0 8px 24px rgba(255, 92, 169, .28); }
+    #pack-max-price { color: #ff8a3d; text-shadow: 0 8px 24px rgba(255, 138, 61, .28); }
+    .pack-voices {
+      border-radius: 10px; padding: 13px 15px; margin: 16px 0 14px;
+      font-weight: 900; font-size: 1.22rem; color: #fff;
+    }
+    .pack-voices small { display: block; font-size: .92rem; font-weight: 600; opacity: .85; }
+    .pack-tokens {
+      border-radius: 10px; padding: 14px 15px; margin-bottom: 14px;
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+    }
+    .pack-tokens strong { display: block; font-size: 1.36rem; }
+    .pack-tokens small { font-size: .95rem; color: var(--muted); }
+    .pack-desc { font-size: 1.12rem; line-height: 1.7; color: #b8c4d8; margin-bottom: 12px; min-height: 0; }
+    .monthly-bundle-switch {
+      display: inline-flex;
+      gap: 6px;
+      margin: 16px 0 20px;
+      padding: 8px;
+      border-radius: 14px;
+      border: 1px solid #334155;
+      background: #0f172a;
+    }
+    .pack .cta-btn { margin-top: auto; padding-top: 14px; padding-bottom: 14px; }
+    .monthly-bundle-switch button {
+      border: 0;
+      border-radius: 11px;
+      padding: 12px 22px;
+      min-height: 54px;
+      font-size: 1.12rem;
+      font-weight: 900;
+      color: #cbd5e1;
+      background: transparent;
+      cursor: pointer;
+      letter-spacing: .2px;
+    }
+    .monthly-bundle-switch button.active {
+      color: #ecfeff;
+      background: linear-gradient(90deg, #0ea5e9, #2563eb);
+      box-shadow: 0 6px 14px rgba(14,165,233,.28);
+    }
+
+    /* Comparison */
+    .comparison {
+      width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 16px;
+      border: 1px solid #2b3f64; background: linear-gradient(180deg, #0f1a31, #0c152a);
+      box-shadow: 0 16px 34px rgba(2, 6, 23, .34);
+    }
+    .comparison th, .comparison td { padding: 14px 12px; border-bottom: 1px solid #203252; text-align: left; font-size: 1rem; }
+    .comparison th { background: linear-gradient(180deg, #102342, #0f1f3a); color: #dbeafe; font-weight: 900; font-size: 1.08rem; }
+    .comparison tbody tr:nth-child(even) td { background: rgba(18, 34, 60, .25); }
+    .comparison tbody tr:first-child td:not(:first-child) { font-size: 1.55rem; font-weight: 900; letter-spacing: -.4px; }
+    .comparison tbody tr:first-child td:nth-child(2) { color: #33d4ff; }
+    .comparison tbody tr:first-child td:nth-child(3) { color: #33d4ff; }
+    .comparison tbody tr:first-child td:nth-child(4) { color: #ff5ca9; }
+    .comparison tbody tr:first-child td:nth-child(5) { color: #ff8a3d; }
+    .comparison tbody tr:last-child td { font-weight: 700; }
+    .comparison tr:last-child td { border-bottom: none; }
+    .note {
+      margin-top: 18px; border: 1px dashed #355582; border-radius: 14px; padding: 14px;
+      background: rgba(8,30,48,.5); color: #bfd0e8; font-size: .9rem;
+    }
+    .small { font-size: .85rem; color: var(--muted); }
+
+    /* Light theme */
+    html[data-theme="light"] body {
+      color: #0f172a;
+      background:
+        radial-gradient(1100px 500px at 15% -15%, #d8e8ff 0%, transparent 60%),
+        radial-gradient(900px 420px at 95% 0%, #e9dcff 0%, transparent 50%),
+        #f4f8ff;
+    }
+    html[data-theme="light"] .nav { background: rgba(255,255,255,.82); border-color: #d6e0ed; }
+    html[data-theme="light"] .nav a { color: #0f172a; }
+    html[data-theme="light"] .nav a:hover { background: #e8f0ff; border-color: #c7d6ee; }
+    html[data-theme="light"] .theme-toggle { background: #ffffff; color: #0f172a; border-color: #c8d5ea; }
+    html[data-theme="light"] .hero { background: linear-gradient(140deg, rgba(255,255,255,.96), rgba(242,248,255,.96)); border-color: #d6e0ed; }
+    html[data-theme="light"] h1, html[data-theme="light"] h2 { color: #0f172a; }
+    html[data-theme="light"] .sub, html[data-theme="light"] .small, html[data-theme="light"] .note { color: #334155; }
+    html[data-theme="light"] .base-plan { background: linear-gradient(140deg, #f0f9ff, #e8f4ff); border-color: var(--c1); }
+    html[data-theme="light"] .pack { background: linear-gradient(180deg, #ffffff, #f8fbff); border-color: #d6e0ed; }
+    html[data-theme="light"] .pack.recommended { border-color: #ec4899; }
+    html[data-theme="light"] .tokens-box { background: rgba(34,211,238,.08); }
+    html[data-theme="light"] .func-item { background: rgba(0,0,0,.04); color: #0f172a; }
+    html[data-theme="light"] .feature-item { color: #0f172a; }
+    html[data-theme="light"] .pack-desc { color: #334155; }
+    html[data-theme="light"] .pack-tokens { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.1); }
+    html[data-theme="light"] .pack-tokens small { color: #334155; }
+    html[data-theme="light"] .comparison { background: #ffffff; }
+    html[data-theme="light"] .comparison th { background: #ecf3ff; color: #1e293b; }
+    html[data-theme="light"] .comparison td { border-bottom-color: #dbe5f3; }
+    html[data-theme="light"] .note { border-color: #cdd9ec; background: rgba(255,255,255,.95); }
+
+    @media (min-width: 700px) {
+      .feature-grid { grid-template-columns: repeat(4, 1fr); }
+      .func-grid { grid-template-columns: repeat(6, 1fr); }
+      .packs-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 700px) {
+      .wrap { padding: 26px 14px 72px; }
+      #section-base-title, #section-packs-title, #section-compare-title { font-size: 1.55rem; }
+      .page-cycle { width: 100%; }
+      .page-cycle button { min-width: 0; flex: 1; font-size: .92rem; padding: 10px 12px; min-height: 44px; }
+      .base-plan { padding: 22px; }
+      .pack { padding: 22px; min-height: 0; }
+      .pack-name { font-size: 1.6rem; }
+      .pack-price { font-size: 2.55rem; }
+      .pack-price span:last-child { font-size: 1.02rem; }
+      .monthly-bundle-switch button { min-height: 48px; font-size: 1rem; padding: 10px 16px; }
+      .comparison th, .comparison td { font-size: .92rem; padding: 10px 8px; }
+      .comparison tbody tr:first-child td:not(:first-child) { font-size: 1.22rem; }
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 10px 24px rgba(37, 99, 235, .26); }
+      50% { box-shadow: 0 0 0 1px rgba(56,189,248,.45), 0 14px 30px rgba(14,165,233,.38); }
+    }
+    @keyframes glowPulsePink {
+      0%, 100% { box-shadow: 0 0 0 1px #9d174d, 0 8px 30px rgba(236,72,153,.2); }
+      50% { box-shadow: 0 0 0 1px #ec4899, 0 14px 34px rgba(244,114,182,.34); }
+    }
+    @keyframes floatSoft {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <nav class="nav">
+      <a href="/">Inicio</a>
+      <a href="/faq/">FAQ</a>
+      <a href="/como-funciona/">C&oacute;mo funciona</a>
+      <button id="themeToggle" class="theme-toggle" type="button">Cambiar tema</button>
+    </nav>
+
+    <section class="hero">
+      <span class="badge">NUEVA ESTRUCTURA DE PRECIOS</span>
+      <h1>Un plan base. Ampl&iacute;a con voces clonadas.</h1>
+      <p class="sub">Empieza con el Plan Base y a&ntilde;ade packs de personajes con voz clonada por IA seg&uacute;n tus necesidades. Sin complicaciones.</p>
+      <a class="home-btn" href="/">&#x1F3E0; Ir a la p&aacute;gina principal</a>
+    </section>
+
+    <h2 id="section-base-title">Plan Base - incluido en tu suscripci&oacute;n</h2>
+    <div class="base-plan">
+      <span class="popular-badge">&#x2728; EL M&Aacute;S POPULAR</span>
+      <div id="base-plan-name" style="font-size:1.1rem; font-weight:900; margin-top:6px;">&#x1F3AF; PLAN BASE</div>
+      <div class="price-big"><span id="base-plan-price">$9.99</span> <span id="base-plan-period" class="price-period">USD / mes</span></div>
+      <p id="base-plan-desc" style="color:var(--muted); margin:0 0 10px; font-size:.93rem;">El plan perfecto para empezar a streamear con IA</p>
+
+      <div id="base-plan-tokens" class="tokens-box">20,000 caracteres / mes incluidos</div>
+
+      <h2 style="margin:14px 0 8px; font-size:1rem;">&#x1F399;&#xFE0F; Voces incluidas</h2>
+      <div class="feature-grid">
+        <div class="feature-item"><span class="check">&#10003;</span> 2 voces esenciales ilimitadas</div>
+        <div class="feature-item"><span class="check">&#10003;</span> 2 voces premium</div>
+        <div class="feature-item"><span class="check">&#10003;</span> Control de calidad de audio</div>
+        <div class="feature-item"><span class="check">&#10003;</span> Soporte prioritario</div>
+      </div>
+
+      <h2 style="margin:14px 0 8px; font-size:1rem;">&#x2728; Funciones incluidas</h2>
+      <div class="func-grid">
+        <div class="func-item">&#x1F3A8;<br>Filtros avanzados</div>
+        <div class="func-item">&#x1F916;<br>Smart filter</div>
+        <div class="func-item">&#x1F464;<br>Cambiar nick</div>
+        <div class="func-item">&#x1F507;<br>Silenciado</div>
+        <div class="func-item">&#x1F6E1;&#xFE0F;<br>Anti-spam</div>
+        <div class="func-item">&#x1F4CA;<br>Analytics</div>
+      </div>
+      <a id="base-plan-cta" class="cta-btn cta-base" href="#" data-plan-id="base">&#x1F3AF; Comprar Plan Base</a>
+    </div>
+
+    <h2 id="section-packs-title">Packs de voces clonadas - a&ntilde;ade personajes a tu stream</h2>
+    <p id="section-packs-desc" class="small" style="margin-bottom:14px;">Los packs son compras independientes que se suman a tu Plan Base. Comb&iacute;nalos para crear tu elenco de personajes con voz propia.</p>
+    <div class="page-cycle-wrap">
+      <div class="page-cycle" role="tablist" aria-label="Ciclo de facturación">
+        <button id="page-cycle-monthly" type="button" class="active">Mensual</button>
+        <button id="page-cycle-annual" type="button">Anual (2 meses gratis)</button>
+      </div>
+    </div>
+
+    <section class="packs-grid">
+
+      <article class="pack">
+        <div style="font-size:2.6rem; margin-bottom:6px;">&#x26A1;</div>
+        <div id="pack-lite-name" class="pack-name">PACK LITE</div>
+        <p id="pack-lite-desc" class="pack-desc">Un personaje clonado para tu stream</p>
+        <div class="pack-price"><span id="pack-lite-price">$9.99</span> <span id="pack-lite-period">USD</span></div>
+        <div id="pack-lite-switch" class="monthly-bundle-switch">
+          <button type="button" data-plan="pack_lite" data-mode="pack">Solo pack</button>
+          <button type="button" data-plan="pack_lite" data-mode="bundle">Base + Pack</button>
+        </div>
+        <div class="pack-voices" style="background:linear-gradient(90deg,#06b6d4,#3b82f6);">
+          +1 Voz clonada
+          <small>Para usar voces premium y tus personajes</small>
+        </div>
+        <div class="pack-tokens">
+          <strong id="pack-lite-tokens">50K tokens</strong>
+          <small>50 min - 1.5 h</small>
+          <small>Impulsa voces premium y personajes IA. Optimiza con filtros y multiplica el rendimiento hasta 15x.</small>
+        </div>
+        <a id="pack-lite-cta" class="cta-btn cta-lite" href="#" data-plan-id="pack_lite">&#x26A1; Agregar Pack Lite</a>
+      </article>
+
+      <article class="pack recommended">
+        <span class="rec-badge">&#x2B50; RECOMENDADO</span>
+        <div style="font-size:2.6rem; margin-bottom:6px; margin-top:10px;">&#x1F525;</div>
+        <div id="pack-pro-name" class="pack-name">PACK PRO</div>
+        <p id="pack-pro-desc" class="pack-desc">Tres personajes clonados para tu elenco</p>
+        <div class="pack-price"><span id="pack-pro-price">$24.99</span> <span id="pack-pro-period">USD</span></div>
+        <div id="pack-pro-switch" class="monthly-bundle-switch">
+          <button type="button" data-plan="pack_pro" data-mode="pack">Solo pack</button>
+          <button type="button" data-plan="pack_pro" data-mode="bundle">Base + Pack</button>
+        </div>
+        <div class="pack-voices" style="background:linear-gradient(90deg,#ec4899,#f43f5e);">
+          +3 Voces clonadas
+          <small>Para usar voces premium y tus personajes</small>
+        </div>
+        <div class="pack-tokens">
+          <strong id="pack-pro-tokens">250K tokens</strong>
+          <small>4 - 7 h</small>
+          <small>Impulsa voces premium y personajes IA. Optimiza con filtros y multiplica el rendimiento hasta 15x.</small>
+        </div>
+        <a id="pack-pro-cta" class="cta-btn cta-pro" href="#" data-plan-id="pack_pro">&#x1F525; Agregar Pack Pro</a>
+      </article>
+
+      <article class="pack">
+        <div style="font-size:2.6rem; margin-bottom:6px;">&#x2B50;</div>
+        <div id="pack-max-name" class="pack-name">PACK MAX</div>
+        <p id="pack-max-desc" class="pack-desc">Seis personajes clonados para tu universo</p>
+        <div class="pack-price"><span id="pack-max-price">$49.99</span> <span id="pack-max-period">USD</span></div>
+        <div id="pack-max-switch" class="monthly-bundle-switch">
+          <button type="button" data-plan="pack_max" data-mode="pack">Solo pack</button>
+          <button type="button" data-plan="pack_max" data-mode="bundle">Base + Pack</button>
+        </div>
+        <div class="pack-voices" style="background:linear-gradient(90deg,#f97316,#ef4444);">
+          +6 Voces clonadas
+          <small>Para usar voces premium y tus personajes</small>
+        </div>
+        <div class="pack-tokens">
+          <strong id="pack-max-tokens">500K tokens</strong>
+          <small>8 - 14 h</small>
+          <small>Impulsa voces premium y personajes IA. Optimiza con filtros y multiplica el rendimiento hasta 15x.</small>
+        </div>
+        <a id="pack-max-cta" class="cta-btn cta-max" href="#" data-plan-id="pack_max">&#x2B50; Agregar Pack Max</a>
+      </article>
+
+    </section>
+
+    <h2 id="section-compare-title">Comparativa r&aacute;pida</h2>
+    <table class="comparison" aria-label="Comparativa de packs StreamVoicer">
+      <thead>
+        <tr>
+          <th>Caracter&iacute;stica</th>
+          <th>Plan Base</th>
+          <th>+ Pack Lite</th>
+          <th>+ Pack Pro</th>
+          <th>+ Pack Max</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Precio</td><td id="cmp-price-base">$9.99/mes</td><td id="cmp-price-lite">+$9.99</td><td id="cmp-price-pro">+$24.99</td><td id="cmp-price-max">+$49.99</td></tr>
+        <tr><td>Voces esenciales</td><td>2 ilimitadas</td><td>2 ilimitadas</td><td>2 ilimitadas</td><td>2 ilimitadas</td></tr>
+        <tr><td>Voces premium</td><td>2</td><td>2</td><td>2</td><td>2</td></tr>
+        <tr><td>Voces clonadas por IA</td><td>-</td><td>+1</td><td>+3</td><td>+6</td></tr>
+        <tr><td>Tokens totales</td><td id="cmp-tokens-base">20K</td><td id="cmp-tokens-lite">50K</td><td id="cmp-tokens-pro">250K</td><td id="cmp-tokens-max">500K</td></tr>
+        <tr>
+          <td id="cmp-features-label">Funciones y herramientas</td>
+          <td id="cmp-features-base">Solo Funciones avanzadas</td>
+          <td id="cmp-features-lite">Funciones avanzadas + IA</td>
+          <td id="cmp-features-pro">Funciones avanzadas + IA</td>
+          <td id="cmp-features-max">Funciones avanzadas + IA</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <section id="pricing-note" class="note">
+      <strong>Nota:</strong> Los packs de voces clonadas son compras &uacute;nicas que se acumulan sobre tu Plan Base mensual. Los tiempos mostrados son estimaciones bajo condiciones promedio de uso. Y mejorar&aacute; si usas las herramientas que te damos. Los importes en moneda local pueden variar seg&uacute;n tipo de cambio del d&iacute;a.
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const key = 'voltvoice-theme';
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      const updateLabel = (theme) => {
+        btn.textContent = theme === 'dark' ? 'Modo claro' : 'Modo oscuro';
+      };
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      updateLabel(current);
+      btn.addEventListener('click', function () {
+        const now = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', now);
+        localStorage.setItem(key, now);
+        updateLabel(now);
+      });
+    })();
+
+    (function () {
+      const TOKEN_API_KEY = 'sv-token-api-v1';
+      const resolveApiCandidates = () => {
+        const fromQuery = new URLSearchParams(window.location.search).get('api');
+        const localApi = 'http://localhost:8000';
+        const prodApi = 'https://voltvoice-backend.onrender.com';
+        const fromSessionApi = String(localStorage.getItem(TOKEN_API_KEY) || '').trim();
+        const sessionCandidates = /^https?:\/\//i.test(fromSessionApi) ? [fromSessionApi] : [];
+        if (fromQuery === 'local') return Array.from(new Set([localApi, ...sessionCandidates, prodApi]));
+        if (fromQuery === 'prod') return [prodApi];
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          return Array.from(new Set([...sessionCandidates, localApi, prodApi]));
+        }
+        return Array.from(new Set([...sessionCandidates, prodApi, localApi]));
+      };
+      const API_CANDIDATES = resolveApiCandidates();
+      const TOKEN_STORAGE_KEY = 'sv-token';
+      const TOKEN_PERSIST_KEY = 'sv-token-persist';
+      const LEGACY_PLAN_FALLBACKS = {
+        base: ['start'],
+        pack_lite: ['creator'],
+        pack_pro: ['pro'],
+        pack_max: ['elite'],
+      };
+      const PLAN_LABELS = {
+        base: 'PLAN BASE',
+        pack_lite: 'PACK LITE',
+        pack_pro: 'PACK PRO',
+        pack_max: 'PACK MAX',
+        pack_lite_combo: 'BASE + LITE',
+        pack_pro_combo: 'BASE + PRO',
+        pack_max_combo: 'BASE + MAX',
+      };
+      const MONTHLY_COMBO_MODE = {
+        pack_lite: { mode: 'pack', comboPlanId: 'pack_lite_combo', comboPrice: 19.98, comboTitle: 'BASE + LITE Mensual (1 transacción)', comboMxn: 'Aprox. $346 MXN' },
+        pack_pro: { mode: 'pack', comboPlanId: 'pack_pro_combo', comboPrice: 34.98, comboTitle: 'BASE + PRO Mensual (1 transacción)', comboMxn: 'Aprox. $605 MXN' },
+        pack_max: { mode: 'pack', comboPlanId: 'pack_max_combo', comboPrice: 59.98, comboTitle: 'BASE + MAX Mensual (1 transacción)', comboMxn: 'Aprox. $1,038 MXN' },
+      };
+      const PLAN_MODAL_DETAILS = {
+        monthly: {
+          base: { title: 'PLAN BASE Mensual', price: '$9.99 USD - facturacion mensual', mxn: 'Aprox. $173 MXN' },
+          pack_lite: { title: 'PACK LITE Mensual', price: '$9.99 USD - facturacion mensual', mxn: 'Aprox. $173 MXN' },
+          pack_pro: { title: 'PACK PRO Mensual', price: '$24.99 USD - facturacion mensual', mxn: 'Aprox. $432 MXN' },
+          pack_max: { title: 'PACK MAX Mensual', price: '$49.99 USD - facturacion mensual', mxn: 'Aprox. $864 MXN' },
+          pack_lite_combo: { title: 'BASE + LITE Mensual (1 transacción)', price: '$19.98 USD - facturacion mensual', mxn: 'Aprox. $346 MXN' },
+          pack_pro_combo: { title: 'BASE + PRO Mensual (1 transacción)', price: '$34.98 USD - facturacion mensual', mxn: 'Aprox. $605 MXN' },
+          pack_max_combo: { title: 'BASE + MAX Mensual (1 transacción)', price: '$59.98 USD - facturacion mensual', mxn: 'Aprox. $1,038 MXN' }
+        },
+        annual: {
+          base: { title: 'PLAN BASE Anual', price: '$99.90 USD - suscripcion anual (2 meses gratis)', mxn: 'Aprox. $1,730 MXN' },
+          pack_lite: { title: 'BASE + LITE Anual', price: '$199.80 USD - suscripcion anual (2 meses gratis)', mxn: 'Aprox. $3,460 MXN' },
+          pack_pro: { title: 'BASE + PRO Anual', price: '$349.80 USD - suscripcion anual (2 meses gratis)', mxn: 'Aprox. $6,054 MXN' },
+          pack_max: { title: 'BASE + MAX Anual', price: '$599.80 USD - suscripcion anual (2 meses gratis)', mxn: 'Aprox. $10,380 MXN' }
+        }
+      };
+      const PAGE_PLAN_DETAILS = {
+        monthly: {
+          base: { name: 'PLAN BASE', price: '$9.99', period: 'USD / mes', desc: 'El plan perfecto para empezar a streamear con IA', tokens: '20,000 caracteres / mes incluidos', cta: 'Comprar Plan Base' },
+          pack_lite: { name: 'PACK LITE', price: '$9.99', period: 'USD', desc: 'Un personaje clonado para tu stream', cta: '\u26A1 Agregar Pack Lite' },
+          pack_pro: { name: 'PACK PRO', price: '$24.99', period: 'USD', desc: 'Tres personajes clonados para tu elenco', cta: 'Agregar Pack Pro' },
+          pack_max: { name: 'PACK MAX', price: '$49.99', period: 'USD', desc: 'Seis personajes clonados para tu universo', cta: '\u2B50 Agregar Pack Max' },
+          sectionBaseTitle: 'Plan Base - incluido en tu suscripción',
+          sectionPacksTitle: 'Packs de voces clonadas - añade personajes a tu stream',
+          sectionPacksDesc: 'Los packs son compras independientes que se suman a tu Plan Base. Combínalos para crear tu elenco de personajes con voz propia.',
+          sectionCompareTitle: 'Comparativa rápida',
+          cmpPriceBase: '$9.99/mes',
+          cmpPriceLite: '+$9.99',
+          cmpPricePro: '+$24.99',
+          cmpPriceMax: '+$49.99',
+          cmpFeaturesLabel: 'Funciones y herramientas',
+          cmpFeaturesBase: 'Solo Funciones avanzadas',
+          cmpFeaturesLite: 'Funciones avanzadas + IA',
+          cmpFeaturesPro: 'Funciones avanzadas + IA',
+          cmpFeaturesMax: 'Funciones avanzadas + IA',
+          note: 'Nota: Los packs de voces clonadas son compras únicas que se acumulan sobre tu Plan Base mensual. Los tiempos mostrados son estimaciones bajo condiciones promedio de uso. Y mejorará si usas las herramientas que te damos. Los importes en moneda local pueden variar según tipo de cambio del día.'
+        },
+        annual: {
+          base: { name: 'PLAN BASE ANUAL', price: '$99.90', period: 'USD / año', desc: 'Suscripción anual con 2 meses gratis', tokens: '20,000 caracteres / mes incluidos (12 meses)', cta: 'Comprar Plan Base Anual' },
+          pack_lite: { name: 'BASE + LITE', price: '$199.80', period: 'USD / año', desc: 'Suscripción anual Base + Lite (2 meses gratis)', cta: '\u26A1 Suscribirme Base + Lite' },
+          pack_pro: { name: 'BASE + PRO', price: '$349.80', period: 'USD / año', desc: 'Suscripción anual Base + Pro (2 meses gratis)', cta: 'Suscribirme Base + Pro' },
+          pack_max: { name: 'BASE + MAX', price: '$599.80', period: 'USD / año', desc: 'Suscripción anual Base + Max (2 meses gratis)', cta: '\u2B50 Suscribirme Base + Max' },
+          sectionBaseTitle: 'Plan Base anual - suscripción',
+          sectionPacksTitle: 'Planes anuales combinados - Base + Pack',
+          sectionPacksDesc: 'En anual los packs se vuelven combos de suscripción: Base + Lite, Base + Pro o Base + Max. Incluyen 2 meses gratis.',
+          sectionCompareTitle: 'Comparativa rápida anual',
+          cmpPriceBase: '$99.90/año',
+          cmpPriceLite: '$199.80/año',
+          cmpPricePro: '$349.80/año',
+          cmpPriceMax: '$599.80/año',
+          cmpFeaturesLabel: 'Funciones y herramientas',
+          cmpFeaturesBase: 'Solo Funciones avanzadas',
+          cmpFeaturesLite: 'Funciones avanzadas + IA',
+          cmpFeaturesPro: 'Funciones avanzadas + IA',
+          cmpFeaturesMax: 'Funciones avanzadas + IA',
+          note: 'Nota: En anual se cobra suscripción (12 meses con promo de 2 meses gratis). Los importes en moneda local pueden variar según tipo de cambio del día.'
+        }
+      };
+
+      const getAuthToken = () =>
+        sessionStorage.getItem(TOKEN_STORAGE_KEY) ||
+        localStorage.getItem(TOKEN_PERSIST_KEY) ||
+        '';
+
+      const setButtonState = (button, loading, fallbackText) => {
+        if (!button) return;
+        if (loading) {
+          button.dataset.prevText = button.textContent || fallbackText;
+          button.textContent = 'Procesando pago...';
+          button.style.pointerEvents = 'none';
+          button.style.opacity = '0.75';
+        } else {
+          button.textContent = button.dataset.prevText || fallbackText;
+          button.style.pointerEvents = '';
+          button.style.opacity = '';
+        }
+      };
+
+      const getCurrentReturnUrlBase = () => {
+        return `${window.location.origin}/`;
+      };
+
+      const postMercadoPago = (apiUrl, token, planId, billingCycle) => fetch(`${apiUrl}/api/mercadopago/create-preference`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          itemType: 'plan',
+          planId,
+          billingCycle,
+          returnUrlBase: getCurrentReturnUrlBase(),
+        }),
+      });
+
+      const postPayPal = (apiUrl, token, planId, billingCycle) => fetch(`${apiUrl}/api/paypal/create-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          itemType: 'plan',
+          planId,
+          billingCycle,
+          frontendOrigin: window.location.origin,
+          frontendReturnUrl: getCurrentReturnUrlBase(),
+          returnUrlBase: getCurrentReturnUrlBase(),
+        }),
+      });
+
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:radial-gradient(circle at 15% 10%, rgba(34,211,238,.20), transparent 42%), radial-gradient(circle at 85% 0%, rgba(236,72,153,.14), transparent 46%), rgba(2,6,23,.84);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px;backdrop-filter: blur(10px);';
+      modal.innerHTML = `
+        <div style="max-width:440px;width:100%;border:1px solid #0ea5e9;background:linear-gradient(180deg,#0b1027,#16072f);border-radius:18px;padding:20px;color:#e5e7eb;box-shadow:0 30px 90px rgba(2,6,23,.78);position:relative;">
+          <button id="close-payment-modal-x" type="button" aria-label="Cerrar" style="position:absolute;top:12px;right:12px;border:0;background:transparent;color:#94a3b8;font-size:26px;line-height:1;cursor:pointer;">&times;</button>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+            <div style="font-size:28px;color:#22d3ee;">&#9889;</div>
+            <div style="font-weight:900;font-size:2rem;letter-spacing:.2px;background:linear-gradient(90deg,#22d3ee,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent;">Comprar Plan</div>
+          </div>
+          <div style="border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:12px 14px;background:rgba(148,163,184,.08);margin-bottom:14px;">
+            <div id="payment-plan-title" style="font-size:1.02rem;font-weight:900;color:#22d3ee;margin-bottom:2px;"></div>
+            <div id="payment-plan-label" style="font-size:.94rem;color:#e2e8f0;margin-bottom:4px;"></div>
+            <div id="payment-plan-mxn" style="font-size:.78rem;color:#94a3b8;"></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button id="billing-monthly" style="flex:1;border:1px solid #334155;background:#0f172a;color:#cbd5e1;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer;">Mensual</button>
+            <button id="billing-annual" style="flex:1;border:1px solid #14532d;background:#052e16;color:#bbf7d0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer;">Anual (2 meses gratis)</button>
+          </div>
+          <div style="font-size:.92rem;color:#94a3b8;text-align:center;margin:2px 0 12px;">Elige m&eacute;todo de pago</div>
+          <div id="payment-status" style="display:none;font-size:.84rem;padding:9px 11px;border-radius:11px;margin-bottom:12px;background:rgba(15,23,42,.6);border:1px solid #334155;color:#cbd5e1;"></div>
+          <button id="pay-with-mercadopago" style="width:100%;border:0;border-radius:12px;padding:12px 12px;font-weight:900;color:#fff;background:linear-gradient(90deg,#10bce2,#0ea5e9);cursor:pointer;margin-bottom:10px;box-shadow:0 12px 26px rgba(14,165,233,.28);">Pagar con Mercado Pago</button>
+          <button id="pay-with-paypal" style="width:100%;border:0;border-radius:12px;padding:12px 12px;font-weight:900;color:#0f172a;background:#f5c542;cursor:pointer;margin-bottom:10px;box-shadow:0 12px 26px rgba(245,197,66,.22);">Pagar con PayPal</button>
+          <button id="close-payment-modal" style="width:100%;border:0;background:transparent;color:#94a3b8;font-size:1.02rem;font-weight:700;padding:4px;cursor:pointer;margin-bottom:10px;">Cancelar</button>
+          <div style="font-size:.78rem;color:#64748b;text-align:center;">Pagos 100% seguros - Mercado Pago y PayPal</div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const modalPlanLabel = modal.querySelector('#payment-plan-label');
+      const modalPlanTitle = modal.querySelector('#payment-plan-title');
+      const modalPlanMxn = modal.querySelector('#payment-plan-mxn');
+      const paymentStatus = modal.querySelector('#payment-status');
+      const payWithMercadoPago = modal.querySelector('#pay-with-mercadopago');
+      const payWithPayPal = modal.querySelector('#pay-with-paypal');
+      const billingMonthlyBtn = modal.querySelector('#billing-monthly');
+      const billingAnnualBtn = modal.querySelector('#billing-annual');
+      const closePaymentModalX = modal.querySelector('#close-payment-modal-x');
+      const closePaymentModal = modal.querySelector('#close-payment-modal');
+
+      let selectedPlanId = '';
+      let selectedButton = null;
+      let selectedBillingCycle = 'monthly';
+      const pageCycleMonthlyBtn = document.getElementById('page-cycle-monthly');
+      const pageCycleAnnualBtn = document.getElementById('page-cycle-annual');
+      const monthlyBundleModeByPack = {
+        pack_lite: MONTHLY_COMBO_MODE.pack_lite.mode,
+        pack_pro: MONTHLY_COMBO_MODE.pack_pro.mode,
+        pack_max: MONTHLY_COMBO_MODE.pack_max.mode,
+      };
+
+      const setText = (id, text) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = text;
+      };
+
+      const refreshPricingSurface = () => {
+        const pageDetails = PAGE_PLAN_DETAILS[selectedBillingCycle] || PAGE_PLAN_DETAILS.monthly;
+        const base = pageDetails.base;
+        const lite = pageDetails.pack_lite;
+        const pro = pageDetails.pack_pro;
+        const max = pageDetails.pack_max;
+        const liteBundleOn = selectedBillingCycle === 'monthly' && monthlyBundleModeByPack.pack_lite === 'bundle';
+        const proBundleOn = selectedBillingCycle === 'monthly' && monthlyBundleModeByPack.pack_pro === 'bundle';
+        const maxBundleOn = selectedBillingCycle === 'monthly' && monthlyBundleModeByPack.pack_max === 'bundle';
+
+        setText('section-base-title', pageDetails.sectionBaseTitle);
+        setText('section-packs-title', pageDetails.sectionPacksTitle);
+        setText('section-packs-desc', pageDetails.sectionPacksDesc);
+        setText('section-compare-title', pageDetails.sectionCompareTitle);
+        setText('pricing-note', pageDetails.note);
+
+        setText('base-plan-name', base.name);
+        setText('base-plan-price', base.price);
+        setText('base-plan-period', base.period);
+        setText('base-plan-desc', base.desc);
+        setText('base-plan-tokens', base.tokens);
+        setText('base-plan-cta', base.cta);
+
+        setText('pack-lite-name', liteBundleOn ? 'BASE + LITE' : lite.name);
+        setText('pack-lite-price', liteBundleOn ? `$${MONTHLY_COMBO_MODE.pack_lite.comboPrice.toFixed(2)}` : lite.price);
+        setText('pack-lite-period', lite.period);
+        setText('pack-lite-desc', liteBundleOn ? 'Compra mensual en una sola transacción: Base + Lite.' : lite.desc);
+        setText('pack-lite-tokens', selectedBillingCycle === 'annual' || liteBundleOn ? '70K tokens' : '50K tokens');
+        setText('pack-lite-cta', liteBundleOn ? '\u26A1 Comprar Base + Lite' : lite.cta);
+        const liteCta = document.getElementById('pack-lite-cta');
+        if (liteCta) liteCta.setAttribute('data-plan-id', liteBundleOn ? MONTHLY_COMBO_MODE.pack_lite.comboPlanId : 'pack_lite');
+
+        setText('pack-pro-name', proBundleOn ? 'BASE + PRO' : pro.name);
+        setText('pack-pro-price', proBundleOn ? `$${MONTHLY_COMBO_MODE.pack_pro.comboPrice.toFixed(2)}` : pro.price);
+        setText('pack-pro-period', pro.period);
+        setText('pack-pro-desc', proBundleOn ? 'Compra mensual en una sola transacción: Base + Pro.' : pro.desc);
+        setText('pack-pro-tokens', selectedBillingCycle === 'annual' || proBundleOn ? '270K tokens' : '250K tokens');
+        setText('pack-pro-cta', proBundleOn ? 'Comprar Base + Pro' : pro.cta);
+        const proCta = document.getElementById('pack-pro-cta');
+        if (proCta) proCta.setAttribute('data-plan-id', proBundleOn ? MONTHLY_COMBO_MODE.pack_pro.comboPlanId : 'pack_pro');
+
+        setText('pack-max-name', maxBundleOn ? 'BASE + MAX' : max.name);
+        setText('pack-max-price', maxBundleOn ? `$${MONTHLY_COMBO_MODE.pack_max.comboPrice.toFixed(2)}` : max.price);
+        setText('pack-max-period', max.period);
+        setText('pack-max-desc', maxBundleOn ? 'Compra mensual en una sola transacción: Base + Max.' : max.desc);
+        setText('pack-max-tokens', selectedBillingCycle === 'annual' || maxBundleOn ? '520K tokens' : '500K tokens');
+        setText('pack-max-cta', maxBundleOn ? '\u2B50 Comprar Base + Max' : max.cta);
+        const maxCta = document.getElementById('pack-max-cta');
+        if (maxCta) maxCta.setAttribute('data-plan-id', maxBundleOn ? MONTHLY_COMBO_MODE.pack_max.comboPlanId : 'pack_max');
+
+        setText('cmp-price-base', pageDetails.cmpPriceBase);
+        setText('cmp-price-lite', liteBundleOn ? '$19.98/mes' : pageDetails.cmpPriceLite);
+        setText('cmp-price-pro', proBundleOn ? '$34.98/mes' : pageDetails.cmpPricePro);
+        setText('cmp-price-max', maxBundleOn ? '$59.98/mes' : pageDetails.cmpPriceMax);
+        setText('cmp-tokens-base', '20K');
+        setText('cmp-tokens-lite', selectedBillingCycle === 'annual' || liteBundleOn ? '70K' : '50K');
+        setText('cmp-tokens-pro', selectedBillingCycle === 'annual' || proBundleOn ? '270K' : '250K');
+        setText('cmp-tokens-max', selectedBillingCycle === 'annual' || maxBundleOn ? '520K' : '500K');
+        setText('cmp-features-label', pageDetails.cmpFeaturesLabel);
+        setText('cmp-features-base', pageDetails.cmpFeaturesBase);
+        setText('cmp-features-lite', pageDetails.cmpFeaturesLite);
+        setText('cmp-features-pro', pageDetails.cmpFeaturesPro);
+        setText('cmp-features-max', pageDetails.cmpFeaturesMax);
+
+        const syncBundleSwitch = (planId) => {
+          const switchEl = document.getElementById(`${planId.replace('_', '-')}-switch`);
+          if (!switchEl) return;
+          switchEl.style.display = selectedBillingCycle === 'monthly' ? 'inline-flex' : 'none';
+          switchEl.querySelectorAll('button[data-mode]').forEach((btn) => {
+            const mode = String(btn.getAttribute('data-mode') || '');
+            btn.classList.toggle('active', mode === monthlyBundleModeByPack[planId]);
+          });
+        };
+        syncBundleSwitch('pack_lite');
+        syncBundleSwitch('pack_pro');
+        syncBundleSwitch('pack_max');
+
+        const isMonthly = selectedBillingCycle === 'monthly';
+        if (pageCycleMonthlyBtn) pageCycleMonthlyBtn.classList.toggle('active', isMonthly);
+        if (pageCycleAnnualBtn) pageCycleAnnualBtn.classList.toggle('active', !isMonthly);
+      };
+
+      const updateBillingButtons = () => {
+        const monthlyActive = selectedBillingCycle === 'monthly';
+        billingMonthlyBtn.style.background = monthlyActive ? '#0b3a63' : '#0f172a';
+        billingMonthlyBtn.style.borderColor = monthlyActive ? '#0ea5e9' : '#334155';
+        billingMonthlyBtn.style.color = monthlyActive ? '#e0f2fe' : '#cbd5e1';
+
+        billingAnnualBtn.style.background = monthlyActive ? '#052e16' : '#14532d';
+        billingAnnualBtn.style.borderColor = monthlyActive ? '#14532d' : '#22c55e';
+        billingAnnualBtn.style.color = monthlyActive ? '#bbf7d0' : '#ecfdf5';
+      };
+
+      const refreshModalPlanCopy = () => {
+        if (!selectedPlanId) return;
+        const normalizedPlanId = selectedBillingCycle === 'annual'
+          ? String(selectedPlanId || '').replace(/_combo$/i, '')
+          : selectedPlanId;
+        const details = PLAN_MODAL_DETAILS[selectedBillingCycle]?.[normalizedPlanId] || null;
+        modalPlanTitle.textContent = details?.title || PLAN_LABELS[normalizedPlanId] || normalizedPlanId.toUpperCase();
+        modalPlanLabel.textContent = details?.price || `Plan seleccionado: ${PLAN_LABELS[normalizedPlanId] || normalizedPlanId.toUpperCase()}`;
+        modalPlanMxn.textContent = details?.mxn || 'Referencia en MXN aproximada.';
+        updateBillingButtons();
+        refreshPricingSurface();
+      };
+
+      const closeModal = () => { modal.style.display = 'none'; };
+      const openModal = (planId, button) => {
+        selectedPlanId = planId;
+        selectedButton = button;
+        refreshModalPlanCopy();
+        paymentStatus.style.display = 'none';
+        paymentStatus.textContent = '';
+        modal.style.display = 'flex';
+      };
+
+      closePaymentModalX.addEventListener('click', closeModal);
+      closePaymentModal.addEventListener('click', closeModal);
+      modal.addEventListener('click', (event) => { if (event.target === modal) closeModal(); });
+
+      const requestWithFallback = async (provider, token, planId, billingCycle) => {
+        const send = provider === 'paypal' ? postPayPal : postMercadoPago;
+        let lastResponse = null;
+        let lastData = {};
+        let lastNetworkError = null;
+
+        for (const apiUrl of API_CANDIDATES) {
+          try {
+            let response = await send(apiUrl, token, planId, billingCycle);
+            let data = await response.json().catch(() => ({}));
+            lastResponse = response;
+            lastData = data;
+
+            if (response.ok) return { response, data };
+
+            const shouldRetryLegacy =
+              String(data?.error || '').toLowerCase().includes('invalid checkout item');
+            if (!shouldRetryLegacy) continue;
+
+            const fallbacks = LEGACY_PLAN_FALLBACKS[planId] || [];
+            for (const fallbackPlanId of fallbacks) {
+              response = await send(apiUrl, token, fallbackPlanId, billingCycle);
+              data = await response.json().catch(() => ({}));
+              lastResponse = response;
+              lastData = data;
+              if (response.ok) return { response, data };
+            }
+          } catch (networkError) {
+            lastNetworkError = networkError;
+          }
+        }
+
+        if (lastResponse) return { response: lastResponse, data: lastData };
+        const netMsg = String(lastNetworkError?.message || '').toLowerCase();
+        if (netMsg.includes('failed to fetch')) {
+          throw new Error('No se pudo conectar al backend de pagos. Verifica que el backend activo este encendido y accesible.');
+        }
+        throw new Error(lastNetworkError?.message || 'No se pudo conectar con el servidor de pagos.');
+      };
+
+      const startCheckout = async (provider) => {
+        const token = getAuthToken();
+        if (!token) {
+          alert('Inicia sesión primero para poder pagar.');
+          return;
+        }
+
+        const rawSelectedPlanId = String(selectedPlanId || '').trim().toLowerCase();
+        const planId = selectedBillingCycle === 'annual'
+          ? rawSelectedPlanId.replace(/_combo$/i, '')
+          : rawSelectedPlanId;
+        const actionButton = selectedButton;
+        if (!planId || !actionButton) return;
+
+        payWithMercadoPago.disabled = true;
+        payWithPayPal.disabled = true;
+        payWithMercadoPago.style.opacity = '0.75';
+        payWithPayPal.style.opacity = '0.75';
+        paymentStatus.style.display = 'block';
+        paymentStatus.style.borderColor = '#334155';
+        paymentStatus.style.color = '#cbd5e1';
+        paymentStatus.textContent = 'Iniciando checkout...';
+        setButtonState(actionButton, true, 'Pagar');
+
+        try {
+          const { response, data } = await requestWithFallback(provider, token, planId, selectedBillingCycle);
+          if (!response.ok) {
+            const rawError = String(data?.error || 'No se pudo iniciar el checkout.');
+            const normalized = rawError.toLowerCase();
+            if (planId === 'pack_max' && normalized.includes('invalid checkout item')) {
+              throw new Error('El backend activo no soporta PACK MAX todavia. Si estas en local, abre con ?api=local y verifica backend local actualizado.');
+            }
+            throw new Error(rawError);
+          }
+
+          if (data.requiresPayment === false) {
+            paymentStatus.style.borderColor = '#14532d';
+            paymentStatus.style.color = '#bbf7d0';
+            paymentStatus.textContent = data.message || 'Tu cambio de plan ya quedo programado.';
+            return;
+          }
+
+          const checkoutUrl = provider === 'paypal'
+            ? data.approvalUrl
+            : (data.checkoutUrl || data.sandboxUrl);
+          if (!checkoutUrl) throw new Error('No se recibió URL de pago.');
+
+          paymentStatus.style.borderColor = '#164e63';
+          paymentStatus.style.color = '#a5f3fc';
+          paymentStatus.textContent = 'Redirigiendo al checkout seguro...';
+          window.location.href = checkoutUrl;
+        } catch (error) {
+          paymentStatus.style.display = 'block';
+          paymentStatus.style.borderColor = '#7f1d1d';
+          paymentStatus.style.color = '#fecaca';
+          paymentStatus.textContent = error?.message || 'Error iniciando pago.';
+        } finally {
+          setButtonState(actionButton, false, 'Pagar');
+          payWithMercadoPago.disabled = false;
+          payWithPayPal.disabled = false;
+          payWithMercadoPago.style.opacity = '';
+          payWithPayPal.style.opacity = '';
+        }
+      };
+
+      payWithMercadoPago.addEventListener('click', () => startCheckout('mercadopago'));
+      payWithPayPal.addEventListener('click', () => startCheckout('paypal'));
+      billingMonthlyBtn.addEventListener('click', () => { selectedBillingCycle = 'monthly'; refreshModalPlanCopy(); });
+      billingAnnualBtn.addEventListener('click', () => { selectedBillingCycle = 'annual'; refreshModalPlanCopy(); });
+      if (pageCycleMonthlyBtn) {
+        pageCycleMonthlyBtn.addEventListener('click', () => {
+          selectedBillingCycle = 'monthly';
+          refreshPricingSurface();
+        });
+      }
+      if (pageCycleAnnualBtn) {
+        pageCycleAnnualBtn.addEventListener('click', () => {
+          selectedBillingCycle = 'annual';
+          refreshPricingSurface();
+        });
+      }
+      document.querySelectorAll('.monthly-bundle-switch button[data-plan][data-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const planId = String(btn.getAttribute('data-plan') || '').toLowerCase();
+          const mode = String(btn.getAttribute('data-mode') || '').toLowerCase();
+          if (!['pack_lite', 'pack_pro', 'pack_max'].includes(planId)) return;
+          monthlyBundleModeByPack[planId] = mode === 'bundle' ? 'bundle' : 'pack';
+          refreshPricingSurface();
+        });
+      });
+
+      document.querySelectorAll('.cta-btn[data-plan-id]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          const planId = String(button.getAttribute('data-plan-id') || '').trim().toLowerCase();
+          if (!planId) return;
+          openModal(planId, button);
+        });
+      });
+
+      refreshPricingSurface();
+    })();
+  </script>
+</body>
+</html>
+
+

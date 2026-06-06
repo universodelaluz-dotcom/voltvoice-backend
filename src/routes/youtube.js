@@ -303,10 +303,6 @@ router.get('/auth/callback', async (req, res) => {
     const failUrl = new URL(returnUrl || fallbackErrorUrl);
     failUrl.searchParams.set('youtube_auth', 'error');
     failUrl.searchParams.set('reason', 'oauth_callback_failed');
-    failUrl.searchParams.set(
-      'reason_detail',
-      String(callbackErr?.message || callbackErr || 'unknown_oauth_error').slice(0, 120)
-    );
     return res.redirect(failUrl.toString());
   }
 });
@@ -387,12 +383,21 @@ router.post('/chat/connect', async (req, res) => {
       });
     }
 
-    liveChatSessions.set(userId, {
-      liveChatId,
-      videoId,
-      nextPageToken: '',
-      connectedAt: Date.now(),
-    });
+    const session = { liveChatId, videoId, nextPageToken: '', connectedAt: Date.now() };
+    liveChatSessions.set(userId, session);
+
+    // Persistir sesión en DB para sobrevivir reinicios del servidor
+    try {
+      await pool.query(
+        `UPDATE youtube_oauth_connections
+         SET live_chat_id = $2, live_video_id = $3, live_stream_url = $4,
+             live_next_page_token = '', live_connected_at = NOW(), updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId, liveChatId, videoId, streamUrl]
+      );
+    } catch (dbErr) {
+      console.warn('[YouTube Chat] Could not persist session to DB:', dbErr?.message);
+    }
 
     return res.json({
       success: true,
@@ -415,7 +420,34 @@ router.get('/chat/messages', async (req, res) => {
     return res.status(401).json({ success: false, error: 'No autenticado. Debes estar logueado para obtener mensajes.' });
   }
 
-  const session = liveChatSessions.get(userId);
+  let session = liveChatSessions.get(userId);
+
+  // Si la sesión no está en memoria (p.ej. reinicio del servidor), intentar recuperar desde DB
+  if (!session?.liveChatId) {
+    try {
+      const dbRow = await pool.query(
+        `SELECT live_chat_id, live_video_id, live_next_page_token, live_connected_at
+         FROM youtube_oauth_connections
+         WHERE user_id = $1 AND live_chat_id IS NOT NULL
+         LIMIT 1`,
+        [userId]
+      );
+      if (dbRow.rows.length > 0 && dbRow.rows[0].live_chat_id) {
+        const row = dbRow.rows[0];
+        session = {
+          liveChatId: row.live_chat_id,
+          videoId: row.live_video_id || '',
+          nextPageToken: row.live_next_page_token || '',
+          connectedAt: row.live_connected_at ? new Date(row.live_connected_at).getTime() : Date.now(),
+        };
+        liveChatSessions.set(userId, session);
+        console.log(`[YouTube Chat] Session recovered from DB for user ${userId}`);
+      }
+    } catch (dbErr) {
+      console.warn('[YouTube Chat] Could not recover session from DB:', dbErr?.message);
+    }
+  }
+
   if (!session?.liveChatId) {
     return res.status(400).json({ success: false, error: 'Chat de YouTube no conectado' });
   }
@@ -435,6 +467,12 @@ router.get('/chat/messages', async (req, res) => {
     const pollingIntervalMillis = Number(response?.data?.pollingIntervalMillis || 2000);
     session.nextPageToken = nextPageToken;
     liveChatSessions.set(userId, session);
+
+    // Persistir nextPageToken en DB (no await - fire and forget para no bloquear respuesta)
+    pool.query(
+      `UPDATE youtube_oauth_connections SET live_next_page_token = $2, updated_at = NOW() WHERE user_id = $1`,
+      [userId, nextPageToken]
+    ).catch((e) => console.warn('[YouTube Chat] Could not persist nextPageToken:', e?.message));
 
     const items = Array.isArray(response?.data?.items) ? response.data.items : [];
     const messages = items.map((item) => {
@@ -481,6 +519,14 @@ router.post('/chat/disconnect', async (req, res) => {
   const userId = getUserIdFromRequest(req);
   if (!userId) return res.status(401).json({ success: false, error: 'No autenticado' });
   liveChatSessions.delete(userId);
+  // Limpiar sesión persistida en DB
+  pool.query(
+    `UPDATE youtube_oauth_connections
+     SET live_chat_id = NULL, live_video_id = NULL, live_stream_url = NULL,
+         live_next_page_token = NULL, live_connected_at = NULL
+     WHERE user_id = $1`,
+    [userId]
+  ).catch((e) => console.warn('[YouTube Chat] Could not clear session from DB:', e?.message));
   return res.json({ success: true });
 });
 

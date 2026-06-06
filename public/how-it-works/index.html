@@ -1,0 +1,128 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script>
+    (function () {
+      const key = 'voltvoice-theme';
+      const saved = localStorage.getItem(key);
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <title>How StreamVoicer Works | Base Plan + Cloned Voices for TikTok Live</title>
+  <meta name="description" content="Quick StreamVoicer guide: connect your TikTok, activate Base Plan ($9.99/month), add AI cloned voices, and start reading chat in real time.">
+  <link rel="canonical" href="https://streamvoicer.com/how-it-works/">
+  <meta name="robots" content="index,follow">
+  <style>
+    :root { --bg:#070b16; --line:#27324b; --text:#e5e7eb; --muted:#a5b4cc; --c1:#22d3ee; --c2:#60a5fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--text); background:radial-gradient(1000px 430px at 10% -10%, #0e273d 0%, transparent 60%),radial-gradient(900px 360px at 95% 0%, #3a1d4f 0%, transparent 50%),#070b16; font-family:Inter,Segoe UI,Roboto,Arial,sans-serif; line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:28px 20px 60px; }
+    .nav { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:24px; background:rgba(15,23,42,.65); border:1px solid var(--line); border-radius:12px; padding:10px; backdrop-filter:blur(6px); }
+    .nav a { color:#dbeafe; text-decoration:none; font-weight:700; font-size:.95rem; padding:8px 12px; border-radius:9px; border:1px solid transparent; }
+    .nav a:hover { border-color:#335582; background:#0c1a31; }
+    .theme-toggle { margin-left:auto; border:1px solid #3a4c6b; background:#0d1b33; color:#dbeafe; border-radius:9px; padding:8px 12px; font-weight:700; cursor:pointer; }
+    .theme-toggle:hover { background:#11254a; }
+    .hero { border:1px solid var(--line); border-radius:20px; padding:26px; background:linear-gradient(140deg, rgba(13,28,54,.95), rgba(15,23,42,.95)); margin-bottom:24px; }
+    .badge { display:inline-block; font-size:.8rem; font-weight:800; color:#041723; background:linear-gradient(90deg,var(--c1),var(--c2)); padding:6px 10px; border-radius:999px; margin-bottom:12px; }
+    h1 { margin:0 0 8px; font-size:clamp(1.8rem,3.5vw,2.5rem); }
+    h2 { font-size:1.1rem; color:#dbeafe; margin:28px 0 12px; }
+    p { color:var(--muted); margin:0 0 10px; }
+    .home-btn { display:inline-flex; align-items:center; gap:8px; margin-top:10px; padding:10px 14px; border-radius:10px; font-weight:800; text-decoration:none; color:#041723; background:linear-gradient(90deg,var(--c1),var(--c2)); border:1px solid #7dd3fc; }
+    .steps { display:flex; flex-direction:column; gap:12px; margin-bottom:24px; }
+    .step { display:flex; gap:14px; background:linear-gradient(180deg,#111827,#0b1428); border:1px solid #27324b; border-radius:14px; padding:16px; }
+    .step-num { flex:0 0 36px; height:36px; border-radius:50%; background:linear-gradient(135deg,var(--c1),var(--c2)); color:#041723; font-weight:900; display:grid; place-items:center; }
+    .step-title { font-weight:800; color:#fff; margin-bottom:4px; }
+    .step-desc { color:#a5b4cc; font-size:.9rem; margin:0; }
+    .plans-row { display:grid; grid-template-columns:1fr; gap:12px; margin-bottom:24px; }
+    .plan-card { border:1px solid var(--line); border-radius:14px; padding:16px; background:linear-gradient(180deg,#111827,#0b1428); }
+    .plan-card.base { border-color:var(--c1); } .plan-card.lite { border-color:#06b6d4; } .plan-card.pro { border-color:#ec4899; } .plan-card.max { border-color:#f97316; }
+    .plan-name { font-weight:900; font-size:1rem; margin-bottom:4px; }
+    .plan-price { font-size:1.4rem; font-weight:900; color:var(--c1); } .plan-price.pink { color:#ec4899; } .plan-price.orange { color:#f97316; }
+    .plan-desc { font-size:.87rem; color:var(--muted); margin-top:4px; }
+    .tag { display:inline-block; font-size:.75rem; font-weight:800; padding:3px 10px; border-radius:999px; margin-bottom:6px; }
+    .tag-base { background:rgba(34,211,238,.15); color:var(--c1); } .tag-pack { background:rgba(236,72,153,.15); color:#ec4899; }
+    .note { border:1px dashed #355582; border-radius:14px; padding:14px; background:rgba(8,30,48,.5); color:#bfd0e8; font-size:.9rem; }
+
+    html[data-theme="light"] body { color:#0f172a; background:radial-gradient(1000px 430px at 10% -10%, #d8e8ff 0%, transparent 60%),radial-gradient(900px 360px at 95% 0%, #e9dcff 0%, transparent 50%),#f4f8ff; }
+    html[data-theme="light"] .nav { background:rgba(255,255,255,.82); border-color:#d6e0ed; }
+    html[data-theme="light"] .nav a { color:#0f172a; }
+    html[data-theme="light"] .nav a:hover { background:#e8f0ff; border-color:#c7d6ee; }
+    html[data-theme="light"] .theme-toggle { background:#0f2a52; color:#ffffff; border-color:#0b3d91; }
+    html[data-theme="light"] .theme-toggle:hover { background:#12356a; }
+    html[data-theme="light"] .home-btn { background:linear-gradient(90deg,#0369a1,#1d4ed8); color:#ffffff; border-color:#1d4ed8; }
+    html[data-theme="light"] .home-btn:hover { filter:brightness(1.06); }
+    html[data-theme="light"] .hero { background:linear-gradient(140deg, rgba(255,255,255,.96), rgba(242,248,255,.96)); border-color:#d6e0ed; }
+    html[data-theme="light"] h1, html[data-theme="light"] h2 { color:#0f172a; }
+    html[data-theme="light"] p { color:#334155; }
+    html[data-theme="light"] .step { background:linear-gradient(180deg,#ffffff,#f8fbff); border-color:#d6e0ed; }
+    html[data-theme="light"] .step-title { color:#0f172a; }
+    html[data-theme="light"] .step-desc { color:#334155; }
+    html[data-theme="light"] .plan-card { background:linear-gradient(180deg,#ffffff,#f8fbff); border-color:#d6e0ed; }
+    html[data-theme="light"] .plan-card.base { border-color:var(--c1); }
+    html[data-theme="light"] .plan-card.pro { border-color:#ec4899; }
+    html[data-theme="light"] .plan-card.max { border-color:#f97316; }
+    html[data-theme="light"] .plan-desc { color:#334155; }
+    html[data-theme="light"] .note { border-color:#cdd9ec; background:rgba(255,255,255,.95); color:#334155; }
+
+    @media (min-width:700px) { .plans-row { grid-template-columns:repeat(2, 1fr); } }
+    @media (min-width:900px) { .plans-row { grid-template-columns:repeat(4, 1fr); } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <nav class="nav">
+      <a href="/">Home</a>
+      <a href="/#pricing-section">Pricing</a>
+      <a href="/faq-en/">FAQ</a>
+      <button id="themeToggle" class="theme-toggle" type="button">Switch theme</button>
+    </nav>
+
+    <section class="hero">
+      <span class="badge">QUICK GUIDE</span>
+      <h1>How StreamVoicer works</h1>
+      <p>In just a few steps, activate AI voice on your TikTok Live with the Base Plan and expand with cloned voices in your style.</p>
+      <a class="home-btn" href="/">Go to main page</a>
+    </section>
+
+    <h2>Steps to get started</h2>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div><div class="step-title">Create your account and sign in</div><p class="step-desc">Register with your email. Access is immediate.</p></div></div>
+      <div class="step"><div class="step-num">2</div><div><div class="step-title">Activate Base Plan - $9.99 USD/month</div><p class="step-desc">Includes 2 unlimited essential voices, 2 premium voices, 20,000 characters, and all AI and filtering tools.</p></div></div>
+      <div class="step"><div class="step-num">3</div><div><div class="step-title">Connect your TikTok Live username</div><p class="step-desc">Enter your username. StreamVoicer starts listening to your chat in real time.</p></div></div>
+      <div class="step"><div class="step-num">4</div><div><div class="step-title">Configure voices, filters, and preferences</div><p class="step-desc">Choose which voices read chat, activate anti-spam and smart filter, and tune behavior to your stream style.</p></div></div>
+      <div class="step"><div class="step-num">5</div><div><div class="step-title">Start your LIVE and let StreamVoicer do the work</div><p class="step-desc">Messages are read automatically with AI voice in real time. You focus on content.</p></div></div>
+    </div>
+
+    <h2>Choose your voice setup</h2>
+    <div class="plans-row">
+      <div class="plan-card base"><span class="tag tag-base">SUBSCRIPTION</span><div class="plan-name">Plan Base</div><div class="plan-price">$9.99 <small style="font-size:.85rem;font-weight:600;color:var(--muted)">USD/month</small></div><p class="plan-desc">2 unlimited essential voices + 2 premium voices + 20K characters + all features</p></div>
+      <div class="plan-card lite"><span class="tag tag-pack">ADD-ON PACK</span><div class="plan-name">Pack Lite</div><div class="plan-price">$9.99 <small style="font-size:.85rem;font-weight:600;color:var(--muted)">USD</small></div><p class="plan-desc">+1 AI cloned voice - 50K tokens to clone and reuse</p></div>
+      <div class="plan-card pro"><span class="tag tag-pack">RECOMMENDED</span><div class="plan-name">Pack Pro</div><div class="plan-price pink">$24.99 <small style="font-size:.85rem;font-weight:600;color:var(--muted)">USD</small></div><p class="plan-desc">+3 AI cloned voices - 250K tokens to clone and reuse</p></div>
+      <div class="plan-card max"><span class="tag tag-pack">ADD-ON PACK</span><div class="plan-name">Pack Max</div><div class="plan-price orange">$49.99 <small style="font-size:.85rem;font-weight:600;color:var(--muted)">USD</small></div><p class="plan-desc">+6 AI cloned voices - 500K tokens to clone and reuse</p></div>
+    </div>
+
+    <div class="note"><strong>How do they combine?</strong> Base Plan is the main monthly subscription. Packs are one-time purchases that add cloned voices and extra tokens. You can combine multiple packs to build a full cast.</div>
+  </main>
+
+  <script>
+    (function () {
+      const key = 'voltvoice-theme';
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      const updateLabel = (theme) => { btn.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode'; };
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      updateLabel(current);
+      btn.addEventListener('click', function () {
+        const now = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', now);
+        localStorage.setItem(key, now);
+        updateLabel(now);
+      });
+    })();
+  </script>
+</body>
+</html>
