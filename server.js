@@ -714,6 +714,7 @@ import pool from './src/db.js';
         BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_next_page_token TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
         BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_connected_at TIMESTAMP; EXCEPTION WHEN duplicate_column THEN NULL; END;
       END $$;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS linked_user_id INT REFERENCES users(id) ON DELETE SET NULL;
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {

@@ -40,23 +40,23 @@ export const verifyToken = async (req, res, next) => {
     let result;
     try {
       result = await pool.query(
-        `SELECT is_suspended, suspended_until, session_token
+        `SELECT is_suspended, suspended_until, session_token, linked_user_id
          FROM users
          WHERE id::text = $1::text`,
         [decoded.userId]
       );
     } catch (queryError) {
       const msg = String(queryError?.message || '').toLowerCase();
-      const missingColumn = queryError?.code === '42703' || msg.includes('session_token') || msg.includes('does not exist');
+      const missingColumn = queryError?.code === '42703' || msg.includes('session_token') || msg.includes('does not exist') || msg.includes('linked_user_id');
       if (!missingColumn) throw queryError;
-      console.warn('[Auth] session_token no existe en users, validando en modo compatible');
+      console.warn('[Auth] columna faltante en users, validando en modo compatible');
       result = await pool.query(
         `SELECT is_suspended, suspended_until
          FROM users
          WHERE id::text = $1::text`,
         [decoded.userId]
       );
-      result.rows = result.rows.map((row) => ({ ...row, session_token: null }));
+      result.rows = result.rows.map((row) => ({ ...row, session_token: null, linked_user_id: null }));
     }
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid token' });
     const user = result.rows[0];
@@ -65,10 +65,12 @@ export const verifyToken = async (req, res, next) => {
     if (blockedByFlag || blockedByTime) {
       return res.status(403).json({ error: 'Cuenta suspendida temporalmente' });
     }
-    // Verificar sesión única: si el token de sesión no coincide, significa que
-    // el usuario inició sesión desde otro dispositivo y esta sesión fue desplazada
     if (decoded.sessionToken && user.session_token && decoded.sessionToken !== user.session_token) {
       return res.status(401).json({ error: 'SESSION_DISPLACED', message: 'Tu sesión fue iniciada en otro dispositivo.' });
+    }
+    // Cuenta vinculada: redirigir transparentemente al usuario principal
+    if (user.linked_user_id) {
+      req.user = { ...decoded, userId: user.linked_user_id };
     }
     next();
   } catch (err) {
