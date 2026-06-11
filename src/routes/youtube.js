@@ -131,6 +131,10 @@ const parseYoutubeVideoId = (rawInput = '') => {
     const byV = url.searchParams.get('v');
     if (byV && byV.length >= 6) return byV.slice(0, 11);
     const parts = url.pathname.split('/').filter(Boolean);
+    const videoIndex = parts.indexOf('video');
+    if (url.hostname.includes('studio.youtube.com') && videoIndex >= 0 && parts[videoIndex + 1]) {
+      return String(parts[videoIndex + 1]).slice(0, 11);
+    }
     const shortsIndex = parts.indexOf('shorts');
     if (shortsIndex >= 0 && parts[shortsIndex + 1]) return String(parts[shortsIndex + 1]).slice(0, 11);
     const liveIndex = parts.indexOf('live');
@@ -139,9 +143,15 @@ const parseYoutubeVideoId = (rawInput = '') => {
     // ignore parse errors
   }
 
-  const fallback = input.match(/(?:v=|\/live\/|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{6,})/i);
+  const fallback = input.match(/(?:v=|\/live\/|youtu\.be\/|\/shorts\/|studio\.youtube\.com\/video\/)([A-Za-z0-9_-]{6,})/i);
   if (fallback?.[1]) return fallback[1].slice(0, 11);
   return '';
+};
+
+const normalizeYoutubeStreamUrl = (videoId = '', fallback = '') => {
+  const cleanVideoId = String(videoId || '').trim();
+  if (cleanVideoId) return `https://youtube.com/live/${cleanVideoId}`;
+  return String(fallback || '').trim();
 };
 
 const getStoredOauthForUser = async (userId) => {
@@ -361,7 +371,7 @@ router.post('/chat/connect', async (req, res) => {
   const streamUrl = String(req.body?.streamUrl || '').trim();
   const videoId = parseYoutubeVideoId(streamUrl);
   if (!videoId) {
-    return res.status(400).json({ success: false, error: 'Link de YouTube inválido. Usa un link tipo watch?v=...' });
+    return res.status(400).json({ success: false, error: 'Link de YouTube invalido. Usa youtube.com/live, watch?v=... o el link de YouTube Studio.' });
   }
 
   try {
@@ -383,6 +393,7 @@ router.post('/chat/connect', async (req, res) => {
       });
     }
 
+    const normalizedStreamUrl = normalizeYoutubeStreamUrl(videoId, streamUrl);
     const session = { liveChatId, videoId, nextPageToken: '', connectedAt: Date.now() };
     liveChatSessions.set(userId, session);
 
@@ -393,7 +404,7 @@ router.post('/chat/connect', async (req, res) => {
          SET live_chat_id = $2, live_video_id = $3, live_stream_url = $4,
              live_next_page_token = '', live_connected_at = NOW(), updated_at = NOW()
          WHERE user_id = $1`,
-        [userId, liveChatId, videoId, streamUrl]
+        [userId, liveChatId, videoId, normalizedStreamUrl]
       );
     } catch (dbErr) {
       console.warn('[YouTube Chat] Could not persist session to DB:', dbErr?.message);
@@ -404,6 +415,7 @@ router.post('/chat/connect', async (req, res) => {
       connected: true,
       liveChatId,
       videoId,
+      streamUrl: normalizedStreamUrl,
       videoTitle: String(video?.snippet?.title || ''),
       channelTitle: String(video?.snippet?.channelTitle || oauthRow?.channel_title || ''),
     });
