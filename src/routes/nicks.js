@@ -6,7 +6,7 @@ const router = express.Router();
 const resolveRequestUserId = (req) => req?.user?.userId ?? req?.user?.id ?? null;
 const normalizeUsername = (username = '') => String(username || '').trim().replace(/^@+/, '').toLowerCase();
 
-// GET /api/nicks - Obtener todos los nick overrides del usuario
+// GET /api/nicks?platform=tiktok - Obtener todos los nick overrides del usuario para una plataforma
 router.get('/nicks', verifyToken, async (req, res) => {
   try {
     const userId = resolveRequestUserId(req);
@@ -15,7 +15,8 @@ router.get('/nicks', verifyToken, async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const nickMap = await NickService.getNickOverrides(userId);
+    const platform = req.query.platform || 'tiktok';
+    const nickMap = await NickService.getNickOverrides(userId, platform);
     res.json(nickMap);
   } catch (err) {
     console.error('[NicksRoute] GET /nicks error:', err.message);
@@ -27,7 +28,7 @@ router.get('/nicks', verifyToken, async (req, res) => {
 router.post('/nicks', verifyToken, async (req, res) => {
   try {
     const userId = resolveRequestUserId(req);
-    const { username, newNickname } = req.body;
+    const { username, newNickname, platform } = req.body;
     const normalizedUsername = normalizeUsername(username);
 
     if (!userId) {
@@ -42,7 +43,7 @@ router.post('/nicks', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'New nickname is required' });
     }
 
-    const override = await NickService.setNickOverride(userId, normalizedUsername, newNickname.trim());
+    const override = await NickService.setNickOverride(userId, normalizedUsername, newNickname.trim(), platform || 'tiktok');
     res.json(override);
   } catch (err) {
     console.error('[NicksRoute] POST /nicks error:', err.message);
@@ -50,7 +51,7 @@ router.post('/nicks', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/nicks/:username - Remover nick override
+// DELETE /api/nicks/:username?platform=tiktok - Remover nick override
 router.delete('/nicks/:username', verifyToken, async (req, res) => {
   try {
     const userId = resolveRequestUserId(req);
@@ -65,7 +66,8 @@ router.delete('/nicks/:username', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Username is required' });
     }
 
-    const result = await NickService.removeNickOverride(userId, normalizedUsername);
+    const platform = req.query.platform || 'tiktok';
+    const result = await NickService.removeNickOverride(userId, normalizedUsername, platform);
 
     if (!result) {
       return res.status(404).json({ error: 'Nick override not found' });

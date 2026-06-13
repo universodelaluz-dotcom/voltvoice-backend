@@ -715,6 +715,13 @@ import pool from './src/db.js';
         BEGIN ALTER TABLE youtube_oauth_connections ADD COLUMN live_connected_at TIMESTAMP; EXCEPTION WHEN duplicate_column THEN NULL; END;
       END $$;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS linked_user_id INT REFERENCES users(id) ON DELETE SET NULL;
+      -- Nick overrides: separar por plataforma (tiktok / youtube)
+      DO $$ BEGIN
+        BEGIN ALTER TABLE nick_overrides ADD COLUMN platform VARCHAR(20) NOT NULL DEFAULT 'tiktok'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+        BEGIN ALTER TABLE nick_overrides DROP CONSTRAINT nick_overrides_user_id_original_username_key; EXCEPTION WHEN undefined_object THEN NULL; END;
+        BEGIN ALTER TABLE nick_overrides ADD CONSTRAINT nick_overrides_user_platform_username_key UNIQUE (user_id, platform, original_username); EXCEPTION WHEN duplicate_object THEN NULL; END;
+      END $$;
+      CREATE INDEX IF NOT EXISTS idx_nick_overrides_platform ON nick_overrides(user_id, platform);
     `);
     console.log('[DB] ✓ Auto-migration completed');
   } catch (err) {
