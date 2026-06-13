@@ -6,22 +6,34 @@ const normalizePlatform = (p) => VALID_PLATFORMS.has(String(p || '').toLowerCase
 export class NickService {
   // Obtener todos los overrides del usuario para una plataforma
   static async getNickOverrides(userId, platform = 'tiktok') {
+    const p = normalizePlatform(platform);
     try {
-      const p = normalizePlatform(platform);
       const result = await pool.query(
         'SELECT original_username, new_nickname FROM nick_overrides WHERE user_id = $1 AND platform = $2 ORDER BY created_at DESC',
         [userId, p]
       );
-
       const nickMap = {};
-      result.rows.forEach(row => {
-        nickMap[row.original_username] = row.new_nickname;
-      });
-
+      result.rows.forEach(row => { nickMap[row.original_username] = row.new_nickname; });
       return nickMap;
     } catch (err) {
+      // Si la columna platform todavía no existe (migración en curso), fallback a query sin plataforma
+      if (String(err.message || '').includes('platform')) {
+        console.warn('[NickService] platform column missing, falling back to unfiltered query');
+        try {
+          const result = await pool.query(
+            'SELECT original_username, new_nickname FROM nick_overrides WHERE user_id = $1 ORDER BY created_at DESC',
+            [userId]
+          );
+          const nickMap = {};
+          result.rows.forEach(row => { nickMap[row.original_username] = row.new_nickname; });
+          return nickMap;
+        } catch (fallbackErr) {
+          console.error('[NickService] Fallback query also failed:', fallbackErr.message);
+          return {};
+        }
+      }
       console.error('[NickService] Error in getNickOverrides:', err.message);
-      throw err;
+      return {};
     }
   }
 
