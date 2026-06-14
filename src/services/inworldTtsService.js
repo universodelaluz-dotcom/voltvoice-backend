@@ -5,17 +5,22 @@
 import https from 'https';
 import { detectSteering } from './emotionSteering.js';
 
-// === EXPERIMENTOS DE VOZ (A/B en producción) ===
-// Solo las voces listadas aquí reciben configuración distinta. El resto queda
-// EXACTAMENTE igual que siempre. Para revertir una voz: borra su línea.
-const VOICE_EXPERIMENTS = {
-  // Batman: mismo modelo (tts-1.5-max), solo subimos temperatura para más expresividad
-  'default-cfjnp8x4nt-owd7yg-1xsw__gatubela': { temperature: 1.0 },
-  // VEGETA: modelo nuevo TTS-2 + más variabilidad (0.7 -> 0.98) + steering de emoción.
-  // `steer: true` activa el detector que inyecta tags de emoción EN SECRETO
-  // (no se oyen, solo se interpretan). Solo seguro en inworld-tts-2.
-  'default-cfjnp8x4nt-owd7yg-1xsw__vegeta-1dhky': { modelId: 'inworld-tts-2', temperature: 0.98, steer: true },
+// === CONFIGURACIÓN GLOBAL INWORLD ===
+// TODAS las voces de Inworld (incorporadas tipo Diego/Lupita y todos los clones)
+// usan el modelo nuevo TTS-2 + más variabilidad + el detector de emoción (steering).
+// Las voces que NO son de Inworld (espeak / Google / ElevenLabs) van por otros
+// servicios y NO se ven afectadas por esto.
+const INWORLD_GLOBAL = {
+  modelId: 'inworld-tts-2', // modelo nuevo, más expresivo y multilingüe
+  temperature: 0.98,        // más variabilidad de prosodia (antes 0.7)
+  steer: true,              // inyecta tags de emoción en secreto (solo seguro en tts-2)
 };
+
+// Voces a EXCLUIR del tratamiento global. Si una voz suena mal en TTS-2, agrega
+// aquí su voiceId y volverá al modelo/temp de siempre (sin steering).
+const INWORLD_VOICE_EXCLUDE = new Set([
+  // 'default-cfjnp8x4nt-owd7yg-1xsw__alguna-voz',
+]);
 
 class InworldTtsService {
   constructor() {
@@ -78,18 +83,16 @@ class InworldTtsService {
     return new Promise((resolve, reject) => {
       console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${resolvedVoiceId}`);
 
-      // Experimento por voz: si la voz está enrolada, sobreescribe modelo/temp.
-      // Si no, usa la config global de siempre.
-      const experiment = VOICE_EXPERIMENTS[voiceId] || VOICE_EXPERIMENTS[resolvedVoiceId] || null;
-      const effectiveModelId = experiment?.modelId || this.modelId;
-      const effectiveTemperature = Number.isFinite(experiment?.temperature)
-        ? experiment.temperature
-        : this.temperature;
+      // Config global: todas las voces Inworld usan TTS-2 + temp 0.98 + steering,
+      // salvo las que estén en la lista de excluidos (vuelven a la config de siempre).
+      const excluded = INWORLD_VOICE_EXCLUDE.has(voiceId) || INWORLD_VOICE_EXCLUDE.has(resolvedVoiceId);
+      const effectiveModelId = excluded ? this.modelId : INWORLD_GLOBAL.modelId;
+      const effectiveTemperature = excluded ? this.temperature : INWORLD_GLOBAL.temperature;
 
-      // Steering de emoción (solo si el experimento lo activa). El tag va EN SECRETO:
-      // se antepone al texto que recibe Inworld, no se oye y no cambia lo que se ve en chat.
+      // Steering de emoción. El tag va EN SECRETO: se antepone al texto que recibe
+      // Inworld, no se oye y no cambia lo que se ve en chat.
       let effectiveText = text;
-      if (experiment?.steer) {
+      if (!excluded && INWORLD_GLOBAL.steer) {
         const { tag, emotion } = detectSteering(text);
         if (tag) {
           effectiveText = tag + text;
@@ -97,9 +100,7 @@ class InworldTtsService {
         }
       }
 
-      if (experiment) {
-        console.log(`[Inworld TTS] 🧪 Experimento activo para voz "${voiceId}" -> model="${effectiveModelId}" temp="${effectiveTemperature}"`);
-      }
+      console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${effectiveModelId}" temp="${effectiveTemperature}"${excluded ? ' (EXCLUIDA)' : ''}`);
 
       const requestBody = JSON.stringify({
         text: effectiveText,

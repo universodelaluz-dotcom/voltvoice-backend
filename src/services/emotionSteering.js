@@ -25,13 +25,15 @@ const SURPRISE_WORDS = /\b(no manches|en serio|no puede ser|qu[eé]\?|c[oó]mo\?
 const LOVE_WORDS = /\b(te amo|te quiero|linda|hermosa|preciosa|gracias|bonita|amor)\b/i;
 const LAUGH_WORDS = /(jaja|jeje|jiji|jaja|haha|hehe|lol|lmao|xd|ptm jaja)/i;
 
+// NOTA: todos los tags fuerzan volumen CLARO/AUDIBLE a propósito. Sin esto,
+// emociones como "love" o "sad" hacen que el modelo baje la voz y suene bajito.
 const STEERING = {
-  angry: '[say angrily, with intensity and force] ',
-  excited: '[say with high energy and excitement] ',
-  laugh: '[say with amusement, lightly laughing] ',
-  sad: '[say sadly, in a low and subdued voice] ',
-  surprise: '[say with surprise and disbelief] ',
-  love: '[say warmly and affectionately] ',
+  angry: '[say angrily, with intensity and a forceful, loud voice] ',
+  excited: '[say with high, lively energy in a clear, strong voice] ',
+  laugh: '[say cheerfully with amusement, lightly laughing, in a clear voice] ',
+  sad: '[say with a sad, heavy tone but at a clear, audible volume] ',
+  surprise: '[say with surprise and disbelief, energetically and clearly] ',
+  love: '[say warmly and kindly in a clear, confident voice] ',
 };
 
 function hasAny(text, list) {
