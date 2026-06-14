@@ -4,6 +4,17 @@
 
 import https from 'https';
 
+// === EXPERIMENTOS DE VOZ (A/B en producción) ===
+// Solo las voces listadas aquí reciben configuración distinta. El resto queda
+// EXACTAMENTE igual que siempre. Para revertir una voz: borra su línea.
+// Cada experimento cambia una sola variable para que la comparación sea limpia.
+const VOICE_EXPERIMENTS = {
+  // Batman: mismo modelo (tts-1.5-max), solo subimos temperatura para más expresividad
+  'default-cfjnp8x4nt-owd7yg-1xsw__gatubela': { temperature: 1.0 },
+  // VEGETA: probamos el modelo nuevo TTS-2 (temperatura normal)
+  'default-cfjnp8x4nt-owd7yg-1xsw__vegeta-1dhky': { modelId: 'inworld-tts-2' },
+};
+
 class InworldTtsService {
   constructor() {
     // La API key ya viene en base64 desde el .env (igual que el local)
@@ -65,11 +76,22 @@ class InworldTtsService {
     return new Promise((resolve, reject) => {
       console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${resolvedVoiceId}`);
 
+      // Experimento por voz: si la voz está enrolada, sobreescribe modelo/temp.
+      // Si no, usa la config global de siempre.
+      const experiment = VOICE_EXPERIMENTS[voiceId] || VOICE_EXPERIMENTS[resolvedVoiceId] || null;
+      const effectiveModelId = experiment?.modelId || this.modelId;
+      const effectiveTemperature = Number.isFinite(experiment?.temperature)
+        ? experiment.temperature
+        : this.temperature;
+      if (experiment) {
+        console.log(`[Inworld TTS] 🧪 Experimento activo para voz "${voiceId}" -> model="${effectiveModelId}" temp="${effectiveTemperature}"`);
+      }
+
       const requestBody = JSON.stringify({
         text: text,
         voiceId: resolvedVoiceId,
-        modelId: this.modelId,
-        temperature: this.temperature
+        modelId: effectiveModelId,
+        temperature: effectiveTemperature
       });
 
       const options = {
@@ -164,7 +186,7 @@ class InworldTtsService {
         reject(err);
       });
 
-      console.log(`[Inworld TTS] Sending request - voiceId: ${resolvedVoiceId}, modelId: ${this.modelId}`);
+      console.log(`[Inworld TTS] Sending request - voiceId: ${resolvedVoiceId}, modelId: ${effectiveModelId}`);
       req.write(requestBody);
       req.end();
     });
