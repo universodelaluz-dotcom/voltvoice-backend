@@ -64,6 +64,17 @@ const EXTRACTOR_PRO_DAILY_LIMITS = {
 const INWORLD_DEFAULT_MODEL = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max';
 const INWORLD_MIN_TEMPERATURE = 0.7;
 const INWORLD_MAX_TEMPERATURE = 2.0;
+
+// === EXPERIMENTOS DE VOZ (A/B en producción) ===
+// Solo las voces listadas aquí reciben configuración distinta. El resto queda
+// EXACTAMENTE igual que siempre. Para revertir una voz: borra su línea.
+// Cada experimento cambia una sola variable para que la comparación sea limpia.
+const VOICE_EXPERIMENTS = {
+  // Batman: mismo modelo (tts-1.5-max), solo subimos temperatura para más expresividad
+  'default-cfjnp8x4nt-owd7yg-1xsw__gatubela': { temperature: 1.0 },
+  // VEGETA: probamos el modelo nuevo TTS-2 (temperatura normal)
+  'default-cfjnp8x4nt-owd7yg-1xsw__vegeta-1dhky': { modelId: 'inworld-tts-2' },
+};
 const INWORLD_TTS_TEMPERATURE = (() => {
   const configured = Number(process.env.INWORLD_TTS_TEMPERATURE);
   if (!Number.isFinite(configured) || configured <= 0) return INWORLD_MIN_TEMPERATURE;
@@ -223,8 +234,17 @@ router.post('/tts', verifyToken, async (req, res) => {
       'default': 'Diego'
     };
     const mappedVoice = voiceMap[voiceId] || voiceId || 'Diego';
-    const resolvedModelId = requestedModelId || modelVersion || INWORLD_DEFAULT_MODEL;
-    const resolvedTemperature = INWORLD_TTS_TEMPERATURE;
+
+    // Experimento por voz: si la voz entrante está enrolada, sobreescribe modelo/temp.
+    // Si no, todo sigue igual que siempre.
+    const experiment = VOICE_EXPERIMENTS[voiceId] || VOICE_EXPERIMENTS[mappedVoice] || null;
+    const resolvedModelId = experiment?.modelId || requestedModelId || modelVersion || INWORLD_DEFAULT_MODEL;
+    const resolvedTemperature = Number.isFinite(experiment?.temperature)
+      ? Math.min(INWORLD_MAX_TEMPERATURE, Math.max(INWORLD_MIN_TEMPERATURE, experiment.temperature))
+      : INWORLD_TTS_TEMPERATURE;
+    if (experiment) {
+      console.log(`[Inworld TTS] 🧪 Experimento activo para voz "${voiceId}" -> model="${resolvedModelId}" temp="${resolvedTemperature}"`);
+    }
     if (Number.isFinite(Number(requestedTemperature)) && Number(requestedTemperature) > resolvedTemperature) {
       console.log('[Inworld TTS] Ignoring higher requested temperature, using locked minimum:', resolvedTemperature);
     }
