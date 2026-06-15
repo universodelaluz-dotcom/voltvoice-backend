@@ -3,6 +3,7 @@ import https from 'https';
 import jwt from 'jsonwebtoken';
 import tiktokLiveService from '../services/tiktokLiveService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
+import { loadUserVoiceOptions, resolveVoiceOptions } from '../services/voiceConfig.js';
 import { requireAdmin, verifyToken } from '../../middleware/auth.js';
 import { buildGoogleTtsUrl } from '../utils/googleTtsUrl.js';
 import tokenService from '../services/tokenService.js';
@@ -383,8 +384,20 @@ router.post('/message', verifyToken, async (req, res) => {
     let fallbackReason = null;
     let tokensNeeded = 0;
     let cacheContext = null;
+    // Opciones de voz por usuario (modelo / temperatura / modo emoción). Solo para Inworld.
+    let voiceOpts = null;
 
     if (!isGoogleVoice) {
+      // YouTube (studio standalone, sin config en servidor) manda la preferencia en el
+      // request. TikTok (app principal, guarda en servidor) la lee de la BD.
+      if (req.body?.emotionMode !== undefined || req.body?.voiceTemperature !== undefined) {
+        voiceOpts = resolveVoiceOptions({
+          emotionMode: req.body.emotionMode,
+          voiceTemperature: req.body.voiceTemperature,
+        });
+      } else {
+        voiceOpts = await loadUserVoiceOptions(userId);
+      }
       if (!isAdmin) {
         tokensNeeded = tokenService.calculateTokensCost(String(processedText).length);
         const hasEnough = await tokenService.hasEnoughTokens(userId, tokensNeeded);
@@ -403,11 +416,12 @@ router.post('/message', verifyToken, async (req, res) => {
         text: processedText,
         modelVersion: isGoogleVoice
           ? 'google-translate-tts-v1'
-          : INWORLD_DEFAULT_MODEL,
+          : (voiceOpts?.modelId || INWORLD_DEFAULT_MODEL),
         params: {
           source: 'tiktok_live',
           requestedVoiceId: selectedVoiceId,
-          temperature: INWORLD_TTS_TEMPERATURE
+          temperature: voiceOpts?.temperature ?? INWORLD_TTS_TEMPERATURE,
+          emotion: voiceOpts?.emotionMode ? 'on' : 'off'
         }
       });
 
@@ -530,8 +544,8 @@ router.post('/message', verifyToken, async (req, res) => {
     } else {
       audioCacheService.trackMetric({ rendered_requests: 1 });
       // Inworld premium TTS
-      console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}, userId: ${userId}, isAdmin: ${isAdmin}, tokensNeeded: ${tokensNeeded}`);
-      synthesisResult = await inworldTtsService.synthesize(processedText, selectedVoiceId);
+      console.log(`[TikTok] Sintetizando con Inworld TTS - voiceId: ${selectedVoiceId}, userId: ${userId}, isAdmin: ${isAdmin}, tokensNeeded: ${tokensNeeded}, model: ${voiceOpts?.modelId}, temp: ${voiceOpts?.temperature}, emocion: ${voiceOpts?.emotionMode ? 'ON' : 'OFF'}`);
+      synthesisResult = await inworldTtsService.synthesize(processedText, selectedVoiceId, voiceOpts || {});
 
       if (userId && !isAdmin && tokensNeeded > 0) {
         console.log(`[TikTok] DEDUCIENDO TOKENS - userId: ${userId}, tokens: ${tokensNeeded}, texto length: ${String(processedText).length}`);

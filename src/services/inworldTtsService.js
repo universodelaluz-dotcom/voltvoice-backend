@@ -5,22 +5,9 @@
 import https from 'https';
 import { detectSteering } from './emotionSteering.js';
 
-// === CONFIGURACIÓN GLOBAL INWORLD ===
-// TODAS las voces de Inworld (incorporadas tipo Diego/Lupita y todos los clones)
-// usan el modelo nuevo TTS-2 + más variabilidad + el detector de emoción (steering).
-// Las voces que NO son de Inworld (espeak / Google / ElevenLabs) van por otros
-// servicios y NO se ven afectadas por esto.
-const INWORLD_GLOBAL = {
-  modelId: 'inworld-tts-2', // modelo nuevo, más expresivo y multilingüe
-  temperature: 0.98,        // más variabilidad de prosodia (antes 0.7)
-  steer: true,              // inyecta tags de emoción en secreto (solo seguro en tts-2)
-};
-
-// Voces a EXCLUIR del tratamiento global. Si una voz suena mal en TTS-2, agrega
-// aquí su voiceId y volverá al modelo/temp de siempre (sin steering).
-const INWORLD_VOICE_EXCLUDE = new Set([
-  // 'default-cfjnp8x4nt-owd7yg-1xsw__alguna-voz',
-]);
+// La configuración (modelo / temperatura / modo emoción) ahora llega POR USUARIO
+// desde voiceConfig.js. El servicio solo aplica las opciones que recibe; si no
+// recibe ninguna, usa sus defaults (modelo del .env y temperatura base).
 
 class InworldTtsService {
   constructor() {
@@ -55,7 +42,7 @@ class InworldTtsService {
   /**
    * Sintetizar texto a voz - COPIA EXACTA del local speakInworld()
    */
-  async _synthesizeOnce(text, voiceId = 'Diego') {
+  async _synthesizeOnce(text, voiceId = 'Diego', opts = {}) {
     if (!text || text.length === 0) {
       throw new Error('Text cannot be empty');
     }
@@ -83,16 +70,14 @@ class InworldTtsService {
     return new Promise((resolve, reject) => {
       console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${resolvedVoiceId}`);
 
-      // Config global: todas las voces Inworld usan TTS-2 + temp 0.98 + steering,
-      // salvo las que estén en la lista de excluidos (vuelven a la config de siempre).
-      const excluded = INWORLD_VOICE_EXCLUDE.has(voiceId) || INWORLD_VOICE_EXCLUDE.has(resolvedVoiceId);
-      const effectiveModelId = excluded ? this.modelId : INWORLD_GLOBAL.modelId;
-      const effectiveTemperature = excluded ? this.temperature : INWORLD_GLOBAL.temperature;
+      // Opciones por usuario (de voiceConfig). Si no llegan, usa los defaults del servicio.
+      const effectiveModelId = opts?.modelId || this.modelId;
+      const effectiveTemperature = Number.isFinite(opts?.temperature) ? opts.temperature : this.temperature;
 
-      // Steering de emoción. El tag va EN SECRETO: se antepone al texto que recibe
-      // Inworld, no se oye y no cambia lo que se ve en chat.
+      // Steering de emoción (solo si el usuario activó "modo emociones"). El tag va
+      // EN SECRETO: se antepone al texto que recibe Inworld, no se oye y no cambia el chat.
       let effectiveText = text;
-      if (!excluded && INWORLD_GLOBAL.steer) {
+      if (opts?.steer) {
         const { tag, emotion } = detectSteering(text);
         if (tag) {
           effectiveText = tag + text;
@@ -100,7 +85,7 @@ class InworldTtsService {
         }
       }
 
-      console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${effectiveModelId}" temp="${effectiveTemperature}"${excluded ? ' (EXCLUIDA)' : ''}`);
+      console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${effectiveModelId}" temp="${effectiveTemperature}" emocion=${opts?.steer ? 'ON' : 'OFF'}`);
 
       const requestBody = JSON.stringify({
         text: effectiveText,
@@ -207,14 +192,14 @@ class InworldTtsService {
     });
   }
 
-  async synthesize(text, voiceId = 'Diego') {
-    const result = await this._synthesizeOnce(text, voiceId);
+  async synthesize(text, voiceId = 'Diego', opts = {}) {
+    const result = await this._synthesizeOnce(text, voiceId, opts);
 
     if (this._isAnomalousAudio(text, result.audio)) {
       const ratio = Math.round(result.audio.length / Math.max(1, text.length));
       console.warn(`[Inworld TTS] Audio anormal detectado (${ratio} bytes/char, ${result.audio.length} bytes). Reintentando...`);
       try {
-        const retry = await this._synthesizeOnce(text, voiceId);
+        const retry = await this._synthesizeOnce(text, voiceId, opts);
         const retryRatio = Math.round(retry.audio.length / Math.max(1, text.length));
         console.log(`[Inworld TTS] Retry completado (${retryRatio} bytes/char, ${retry.audio.length} bytes)`);
         return retry;

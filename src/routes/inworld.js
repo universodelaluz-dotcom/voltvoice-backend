@@ -19,6 +19,7 @@ import pool from '../db.js';
 import audioCacheService from '../services/audioCacheService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
 import { detectSteering } from '../services/emotionSteering.js';
+import { loadUserVoiceOptions } from '../services/voiceConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,17 +67,7 @@ const INWORLD_DEFAULT_MODEL = process.env.INWORLD_MODEL || 'inworld-tts-1.5-max'
 const INWORLD_MIN_TEMPERATURE = 0.7;
 const INWORLD_MAX_TEMPERATURE = 2.0;
 
-// === CONFIGURACIÓN GLOBAL INWORLD (mismo criterio que inworldTtsService) ===
-// Todas las voces de Inworld usan TTS-2 + temp 0.98 + steering de emoción.
-// Para excluir una voz, agrégala a INWORLD_VOICE_EXCLUDE.
-const INWORLD_GLOBAL = {
-  modelId: 'inworld-tts-2',
-  temperature: 0.98,
-  steer: true,
-};
-const INWORLD_VOICE_EXCLUDE = new Set([
-  // 'default-cfjnp8x4nt-owd7yg-1xsw__alguna-voz',
-]);
+// La config (modelo / temperatura / modo emoción) llega por usuario vía voiceConfig.js.
 const INWORLD_TTS_TEMPERATURE = (() => {
   const configured = Number(process.env.INWORLD_TTS_TEMPERATURE);
   if (!Number.isFinite(configured) || configured <= 0) return INWORLD_MIN_TEMPERATURE;
@@ -237,26 +228,26 @@ router.post('/tts', verifyToken, async (req, res) => {
     };
     const mappedVoice = voiceMap[voiceId] || voiceId || 'Diego';
 
-    // Config global: todas las voces Inworld usan TTS-2 + temp 0.98 + steering,
-    // salvo las excluidas (vuelven al modelo/temp de siempre).
-    const excluded = INWORLD_VOICE_EXCLUDE.has(voiceId) || INWORLD_VOICE_EXCLUDE.has(mappedVoice);
-    const resolvedModelId = excluded
-      ? (requestedModelId || modelVersion || INWORLD_DEFAULT_MODEL)
-      : INWORLD_GLOBAL.modelId;
-    const resolvedTemperature = excluded
-      ? INWORLD_TTS_TEMPERATURE
-      : Math.min(INWORLD_MAX_TEMPERATURE, Math.max(INWORLD_MIN_TEMPERATURE, INWORLD_GLOBAL.temperature));
+    // Config por usuario (modelo / temperatura / modo emoción). Un request explícito
+    // de modelo/modelVersion puede sobreescribir el modelo (ej. pruebas del Studio).
+    const voiceOpts = await loadUserVoiceOptions(req.user.userId);
+    const resolvedModelId = requestedModelId || modelVersion || voiceOpts.modelId;
+    const resolvedTemperature = Math.min(
+      INWORLD_MAX_TEMPERATURE,
+      Math.max(INWORLD_MIN_TEMPERATURE, voiceOpts.temperature)
+    );
 
-    // Steering de emoción (en secreto): se antepone al texto que se sintetiza.
+    // Steering de emoción (en secreto): solo si el usuario activó modo emociones
+    // Y el modelo resuelto es tts-2 (en otros modelos los tags se leerían en voz alta).
     let steeredText = String(text);
-    if (!excluded && INWORLD_GLOBAL.steer) {
+    if (voiceOpts.steer && resolvedModelId === 'inworld-tts-2') {
       const { tag, emotion } = detectSteering(text);
       if (tag) {
         steeredText = tag + steeredText;
         console.log(`[Inworld TTS] 🎭 Steering "${emotion}" aplicado a voz "${voiceId}"`);
       }
     }
-    console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${resolvedModelId}" temp="${resolvedTemperature}"${excluded ? ' (EXCLUIDA)' : ''}`);
+    console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${resolvedModelId}" temp="${resolvedTemperature}" emocion=${voiceOpts.steer ? 'ON' : 'OFF'}`);
     console.log(
       `[Inworld TTS] Request resolved -> voice="${mappedVoice}" model="${resolvedModelId}" temp="${resolvedTemperature}"` +
       ` requestedModel="${requestedModelId || modelVersion || 'none'}" requestedTemp="${requestedTemperature ?? 'none'}"`
