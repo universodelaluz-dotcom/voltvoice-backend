@@ -117,7 +117,7 @@ function streamInworldAudio({ apiKey, text, mappedVoice, modelId, temperature = 
       path: '/tts/v1/voice:stream',
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Basic ${apiKey}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(requestBody),
       },
@@ -370,17 +370,7 @@ router.post('/tts', verifyToken, async (req, res) => {
     audioCacheService.trackMetric({ rendered_requests: 1 });
     console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
-    // El ID guardado en DB incluye workspace prefix: "default-xxx__voiceName"
-    // La API de TTS de Inworld solo acepta el nombre corto: "voiceName"
-    const ttsVoice = mappedVoice.includes('__')
-      ? mappedVoice.split('__').pop()
-      : mappedVoice;
-
-    if (ttsVoice !== mappedVoice) {
-      console.log(`[Inworld TTS] Workspace prefix removido: "${mappedVoice}" -> "${ttsVoice}"`);
-    }
-
-    const streamArgs = { apiKey, text: steeredText, mappedVoice: ttsVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
+    const streamArgs = { apiKey, text: steeredText, mappedVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
     const isAnomalousAudio = (buf) => Buffer.isBuffer(buf) && buf.length / Math.max(1, String(text).length) > 4000;
 
     let audioBuffer;

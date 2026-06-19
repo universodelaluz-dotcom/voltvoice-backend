@@ -51,12 +51,7 @@ class InworldTtsService {
       throw new Error('Inworld API key not configured');
     }
 
-    // El ID guardado en DB incluye workspace prefix: "default-xxx__voiceName"
-    // La API de TTS de Inworld solo acepta el nombre corto: "voiceName"
-    let resolvedVoiceId = voiceId.includes('__') ? voiceId.split('__').pop() : voiceId;
-    if (resolvedVoiceId !== voiceId) {
-      console.log(`[Inworld TTS] Workspace prefix removido: "${voiceId}" -> "${resolvedVoiceId}"`);
-    }
+    let resolvedVoiceId = voiceId;
 
     return new Promise((resolve, reject) => {
       console.log(`[Inworld TTS] Synthesizing: "${text.substring(0, 50)}..." with voice: ${resolvedVoiceId}`);
