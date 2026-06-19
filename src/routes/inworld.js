@@ -108,6 +108,10 @@ function streamInworldAudio({ apiKey, text, mappedVoice, modelId, temperature = 
     voiceId: mappedVoice,
     modelId,
     temperature,
+    // Inworld devuelve PCM crudo (LINEAR16) por defecto. Hay que pedir MP3
+    // explícitamente; si no, el audio llega como audio/mpeg inválido y el
+    // navegador no lo puede reproducir (se traba / no dice nada).
+    audioConfig: { audioEncoding: 'MP3' },
   });
 
   return new Promise((resolve, reject) => {
@@ -370,17 +374,7 @@ router.post('/tts', verifyToken, async (req, res) => {
     audioCacheService.trackMetric({ rendered_requests: 1 });
     console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
-    // Inworld TTS espera el voiceId en formato resource path para voces del workspace.
-    // Stored format: "workspaceId__voiceName"
-    // TTS format:    "workspaces/workspaceId/voices/voiceName"
-    let ttsVoice = mappedVoice;
-    if (mappedVoice.includes('__')) {
-      const [wsId, voiceName] = mappedVoice.split('__');
-      ttsVoice = `workspaces/${wsId}/voices/${voiceName}`;
-      console.log(`[Inworld TTS] Voice ID convertido a resource path: "${mappedVoice}" -> "${ttsVoice}"`);
-    }
-
-    const streamArgs = { apiKey, text: steeredText, mappedVoice: ttsVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
+    const streamArgs = { apiKey, text: steeredText, mappedVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
     const isAnomalousAudio = (buf) => Buffer.isBuffer(buf) && buf.length / Math.max(1, String(text).length) > 4000;
 
     let audioBuffer;
@@ -390,35 +384,14 @@ router.post('/tts', verifyToken, async (req, res) => {
 
       if (isAnomalousAudio(audioBuffer)) {
         const ratio = Math.round(audioBuffer.length / Math.max(1, String(text).length));
-        console.warn(`[Inworld TTS] Audio anormal detectado (${ratio} bytes/char, ${audioBuffer.length} bytes). Reintentando...`);
-        let retrySucceeded = false;
+        console.warn(`[Inworld TTS] Audio grande detectado (${ratio} bytes/char, ${audioBuffer.length} bytes). Reintentando una vez...`);
         try {
           const retryBuffer = await streamInworldAudio(streamArgs);
           const retryRatio = Math.round(retryBuffer.length / Math.max(1, String(text).length));
           console.log(`[Inworld TTS] Retry completado (${retryRatio} bytes/char, ${retryBuffer.length} bytes)`);
-          if (isAnomalousAudio(retryBuffer)) {
-            console.error(`[Inworld TTS] Retry también anormal (${retryRatio} bytes/char) para voz "${mappedVoice}". Rechazando.`);
-            if (renderOwner) renderOwner.release(new Error('anomalous_audio'));
-            return res.status(422).json({
-              success: false,
-              error: 'voice_anomalous_audio',
-              detail: `La voz "${voiceId}" devuelve audio inválido. Prueba con otra voz o contacta soporte.`
-            });
-          }
           audioBuffer = retryBuffer;
-          retrySucceeded = true;
         } catch (retryErr) {
           console.warn(`[Inworld TTS] Retry falló (${retryErr.message}), usando audio original`);
-        }
-        // If retry failed (exception) and original was anomalous, also reject
-        if (!retrySucceeded && isAnomalousAudio(audioBuffer)) {
-          console.error(`[Inworld TTS] Audio anormal y retry falló para voz "${mappedVoice}". Rechazando.`);
-          if (renderOwner) renderOwner.release(new Error('anomalous_audio'));
-          return res.status(422).json({
-            success: false,
-            error: 'voice_anomalous_audio',
-            detail: `La voz "${voiceId}" devuelve audio inválido. Prueba con otra voz o contacta soporte.`
-          });
         }
       }
 
