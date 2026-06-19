@@ -370,7 +370,17 @@ router.post('/tts', verifyToken, async (req, res) => {
     audioCacheService.trackMetric({ rendered_requests: 1 });
     console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
-    const streamArgs = { apiKey, text: steeredText, mappedVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
+    // Inworld TTS espera el voiceId en formato resource path para voces del workspace.
+    // Stored format: "workspaceId__voiceName"
+    // TTS format:    "workspaces/workspaceId/voices/voiceName"
+    let ttsVoice = mappedVoice;
+    if (mappedVoice.includes('__')) {
+      const [wsId, voiceName] = mappedVoice.split('__');
+      ttsVoice = `workspaces/${wsId}/voices/${voiceName}`;
+      console.log(`[Inworld TTS] Voice ID convertido a resource path: "${mappedVoice}" -> "${ttsVoice}"`);
+    }
+
+    const streamArgs = { apiKey, text: steeredText, mappedVoice: ttsVoice, modelId: resolvedModelId, temperature: resolvedTemperature };
     const isAnomalousAudio = (buf) => Buffer.isBuffer(buf) && buf.length / Math.max(1, String(text).length) > 4000;
 
     let audioBuffer;
