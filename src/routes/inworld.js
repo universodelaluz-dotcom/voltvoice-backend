@@ -370,24 +370,14 @@ router.post('/tts', verifyToken, async (req, res) => {
     audioCacheService.trackMetric({ rendered_requests: 1 });
     console.log(`[Inworld TTS] Cache MISS -> rendering with model="${resolvedModelId}" temp="${resolvedTemperature}"`);
 
-    // Para voces clonadas (no builtin), intentar re-publicar antes del TTS.
-    // Inworld devuelve el audio de muestra/entrenamiento cuando la voz está expirada o en draft.
-    const BUILTIN_VOICES = new Set(['Diego', 'Lupita', 'Miguel', 'Rafael', 'Garret', 'Connor', 'Arno']);
-    let ttsVoice = mappedVoice;
-    if (!BUILTIN_VOICES.has(mappedVoice)) {
-      try {
-        const publishResult = await inworldTtsService.publishVoice(mappedVoice, voiceId);
-        if (publishResult?.voiceId) {
-          ttsVoice = publishResult.voiceId;
-          if (ttsVoice !== mappedVoice) {
-            console.log(`[Inworld TTS] Voz re-publicada: ${mappedVoice} -> ${ttsVoice}`);
-          } else {
-            console.log(`[Inworld TTS] Voz confirmada activa: ${ttsVoice}`);
-          }
-        }
-      } catch (publishErr) {
-        console.warn(`[Inworld TTS] Re-publish fallido para "${mappedVoice}": ${publishErr.message}`);
-      }
+    // El ID guardado en DB incluye workspace prefix: "default-xxx__voiceName"
+    // La API de TTS de Inworld solo acepta el nombre corto: "voiceName"
+    const ttsVoice = mappedVoice.includes('__')
+      ? mappedVoice.split('__').pop()
+      : mappedVoice;
+
+    if (ttsVoice !== mappedVoice) {
+      console.log(`[Inworld TTS] Workspace prefix removido: "${mappedVoice}" -> "${ttsVoice}"`);
     }
 
     const streamArgs = { apiKey, text: steeredText, mappedVoice: ttsVoice, modelId: resolvedModelId, temperature: resolvedTemperature };

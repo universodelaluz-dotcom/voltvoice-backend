@@ -51,20 +51,11 @@ class InworldTtsService {
       throw new Error('Inworld API key not configured');
     }
 
-    let resolvedVoiceId = voiceId;
-
-    // Para voces clonadas nuevas o guardadas con IDs "draft", intenta publicarlas
-    // una sola vez antes de sintetizar. Esto evita que Inworld lea el sample text.
-    if (this.shouldAttemptPublish(resolvedVoiceId)) {
-      try {
-        const publishResult = await this.publishVoice(resolvedVoiceId, `Voice ${resolvedVoiceId}`);
-        if (publishResult?.voiceId) {
-          console.log(`[Inworld TTS] Voice auto-published: ${resolvedVoiceId} -> ${publishResult.voiceId}`);
-          resolvedVoiceId = publishResult.voiceId;
-        }
-      } catch (publishError) {
-        console.warn(`[Inworld TTS] Auto-publish skipped for ${resolvedVoiceId}: ${publishError.message}`);
-      }
+    // El ID guardado en DB incluye workspace prefix: "default-xxx__voiceName"
+    // La API de TTS de Inworld solo acepta el nombre corto: "voiceName"
+    let resolvedVoiceId = voiceId.includes('__') ? voiceId.split('__').pop() : voiceId;
+    if (resolvedVoiceId !== voiceId) {
+      console.log(`[Inworld TTS] Workspace prefix removido: "${voiceId}" -> "${resolvedVoiceId}"`);
     }
 
     return new Promise((resolve, reject) => {
