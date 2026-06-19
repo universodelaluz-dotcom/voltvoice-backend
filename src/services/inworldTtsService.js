@@ -202,8 +202,13 @@ class InworldTtsService {
         const retry = await this._synthesizeOnce(text, voiceId, opts);
         const retryRatio = Math.round(retry.audio.length / Math.max(1, text.length));
         console.log(`[Inworld TTS] Retry completado (${retryRatio} bytes/char, ${retry.audio.length} bytes)`);
+        if (this._isAnomalousAudio(text, retry.audio)) {
+          console.error(`[Inworld TTS] Retry también anormal (${retryRatio} bytes/char) para voz "${voiceId}". Rechazando.`);
+          throw new Error(`voice_anomalous_audio: La voz "${voiceId}" devuelve audio inválido en ambos intentos.`);
+        }
         return retry;
       } catch (retryErr) {
+        if (retryErr.message.startsWith('voice_anomalous_audio')) throw retryErr;
         console.warn(`[Inworld TTS] Retry falló (${retryErr.message}), usando audio original`);
         return result;
       }
