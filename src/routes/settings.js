@@ -239,6 +239,12 @@ const ensureVoiceDeleteEventsTable = async () => {
   `);
 };
 
+const ensureVolumeGainColumn = async () => {
+  await pool.query(`
+    ALTER TABLE user_voices ADD COLUMN IF NOT EXISTS volume_gain FLOAT DEFAULT 1.0;
+  `);
+};
+
 /**
  * GET /api/settings - Cargar config del usuario
  */
@@ -322,8 +328,9 @@ router.get('/voices', verifyToken, async (req, res) => {
       periodStart: userResult.rows[0]?.subscription_current_period_start
     });
 
+    await ensureVolumeGainColumn();
     const result = await pool.query(
-      'SELECT id, voice_name, voice_id, provider, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, voice_name, voice_id, provider, volume_gain, created_at FROM user_voices WHERE user_id = $1 ORDER BY created_at DESC',
       [req.user.userId]
     );
 
@@ -361,26 +368,51 @@ router.post('/voices', verifyToken, async (req, res) => {
 });
 
 /**
- * PATCH /api/settings/voices/:id - Actualizar nombre de voz
+ * PATCH /api/settings/voices/:id - Actualizar nombre y/o volumen de voz
  */
 router.patch('/voices/:id', verifyToken, async (req, res) => {
-  const { voiceName } = req.body;
+  const { voiceName, volumeGain } = req.body;
 
-  if (!voiceName) {
-    return res.status(400).json({ error: 'voiceName requerido' });
+  if (!voiceName && volumeGain === undefined) {
+    return res.status(400).json({ error: 'voiceName o volumeGain requerido' });
   }
 
   try {
+    await ensureVolumeGainColumn();
+
+    const setClauses = [];
+    const values = [];
+    let paramIdx = 1;
+
+    if (voiceName) {
+      setClauses.push(`voice_name = $${paramIdx}`);
+      values.push(voiceName);
+      paramIdx++;
+    }
+    if (volumeGain !== undefined) {
+      const gain = parseFloat(volumeGain);
+      if (isNaN(gain) || gain < 0.1 || gain > 3.0) {
+        return res.status(400).json({ error: 'volumeGain debe ser entre 0.1 y 3.0' });
+      }
+      setClauses.push(`volume_gain = $${paramIdx}`);
+      values.push(gain);
+      paramIdx++;
+    }
+
+    values.push(req.params.id);
+    values.push(req.user.userId);
+
     const result = await pool.query(
-      'UPDATE user_voices SET voice_name = $1 WHERE id = $2 AND user_id = $3 RETURNING id, voice_name, voice_id, provider, created_at',
-      [voiceName, req.params.id, req.user.userId]
+      `UPDATE user_voices SET ${setClauses.join(', ')} WHERE id = $${paramIdx} AND user_id = $${paramIdx + 1} RETURNING id, voice_name, voice_id, provider, volume_gain, created_at`,
+      values
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Voz no encontrada' });
     }
 
-    console.log(`[Settings] Voz ${req.params.id} renombrada a: ${voiceName}`);
+    if (voiceName) console.log(`[Settings] Voz ${req.params.id} renombrada a: ${voiceName}`);
+    if (volumeGain !== undefined) console.log(`[Settings] Voz ${req.params.id} volumen ajustado a: ${volumeGain}`);
 
     return res.json({ success: true, voice: result.rows[0] });
   } catch (error) {
