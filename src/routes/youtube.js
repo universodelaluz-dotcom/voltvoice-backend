@@ -420,9 +420,13 @@ router.post('/chat/connect', async (req, res) => {
       channelTitle: String(video?.snippet?.channelTitle || oauthRow?.channel_title || ''),
     });
   } catch (connectErr) {
-    const ytMsg = connectErr?.response?.data?.error?.message || connectErr?.message || String(connectErr);
+    const rawMsg = connectErr?.response?.data?.error?.message || connectErr?.message || String(connectErr);
     const ytCode = connectErr?.response?.data?.error?.code || connectErr?.response?.status || 500;
+    const ytMsg = String(rawMsg).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     console.error('[YouTube Chat] connect error:', ytMsg, '| code:', ytCode);
+    if (ytMsg.toLowerCase().includes('quota')) {
+      return res.status(429).json({ success: false, error: 'Cuota diaria de YouTube API agotada. Se restablece a medianoche (hora del Pacífico). Intenta mañana o aumenta la cuota en Google Cloud Console.' });
+    }
     return res.status(500).json({ success: false, error: `YouTube API: ${ytMsg}` });
   }
 });
@@ -524,7 +528,12 @@ router.get('/chat/messages', async (req, res) => {
       messages,
     });
   } catch (messagesErr) {
-    console.error('[YouTube Chat] messages error:', messagesErr?.message || messagesErr);
+    const rawMsgErr = messagesErr?.response?.data?.error?.message || messagesErr?.message || String(messagesErr);
+    const cleanMsgErr = String(rawMsgErr).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    console.error('[YouTube Chat] messages error:', cleanMsgErr);
+    if (cleanMsgErr.toLowerCase().includes('quota')) {
+      return res.status(429).json({ success: false, error: 'Cuota diaria de YouTube API agotada. Se restablece a medianoche (hora del Pacífico).' });
+    }
     return res.status(500).json({ success: false, error: 'No se pudieron obtener mensajes del chat de YouTube' });
   }
 });

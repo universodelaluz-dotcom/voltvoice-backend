@@ -18,8 +18,8 @@ import { verifyToken } from '../../middleware/auth.js';
 import pool from '../db.js';
 import audioCacheService from '../services/audioCacheService.js';
 import inworldTtsService from '../services/inworldTtsService.js';
-import { detectSteering } from '../services/emotionSteering.js';
-import { loadUserVoiceOptions } from '../services/voiceConfig.js';
+import { detectSteering, steeringTagForEmotion } from '../services/emotionSteering.js';
+import { loadUserVoiceOptions, resolveVoiceOptions } from '../services/voiceConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,6 +205,8 @@ router.post('/tts', verifyToken, async (req, res) => {
       speed,
       pitch,
       emotion,
+      emotionMode: requestedEmotionMode,
+      voiceTemperature: requestedVoiceTemperature,
       style,
       modelVersion,
       modelId: requestedModelId
@@ -232,9 +234,15 @@ router.post('/tts', verifyToken, async (req, res) => {
     };
     const mappedVoice = voiceMap[voiceId] || voiceId || 'Diego';
 
-    // Config por usuario (modelo / temperatura / modo emoción). Un request explícito
-    // de modelo/modelVersion puede sobreescribir el modelo (ej. pruebas del Studio).
-    const voiceOpts = await loadUserVoiceOptions(req.user.userId);
+    // Config por usuario (modelo / temperatura / modo emoción). El Studio puede mandar
+    // overrides por request (menú de opciones avanzadas): emotionMode y voiceTemperature.
+    // Si no llegan overrides, se lee la config guardada del usuario en la BD.
+    const voiceOpts = (requestedEmotionMode !== undefined || requestedVoiceTemperature !== undefined)
+      ? resolveVoiceOptions({
+          emotionMode: requestedEmotionMode,
+          voiceTemperature: requestedVoiceTemperature,
+        })
+      : await loadUserVoiceOptions(req.user.userId);
     const resolvedModelId = requestedModelId || modelVersion || voiceOpts.modelId;
     const resolvedTemperature = Math.min(
       INWORLD_MAX_TEMPERATURE,
@@ -243,12 +251,20 @@ router.post('/tts', verifyToken, async (req, res) => {
 
     // Steering de emoción (en secreto): solo si el usuario activó modo emociones
     // Y el modelo resuelto es tts-2 (en otros modelos los tags se leerían en voz alta).
+    // Si el request trae una emoción explícita (menú del Studio) se usa esa; si no, se
+    // detecta automáticamente del texto.
     let steeredText = String(text);
     if (voiceOpts.steer && resolvedModelId === 'inworld-tts-2') {
-      const { tag, emotion } = detectSteering(text);
-      if (tag) {
-        steeredText = tag + steeredText;
-        console.log(`[Inworld TTS] 🎭 Steering "${emotion}" aplicado a voz "${voiceId}"`);
+      const explicitTag = steeringTagForEmotion(emotion);
+      if (explicitTag) {
+        steeredText = explicitTag + steeredText;
+        console.log(`[Inworld TTS] 🎭 Steering explícito "${emotion}" aplicado a voz "${voiceId}"`);
+      } else if (!emotion || String(emotion).toLowerCase() === 'auto') {
+        const detected = detectSteering(text);
+        if (detected.tag) {
+          steeredText = detected.tag + steeredText;
+          console.log(`[Inworld TTS] 🎭 Steering "${detected.emotion}" aplicado a voz "${voiceId}"`);
+        }
       }
     }
     console.log(`[Inworld TTS] 🧪 voz "${voiceId}" -> model="${resolvedModelId}" temp="${resolvedTemperature}" emocion=${voiceOpts.steer ? 'ON' : 'OFF'}`);

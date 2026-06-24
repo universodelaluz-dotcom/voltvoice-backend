@@ -36,6 +36,18 @@ const STEERING = {
   love: '[say warmly and kindly in a clear, confident voice] ',
 };
 
+/**
+ * Devuelve el tag de steering para una emoción elegida explícitamente por el usuario
+ * (desde el menú del Studio). Devuelve '' para 'auto', 'none'/'neutral' o emociones desconocidas.
+ * @param {string} emotion
+ * @returns {string}
+ */
+export function steeringTagForEmotion(emotion) {
+  const key = String(emotion || '').trim().toLowerCase();
+  if (!key || key === 'auto' || key === 'none' || key === 'neutral') return '';
+  return STEERING[key] || '';
+}
+
 function hasAny(text, list) {
   return list.some((token) => text.includes(token));
 }
@@ -79,4 +91,4 @@ export function detectSteering(rawText) {
   return { tag: '', emotion: null };
 }
 
-export default { detectSteering };
+export default { detectSteering, steeringTagForEmotion };
