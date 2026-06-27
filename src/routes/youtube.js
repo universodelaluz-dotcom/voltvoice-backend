@@ -389,7 +389,7 @@ router.post('/chat/connect', async (req, res) => {
     if (!liveChatId) {
       return res.status(400).json({
         success: false,
-        error: 'Ese video no tiene chat en vivo activo ahora mismo.',
+        error: 'This video does not have an active live chat right now.',
       });
     }
 
