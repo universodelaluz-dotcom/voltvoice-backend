@@ -407,7 +407,9 @@ class TikTokLiveService {
       console.log(`[TikTok] Conectando a @${normalizedUsername}...`);
 
       // Crear nueva conexión de TikTok
-      const tiktokConnection = new WebcastPushConnection(normalizedUsername);
+      const tiktokConnection = new WebcastPushConnection(normalizedUsername, {
+        fetchRoomInfoOnConnect: false
+      });
 
       // Configurar listeners
       tiktokConnection.on('decodedData', (type, decodedData) => {
